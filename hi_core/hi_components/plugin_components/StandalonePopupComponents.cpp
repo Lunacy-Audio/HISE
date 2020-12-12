@@ -110,14 +110,14 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
 	ADD(SampleRate);
 	ADD(GlobalBPM);
 	ADD(ScaleFactor);
-	ADD(UseOpenGL);
 	ADD(StreamingMode);
 	ADD(VoiceAmountMultiplier);
 	ADD(ClearMidiCC);
 	ADD(SampleLocation);
 	ADD(DebugMode);
 	ADD(ScaleFactorList);
-	
+	// ADD(UseOpenGL);
+    
 	setColour(ColourIds::textColour, Colours::white);
 
     for(int i = 0; i < (int)Properties::numProperties; i++)
@@ -125,9 +125,7 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
         properties[i] = true;
     }
     
-#if HISE_USE_OPENGL_FOR_PLUGIN
-    properties[(int)Properties::UseOpenGL] = true;
-#else
+#if !HISE_USE_OPENGL_FOR_PLUGIN
 	properties[(int)Properties::UseOpenGL] = false;
 #endif
 
@@ -178,9 +176,6 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
 	diskModeSelector->setLookAndFeel(&plaf);
 	clearMidiLearn->setLookAndFeel(&blaf);
 	
-	for (int i = 0; i < getNumChildComponents(); i++)
-		HiseColourScheme::setDefaultColours(*getChildComponent(i));
-
 	debugButton->setLookAndFeel(&blaf);
 	clearMidiLearn->setColour(TextButton::ColourIds::textColourOffId, Colours::white);
 	clearMidiLearn->setColour(TextButton::ColourIds::textColourOnId, Colours::white);
@@ -207,13 +202,6 @@ CustomSettingsWindow::CustomSettingsWindow(MainController* mc_, bool buildMenus)
 		for (int i = 0; i < getNumChildComponents(); i++)
 		{
 			getChildComponent(i)->setLookAndFeel(slaf.get());
-		}
-	}
-	else
-	{
-		for (int i = 0; i < getNumChildComponents(); i++)
-		{
-			getChildComponent(i)->setLookAndFeel(&glaf);
 		}
 	}
 
@@ -376,30 +364,14 @@ void CustomSettingsWindow::rebuildMenus(bool rebuildDeviceTypes, bool rebuildDev
 	
 	voiceAmountMultiplier->setSelectedId(driver->voiceAmountMultiplier, dontSendNotification);
 
-	openGLSelector->addItemList({ "Yes", "No" }, 1);
-	openGLSelector->setSelectedItemIndex(driver->useOpenGL ? 0 : 1, dontSendNotification);
+	// openGLSelector->addItemList({ "Yes", "No" }, 1);
+	// openGLSelector->setSelectedItemIndex(driver->useOpenGL ? 0 : 1, dontSendNotification);
 
 	bpmSelector->setSelectedId(driver->globalBPM > 0.0 ? (int)driver->globalBPM : 1, dontSendNotification);
 
 	diskModeSelector->setSelectedItemIndex(driver->diskMode, dontSendNotification);
 }
 
-
-void CustomSettingsWindow::refreshSizeFromProperties()
-{
-	int height = 0;
-
-	for (int i = (int)Properties::Driver; i <= (int)Properties::DebugMode; i++)
-	{
-		if (properties[i])
-			height += 40;
-	}
-
-	if (properties[(int)Properties::SampleLocation])
-		height += 40;
-
-	setSize(320, height);
-}
 
 void CustomSettingsWindow::rebuildScaleFactorList()
 {
@@ -426,19 +398,11 @@ void CustomSettingsWindow::buttonClicked(Button* b)
 
 		File oldLocation = FrontendHandler::getSampleLocationForCompiledPlugin();
 
-#if HISE_BROWSE_FOLDER_WHEN_RELOCATING_SAMPLES
 		FileChooser fc("Select new Sample folder", oldLocation);
 
 		if (fc.browseForDirectory())
 		{
 			File newLocation = fc.getResult();
-#else
-        FileChooser fc("Select one of the .ch1 files at the new location", oldLocation, "*.ch1", true);
-            
-        if(fc.browseForFileToOpen())
-        {
-            File newLocation = fc.getResult().getParentDirectory();
-#endif
 
 			if (newLocation.isDirectory())
 			{
@@ -463,7 +427,7 @@ void CustomSettingsWindow::buttonClicked(Button* b)
 	{
 		ScopedLock sl(mc->getLock());
 
-		mc->getMacroManager().getMidiControlAutomationHandler()->clear(sendNotification);
+		mc->getMacroManager().getMidiControlAutomationHandler()->clear();
 	}
 	else if (b == debugButton)
 	{
@@ -507,11 +471,11 @@ void CustomSettingsWindow::comboBoxChanged(ComboBox* comboBoxThatHasChanged)
 
 		rebuildMenus(false, false);
 	}
-	else if (comboBoxThatHasChanged == openGLSelector)
-	{
-		driver->useOpenGL = comboBoxThatHasChanged->getSelectedItemIndex() == 0;
-		PresetHandler::showMessageWindow("Open GL Setting changed", "Close this window and reopen it in order to apply the changes");
-	}
+	// else if (comboBoxThatHasChanged == openGLSelector)
+	// {
+	// 	driver->useOpenGL = comboBoxThatHasChanged->getSelectedItemIndex() == 0;
+	// 	PresetHandler::showMessageWindow("Open GL Setting changed", "Close this window and reopen it in order to apply the changes");
+	// }
 	else if (comboBoxThatHasChanged == outputSelector)
 	{
 		const String outputName = outputSelector->getText();
@@ -544,7 +508,18 @@ void CustomSettingsWindow::comboBoxChanged(ComboBox* comboBoxThatHasChanged)
 	else if (comboBoxThatHasChanged == scaleFactorSelector)
 	{
 		double scaleFactor = scaleFactorList[scaleFactorSelector->getSelectedItemIndex()];
-		driver->setGlobalScaleFactor(scaleFactor, sendNotificationSync);
+
+		driver->setGlobalScaleFactor(scaleFactor, sendNotification);
+
+#if USE_FRONTEND
+
+		auto fpe = findParentComponentOfClass<FrontendProcessorEditor>();
+
+		if (fpe != nullptr)
+		{
+			fpe->setGlobalScaleFactor((float)scaleFactor);
+		}
+#endif
 	}
 	else if (comboBoxThatHasChanged == bpmSelector)
 	{
@@ -580,7 +555,7 @@ void CustomSettingsWindow::paint(Graphics& g)
 	DRAW_LABEL(Properties::SampleRate, "Sample Rate");
 	DRAW_LABEL(Properties::GlobalBPM, "Global BPM");
 	DRAW_LABEL(Properties::ScaleFactor, "UI Zoom Factor");
-	DRAW_LABEL(Properties::UseOpenGL, "Use OpenGL");
+	// DRAW_LABEL(Properties::UseOpenGL, "Use OpenGL");
 	DRAW_LABEL(Properties::StreamingMode, "Streaming Mode");
 	DRAW_LABEL(Properties::VoiceAmountMultiplier, "Max Voices");
 
@@ -619,7 +594,7 @@ void CustomSettingsWindow::resized()
 	POSITION_COMBOBOX(Properties::SampleRate, sampleRateSelector);
 	POSITION_COMBOBOX(Properties::GlobalBPM, bpmSelector);
 	POSITION_COMBOBOX(Properties::ScaleFactor, scaleFactorSelector);
-	POSITION_COMBOBOX(Properties::UseOpenGL, openGLSelector);
+	// POSITION_COMBOBOX(Properties::UseOpenGL, openGLSelector);
 	POSITION_COMBOBOX(Properties::StreamingMode, diskModeSelector);
 	POSITION_COMBOBOX(Properties::VoiceAmountMultiplier, voiceAmountMultiplier);
 
@@ -719,7 +694,7 @@ void CombinedSettingsWindow::buttonClicked(Button* )
 {
     
     dynamic_cast<AudioProcessorDriver*>(mc)->saveDeviceSettingsAsXml();
-    ScopedPointer<XmlElement> deviceData = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->createStateXml().release();
+    ScopedPointer<XmlElement> deviceData = dynamic_cast<AudioProcessorDriver*>(mc)->deviceManager->createStateXml();
     dynamic_cast<AudioProcessorDriver*>(mc)->initialiseAudioDriver(deviceData);
 
     
