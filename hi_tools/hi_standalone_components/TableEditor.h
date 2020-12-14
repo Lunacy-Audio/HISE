@@ -128,6 +128,8 @@ public:
 		/** Called when the user changes a curve. The position will be the middle between the points. */
 		virtual void curveChanged(Point<int> position, float curveValue);
 
+		virtual void tableUpdated() = 0;
+
 	private:
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(EditListener);
@@ -414,7 +416,31 @@ private:
 	void refreshGraph();
 
 	// Updates the graph point list in the table this editor refers to. If refreshLookUpTable is true, then the look up table is also recalculated.
-	void updateTable(bool refreshLookUpTable);;
+	void updateTable(bool refreshLookUpTable)
+	{
+		ScopedPointer<DragPointComparator> dpc = new DragPointComparator();
+
+		drag_points.sort(*dpc);
+
+		Array<Table::GraphPoint> newPoints;
+
+		for(int i = 0; i < drag_points.size(); i++)	newPoints.add(drag_points[i]->getGraphPoint());
+
+		if(editedTable.get() != nullptr) editedTable->setGraphPoints(newPoints, drag_points.size());
+
+		if(refreshLookUpTable)
+		{
+			if(editedTable.get() != nullptr) editedTable->fillLookUpTable();
+		}
+
+		for (auto l : listeners)
+		{
+			if (l.get() != nullptr)
+			{
+				l->tableUpdated();
+			}
+		}
+	};
 
 	int snapXValueToGrid(int x) const;
 
