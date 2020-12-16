@@ -1559,10 +1559,10 @@ void MainController::prepareToPlay(double sampleRate_, int samplesPerBlock)
 		processingBufferSize = jmin<int>(processingBufferSize.get(), 1024);
 	}
 
-	if ((processingBufferSize.get() % HISE_EVENT_RASTER != 0) && HISE_COMPLAIN_ABOUT_ILLEGAL_BUFFER_SIZE)
-	{
-		sendOverlayMessage(State::CustomErrorMessage, "The buffer size " + String(processingBufferSize.get()) + " is not supported. Use a multiple of " + String(HISE_EVENT_RASTER));
-	}
+	// if (maxBufferSize.get() % HISE_EVENT_RASTER != 0)
+	// {
+	// 	sendOverlayMessage(DeactiveOverlay::CustomErrorMessage, "The buffer size " + String(maxBufferSize.get()) + " is not supported. Use a multiple of " + String(HISE_EVENT_RASTER));
+	// }
 
     thisAsProcessor = dynamic_cast<AudioProcessor*>(this);
     
