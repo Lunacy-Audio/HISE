@@ -1424,10 +1424,10 @@ void FrontendHandler::checkAllSampleReferences()
 
 	samplesCorrectlyLoaded = missingSampleName.isEmpty();
 
-	if (missingSampleName.isNotEmpty())
-	{
-		dynamic_cast<MainController*>(getMainController())->sendOverlayMessage(DeactiveOverlay::State::SamplesNotFound, "The sample " + missingSampleName + " was not found.");
-	}
+	// if (missingSampleName.isNotEmpty())
+	// {
+	// 	dynamic_cast<MainController*>(getMainController())->sendOverlayMessage(DeactiveOverlay::State::SamplesNotFound, "The sample " + missingSampleName + " was not found.");
+	// }
 #endif
 }
 
