@@ -509,7 +509,7 @@ void ShapeFX::updateGain()
 
 void ShapeFX::updateGainSmoothers()
 {
-	ScopedLock sl(getMainController()->getLock());
+	// ScopedLock sl(getMainController()->getLock());
 
 	gainer.setTargetValue(gain);
 	autogainer.setTargetValue(autogainValue);
