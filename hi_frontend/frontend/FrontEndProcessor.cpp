@@ -214,8 +214,8 @@ void FrontendProcessor::restorePool(InputStream* inputStream, FileHandlerBase::S
 
 		if (!resourceFile.existsAsFile())
 		{
-			sendOverlayMessage(OverlayMessageBroadcaster::CriticalCustomErrorMessage,
-				"The file " + resourceFile.getFullPathName() + " can't be found.");
+			// sendOverlayMessage(DeactiveOverlay::CriticalCustomErrorMessage,
+			// 	"The file " + resourceFile.getFullPathName() + " can't be found.");
 			return;
 		}
             
