@@ -313,6 +313,7 @@ var ScriptingObjects::ScriptFile::createDirectory(String directoryName)
 	return new ScriptFile(getScriptProcessor(), f.getChildFile(directoryName));
 }
 
+
 int64 ScriptingObjects::ScriptFile::getSize()
 {	
 	return f.getSize();

@@ -34,11 +34,6 @@ namespace hise {
 using namespace juce;
 
 
-void BetterLabel::update()
-{
-	setColour(Label::backgroundColourId, getPresetBrowserLookAndFeel().highlightColour.withAlpha(0.1f));
-	setFont(getPresetBrowserLookAndFeel().font);
-}
 
 PresetBrowserSearchBar::PresetBrowserSearchBar(PresetBrowser* p):
 	PresetBrowserChildComponentBase(p)
@@ -364,7 +359,7 @@ void PresetBrowserColumn::ColumnListModel::updateTags(const StringArray& newSele
 
 	
 
-	auto& cachedTags = parent->getMainController()->getUserPresetHandler().getTagDataBase().getCachedTags();
+	const auto& cachedTags = parent->getMainController()->getUserPresetHandler().getTagDataBase().getCachedTags();
 
 	for (auto& t : cachedTags)
 	{
@@ -387,15 +382,8 @@ void PresetBrowserColumn::ColumnListModel::paintListBoxItem(int rowNumber, Graph
 	{
 		auto itemName = entries[rowNumber].getFileNameWithoutExtension();
 		auto position = Rectangle<int>(0, 1, width, height - 2);
-
-		getPresetBrowserLookAndFeel().drawListItem(g, index, rowNumber, itemName, position, rowIsSelected, deleteOnClick, isMouseHover(rowNumber));
+		getPresetBrowserLookAndFeel().drawListItem(g, index, rowNumber, itemName, position, rowIsSelected, deleteOnClick);
 	}
-}
-
-bool PresetBrowserColumn::ColumnListModel::isMouseHover(int rowIndex) const
-{
-	auto p = parent->getMouseHoverInformation();
-	return p.x == index && p.y == rowIndex;
 }
 
 const juce::Array<PresetBrowserColumn::ColumnListModel::CachedTag>& PresetBrowserColumn::ColumnListModel::getCachedTags() const
@@ -453,18 +441,31 @@ void PresetBrowserColumn::ColumnListModel::FavoriteOverlay::refreshShape()
 
 	const bool on = PresetBrowser::DataBaseHelpers::isFavorite(parent.database, f);
 
-	auto path = parent.getPresetBrowserLookAndFeel().createPresetBrowserIcons(on ? "favorite_on" : "favorite_off");
 
-	auto c = parent.getPresetBrowserLookAndFeel().textColour;
+	static const unsigned char onShape[] = { 110,109,0,0,132,65,0,0,64,64,98,20,174,89,65,0,0,64,64,0,0,64,65,72,225,162,64,0,0,64,65,72,225,162,64,98,0,0,64,65,72,225,162,64,236,81,38,65,0,0,64,64,0,0,240,64,0,0,64,64,98,180,200,142,64,0,0,64,64,0,0,0,64,180,200,174,64,0,0,0,64,0,0,8,65,98,0,0,
+0,64,106,188,74,65,27,47,221,64,58,180,133,65,250,126,4,65,133,235,143,65,98,94,186,29,65,20,174,155,65,0,0,64,65,205,204,170,65,0,0,64,65,205,204,170,65,98,0,0,64,65,205,204,170,65,162,69,98,65,21,174,155,65,6,129,123,65,133,235,143,65,98,57,180,136,
+65,57,180,133,65,0,0,176,65,106,188,74,65,0,0,176,65,0,0,8,65,98,0,0,176,65,180,200,174,64,211,77,156,65,0,0,64,64,0,0,132,65,0,0,64,64,99,101,0,0 };
+
+	static const unsigned char offShape[] = { 110,109,0,0,132,65,0,0,64,64,98,20,174,89,65,0,0,64,64,0,0,64,65,72,225,162,64,0,0,64,65,72,225,162,64,98,0,0,64,65,72,225,162,64,236,81,38,65,0,0,64,64,0,0,240,64,0,0,64,64,98,180,200,142,64,0,0,64,64,0,0,0,64,180,200,174,64,0,0,0,64,0,0,8,65,98,0,0,
+0,64,106,188,74,65,27,47,221,64,58,180,133,65,250,126,4,65,133,235,143,65,98,94,186,29,65,20,174,155,65,0,0,64,65,205,204,170,65,0,0,64,65,205,204,170,65,98,0,0,64,65,205,204,170,65,162,69,98,65,21,174,155,65,6,129,123,65,133,235,143,65,98,57,180,136,
+65,57,180,133,65,0,0,176,65,106,188,74,65,0,0,176,65,0,0,8,65,98,0,0,176,65,180,200,174,64,211,77,156,65,0,0,64,64,0,0,132,65,0,0,64,64,99,109,219,249,108,65,72,225,128,65,98,221,36,106,65,246,40,130,65,20,174,103,65,162,69,131,65,20,174,101,65,64,53,
+132,65,98,251,169,89,65,218,206,137,65,188,116,75,65,101,59,144,65,0,0,64,65,54,94,149,65,98,68,139,52,65,101,59,144,65,236,81,38,65,206,204,137,65,236,81,26,65,64,53,132,65,98,211,77,24,65,162,69,131,65,11,215,21,65,234,38,130,65,37,6,19,65,72,225,128,
+65,98,166,155,248,64,100,59,109,65,0,0,128,64,57,180,54,65,0,0,128,64,0,0,8,65,98,0,0,128,64,113,61,210,64,113,61,178,64,0,0,160,64,0,0,240,64,0,0,160,64,98,100,59,21,65,0,0,160,64,14,45,38,65,205,204,200,64,190,159,38,65,35,219,201,64,108,0,0,64,65,
+0,0,0,65,108,66,96,89,65,35,219,201,64,98,55,137,89,65,164,112,201,64,156,196,106,65,0,0,160,64,0,0,132,65,0,0,160,64,98,164,112,147,65,0,0,160,64,0,0,160,65,113,61,210,64,0,0,160,65,0,0,8,65,98,0,0,160,65,57,180,54,65,23,217,129,65,100,59,109,65,219,
+249,108,65,72,225,128,65,99,101,0,0 };
+
+	Path path;
 
 	if (on)
 	{
-		b->setColours(c.withAlpha(0.5f), c.withAlpha(0.8f), c);
+		b->setColours(Colours::white.withAlpha(0.5f), Colours::white.withAlpha(0.8f), Colours::white);
+		path.loadPathFromData(onShape, sizeof(onShape));
 	}
 
 	else
 	{
-		b->setColours(c.withAlpha(0.2f), c.withAlpha(0.8f), c);
+		b->setColours(Colours::white.withAlpha(0.2f), Colours::white.withAlpha(0.8f), Colours::white);
+		path.loadPathFromData(offShape, sizeof(offShape));
 	}
 
 	b->setToggleState(on, dontSendNotification);
@@ -489,13 +490,8 @@ void PresetBrowserColumn::ColumnListModel::FavoriteOverlay::buttonClicked(Button
 
 void PresetBrowserColumn::ColumnListModel::FavoriteOverlay::resized()
 {
-	auto& l = parent.getPresetBrowserLookAndFeel();
-
-	int height = (int)l.font.getHeight() * 2;
-	int y = getHeight() / 2 - height / 2;
-	
 	refreshShape();
-	auto r = Rectangle<int>(0, y, height, height);
+	auto r = Rectangle<int>(0, 0, getHeight(), getHeight());
 	b->setBounds(r.reduced(4));
 }
 
@@ -507,14 +503,13 @@ PresetBrowserColumn::PresetBrowserColumn(MainController* mc_, PresetBrowser* p, 
 	addAndMakeVisible(editButton = new TextButton("Edit"));
 	editButton->addListener(this);
 
-	// if final column, change text to "Save New" for clarity
-	addAndMakeVisible(addButton = new TextButton(index == 2 ? "Save New" : "Add"));
+	addAndMakeVisible(addButton = new TextButton("+"));
 	addButton->addListener(this);
 
-	addAndMakeVisible(renameButton = new TextButton("Rename"));
+	addAndMakeVisible(renameButton = new TextButton("/"));
 	renameButton->addListener(this);
 
-	addAndMakeVisible(deleteButton = new TextButton("Delete"));
+	addAndMakeVisible(deleteButton = new TextButton("-"));
 	deleteButton->addListener(this);
 
 	listModel = new ColumnListModel(parent, index, listener);
@@ -544,8 +539,6 @@ PresetBrowserColumn::PresetBrowserColumn(MainController* mc_, PresetBrowser* p, 
 	listbox->addMouseListener(this, true);
 
 	setSize(150, 300);
-
-	setRepaintsOnMouseActivity(true);
 }
 
 File PresetBrowserColumn::getChildDirectory(File& root, int level, int index)
@@ -581,31 +574,7 @@ void PresetBrowserColumn::setNewRootDirectory(const File& newRootDirectory)
 	listbox->updateContent();
 	listbox->repaint();
 
-	updateButtonVisibility(parent->isReadOnly(newRootDirectory));
-}
-
-Array<var> PresetBrowserColumn::getListAreaOffset()
-{
-	return listAreaOffset;
-}
-
-void PresetBrowserColumn::setRowPadding(double padding)
-{
-	rowPadding = padding;
-	resized();
-}
-
-void PresetBrowserColumn::update()
-{
-	auto& l = getPresetBrowserLookAndFeel();
-
-	listbox->setRowHeight((int)l.font.getHeight() * 2 + rowPadding);
-
-	if (auto v = listbox->getViewport())
-	{
-		v->setColour(ScrollBar::ColourIds::backgroundColourId, Colours::transparentBlack);
-		v->setColour(ScrollBar::ColourIds::thumbColourId, l.highlightColour.withAlpha(0.1f));
-	}
+	updateButtonVisibility();
 }
 
 void PresetBrowserColumn::touchAndHold(Point<int> /*downPosition*/)
@@ -617,21 +586,6 @@ void PresetBrowserColumn::touchAndHold(Point<int> /*downPosition*/)
 		listModel->deleteOnClick = !listModel->deleteOnClick;
 		listbox->repaint();
 	}
-}
-
-void PresetBrowserColumn::mouseDown(const MouseEvent& e)
-{
-	TouchAndHoldComponent::startTouch(e.getPosition());
-}
-
-void PresetBrowserColumn::mouseUp(const MouseEvent& mouseEvent)
-{
-	TouchAndHoldComponent::abortTouch();
-}
-
-void PresetBrowserColumn::mouseMove(const MouseEvent& e)
-{
-	repaint();
 }
 
 void PresetBrowserColumn::buttonClicked(Button* b)
@@ -706,7 +660,7 @@ void PresetBrowserColumn::addEntry(const String &newName)
 		}
 	}
 
-	updateButtonVisibility(false);
+	updateButtonVisibility();
 }
 
 void PresetBrowserColumn::paint(Graphics& g)
@@ -730,93 +684,41 @@ void PresetBrowserColumn::paint(Graphics& g)
 	if (auto exp = dynamic_cast<ExpansionColumnModel*>(listModel.get()))
 		emptyText = "";
 
-	Rectangle<int> columnArea;
-	columnArea = {0, 0, getWidth(), getHeight()};
-
-	if (!buttonsInsideBorder)
-		getPresetBrowserLookAndFeel().drawColumnBackground(g, index, listArea, emptyText);
-	else
-		getPresetBrowserLookAndFeel().drawColumnBackground(g, index, columnArea, emptyText);	
-	
+	getPresetBrowserLookAndFeel().drawColumnBackground(g, listArea, emptyText);
 }
 
 void PresetBrowserColumn::resized()
 {
-	listArea = { 0, 0, getWidth(), getHeight()};
+	listArea = { 0, 0, getWidth(), getHeight() };
 	listArea = listArea.reduced(1);
 
-	updateButtonVisibility(false);
+	updateButtonVisibility();
 
 	if (showButtonsAtBottom)
 	{
-		auto buttonArea = listArea.removeFromBottom(28).reduced(2);
-		buttonArea.setY(buttonArea.getY() - editButtonOffset);
-		const int buttonWidth = buttonArea.getWidth() / 3;
+		auto buttonArea = listArea.removeFromBottom(20).reduced(2);
+		const int buttonWidth = buttonArea.getWidth() / 8;
 
 		addButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
 		renameButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
 		deleteButton->setBounds(buttonArea.removeFromLeft(buttonWidth));
-
-		listArea.setBounds(
-			listArea.getX() + (double)listAreaOffset[0],
-			listArea.getY() + (double)listAreaOffset[1],
-			listArea.getWidth() + (double)listAreaOffset[2],
-			listArea.getHeight() - editButtonOffset + (double)listAreaOffset[3]
-		);
-
-		listArea.removeFromBottom(10);
+		listArea.removeFromBottom(4);
 	}
 
-	listbox->setBounds(listArea.reduced(3));
+	listbox->setBounds(listArea.reduced(1));
 }
 
 
-void PresetBrowserColumn::updateButtonVisibility(bool isReadOnly)
+void PresetBrowserColumn::updateButtonVisibility()
 {
 	editButton->setVisible(false);
 
-	const bool buttonsVisible = showButtonsAtBottom && !isResultBar && currentRoot.isDirectory() && !isReadOnly;
+	const bool buttonsVisible = showButtonsAtBottom && !isResultBar && currentRoot.isDirectory();
 	const bool fileIsSelected = listbox->getNumSelectedRows() > 0;
 
-	addButton->setVisible(buttonsVisible && shouldShowAddButton);
-	deleteButton->setVisible(buttonsVisible && fileIsSelected && shouldShowDeleteButton);
-	renameButton->setVisible(buttonsVisible && fileIsSelected && shouldShowRenameButton);
-}
-
-void PresetBrowserColumn::timerCallback()
-{
-	if (!isVisible()) return;
-
-	listbox->updateContent();
-	listbox->repaint();
-}
-
-void PresetBrowserColumn::setSelectedFile(const File& file, NotificationType notifyListeners)
-{
-	const int rowIndex = listModel->getIndexForFile(file);
-
-	if (auto ec = dynamic_cast<ExpansionColumnModel*>(listModel.get()))
-			ec->setLastIndex(rowIndex);
-
-	selectedFile = file;
-
-	if(rowIndex == -1)
-	{
-		listbox->deselectAllRows();
-		listbox->repaint();
-	}
-	else
-	{
-		SparseSet<int> s;
-		s.addRange(Range<int>(rowIndex, rowIndex + 1));
-		listbox->setSelectedRows(s, dontSendNotification);
-		listbox->repaint();
-	}
-
-	if (notifyListeners == sendNotification)
-	{
-		listModel->sendRowChangeMessage(rowIndex);
-	}
+	addButton->setVisible(buttonsVisible);
+	deleteButton->setVisible(buttonsVisible && fileIsSelected);
+	renameButton->setVisible(buttonsVisible && fileIsSelected);
 }
 
 
@@ -829,33 +731,6 @@ PresetBrowserChildComponentBase::PresetBrowserChildComponentBase(PresetBrowser* 
 PresetBrowserLookAndFeelMethods &PresetBrowserChildComponentBase::getPresetBrowserLookAndFeel()
 {
 	return parent->getPresetBrowserLookAndFeel();
-}
-
-TextEditor* NiceLabel::createEditorComponent()
-{
-	TextEditor* t = Label::createEditorComponent();
-	t->setIndents(4, 7);
-	return t;
-}
-
-void NiceLabel::textEditorReturnKeyPressed(TextEditor& t)
-{
-	if (getText() == t.getText())
-	{
-		hideEditor(true);
-		textWasEdited();
-		callChangeListeners();
-	}
-	else
-	{
-		Label::textEditorReturnKeyPressed(t);
-	}
-}
-
-void NiceLabel::textWasEdited()
-{
-	if (refreshWithEachKey)
-		textWasChanged();
 }
 
 PresetBrowserColumn::ExpansionColumnModel::ExpansionColumnModel(PresetBrowser* p) :
@@ -898,7 +773,7 @@ void PresetBrowserColumn::ExpansionColumnModel::paintListBoxItem(int rowNumber, 
 	if (rowNumber < entries.size())
 	{
 		auto position = Rectangle<int>(0, 1, width, height - 2);
-		getPresetBrowserLookAndFeel().drawListItem(g, index, rowNumber, itemName, position, rowIsSelected, deleteOnClick, isMouseHover(rowNumber));
+		getPresetBrowserLookAndFeel().drawListItem(g, index, rowNumber, itemName, position, rowIsSelected, deleteOnClick);
 	}
 }
 

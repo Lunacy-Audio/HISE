@@ -1143,6 +1143,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_1(Engine, isUserPresetReadOnly);
 	API_METHOD_WRAPPER_0(Engine, getUserPresetList);
 	API_METHOD_WRAPPER_0(Engine, getCurrentUserPresetName);
+	API_METHOD_WRAPPER_0(Engine, getCurrentUserPresetFile);
 	API_VOID_METHOD_WRAPPER_1(Engine, saveUserPreset);
 	API_METHOD_WRAPPER_0(Engine, isMpeEnabled);
 	API_METHOD_WRAPPER_1(Engine, createAndRegisterSliderPackData);
@@ -1303,6 +1304,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_0(getCurrentUserPresetName);
 	ADD_API_METHOD_0(getGlobalPitchFactor);
 	ADD_API_METHOD_1(setGlobalPitchFactor);
+	ADD_API_METHOD_0(getCurrentUserPresetFile);
 	ADD_API_METHOD_1(saveUserPreset);
 	ADD_API_METHOD_1(loadUserPreset);
 	ADD_API_METHOD_0(getUserPresetList);
@@ -2571,6 +2573,11 @@ bool ScriptingApi::Engine::isMpeEnabled() const
 String ScriptingApi::Engine::getCurrentUserPresetName()
 {
 	return getProcessor()->getMainController()->getUserPresetHandler().getCurrentlyLoadedFile().getFileNameWithoutExtension();
+}
+
+var ScriptingApi::Engine::getCurrentUserPresetFile()
+{
+    return new ScriptingObjects::ScriptFile(getScriptProcessor(), getProcessor()->getMainController()->getUserPresetHandler().getCurrentlyLoadedFile());
 }
 
 void ScriptingApi::Engine::saveUserPreset(var presetName)
