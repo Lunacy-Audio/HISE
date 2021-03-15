@@ -885,6 +885,10 @@ void Arpeggiator::reset(bool do_all_notes_off, bool do_stop)
 		arpDirMod = 1;
 		curHeldNoteIdx = 0;
 		break;
+	case Direction::Chord:
+		arpDirMod = 1;
+		curHeldNoteIdx = 0;
+		break;
     default:
         jassertfalse;
         break;
