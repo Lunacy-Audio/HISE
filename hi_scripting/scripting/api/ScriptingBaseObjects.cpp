@@ -661,6 +661,10 @@ WeakCallbackHolder::~WeakCallbackHolder()
 
 hise::WeakCallbackHolder& WeakCallbackHolder::operator=(WeakCallbackHolder&& other)
 {
+	// if this fires, you must create the object with a valid ScriptProcessor pointer
+	// (if the processor is not available, consider using a heap-allocated WeakCallbackHolder instead)
+	jassert(getScriptProcessor() != nullptr);
+
 	r = other.r;
 	weakCallback = other.weakCallback;
 	numExpectedArgs = other.numExpectedArgs;
