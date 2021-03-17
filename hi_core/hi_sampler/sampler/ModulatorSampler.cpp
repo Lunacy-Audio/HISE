@@ -77,14 +77,14 @@ SET_DOCUMENTATION(ModulatorSampler)
 		"If enabled, the groups are played simultanously and can be crossfaded with the Group-Fade Modulation Chain.");
 
 	ADD_PARAMETER_DOC(Purged, 
-		"If *Enabled*, it will unload all preload buffers and deactivate the sample playback to save memory. The **Lazy load** option unloads all preload buffers and delays the preloading of a sample until it is triggered for the first time.");
+		"If this is true, all samples of this sampler won't be loaded into memory. Turning this on will load them.");
 
 	ADD_PARAMETER_DOC(Reversed, 
 		"If this is true, the samples will be fully loaded into preload buffer and reversed");
 
     ADD_PARAMETER_DOC(UseStaticMatrix,
         "If this is true, then the routing matrix will not be resized when you load a sample map with another mic position amount.");
-
+    
 	ADD_CHAIN_DOC(SampleStartModulation, "Sample Start", 
 		"Allows modification of the sample start if the sound allows this. The modulation range is depending on the *SampleStartMod* value of each sample.");
 
@@ -95,13 +95,13 @@ SET_DOCUMENTATION(ModulatorSampler)
 
 ModulatorSampler::ModulatorSampler(MainController *mc, const String &id, int numVoices) :
 ModulatorSynth(mc, id, numVoices),
-LookupTableProcessor(mc, 8),
 preloadSize(PRELOAD_SIZE),
 asyncPurger(this),
 sampleMap(new SampleMap(this)),
 rrGroupAmount(1),
 bufferSize(4096),
 preloadScaleFactor(1),
+currentRRGroupIndex(1),
 useRoundRobinCycleLogic(true),
 pitchTrackingEnabled(true),
 oneShotEnabled(false),
@@ -113,9 +113,7 @@ numChannels(1),
 repeatMode(RepeatMode::KillSecondOldestNote),
 deactivateUIUpdate(false),
 samplePreloadPending(false),
-realVoiceAmount(numVoices),
-temporaryVoiceBuffer(DEFAULT_BUFFER_TYPE_IS_FLOAT, 2, 0),
-syncVoiceHandler(false)
+temporaryVoiceBuffer(DEFAULT_BUFFER_TYPE_IS_FLOAT, 2, 0)
 {
 #if USE_BACKEND || HI_ENABLE_EXPANSION_EDITING
 	sampleEditHandler = new SampleEditHandler(this);
@@ -133,7 +131,7 @@ syncVoiceHandler(false)
 
 	setGain(1.0);
 
-	OLD_PROCESSOR_DISPATCH(enablePooledUpdate(mc->getGlobalUIUpdater()));
+	enablePooledUpdate(mc->getGlobalUIUpdater());
 
 	//enableAllocationFreeMessages(50);
 
@@ -148,10 +146,6 @@ syncVoiceHandler(false)
 	parameterNames.add("Purged");
 	parameterNames.add("Reversed");
     parameterNames.add("UseStaticMatrix");
-	parameterNames.add("LowPassEnvelopeOrder");
-	parameterNames.add("Timestretching");
-
-	updateParameterSlots();
 
 	editorStateIdentifiers.add("SampleStartChainShown");
 	editorStateIdentifiers.add("SettingsShown");
@@ -166,23 +160,22 @@ syncVoiceHandler(false)
 	setEditorState(EditorStates::MapPanelShown, true);
 	setEditorState(EditorStates::BigSampleMap, true);
 
+	
 	sampleStartChain->setColour(JUCE_LIVE_CONSTANT_OFF(Colour(0xff5e8127)));
 	crossFadeChain->setColour(JUCE_LIVE_CONSTANT_OFF(Colour(0xff884b29)));
 
-	for (int i = 0; i < 127; i++) 
-		samplerDisplayValues.currentNotes[i] = 0;
+	for (int i = 0; i < 127; i++) samplerDisplayValues.currentNotes[i] = 0;
 
 	setVoiceAmount(numVoices);
 
 
 	for (int i = 0; i < 8; i++)
-		getTable(i)->setYTextConverterRaw(Modulation::getValueAsDecibel);
+	{
+		crossfadeTables.add(new SampleLookupTable());
+		crossfadeTables.getLast()->setYTextConverterRaw(Modulation::getValueAsDecibel);
+	}
 
 	getMatrix().setAllowResizing(true);
-
-	PrepareSpecs ps;
-	ps.voiceIndex = &syncVoiceHandler;
-	syncer.state.prepare(ps);
 }
 
 
@@ -236,73 +229,6 @@ void ModulatorSampler::setReversed(bool shouldBeReversed)
     }
 }
 
-void ModulatorSampler::updatePurgeFromAttribute(int roundedValue)
-{
-	if (roundedValue == 2)
-	{
-		purgeAllSamples(false, false);
-		setPlayFromPurge(true, true);
-	}
-	else
-	{
-		auto shouldBePurged = roundedValue == 1;
-
-		// if lazy loading was active, we need to
-		// force the value to be different so that
-		// purgeAllSamples will actually do something...
-		if (enablePlayFromPurge)
-			purged = !shouldBePurged;
-
-		setPlayFromPurge(false, false);
-		purgeAllSamples(shouldBePurged, true);
-	}
-}
-
-void ModulatorSampler::purgeAllSamples(bool shouldBePurged, bool changePreloadSize)
-{
-	if (shouldBePurged != purged)
-	{
-		if (shouldBePurged)
-			getMainController()->getDebugLogger().logMessage("**Purging samples** from " + getId());
-		else
-			getMainController()->getDebugLogger().logMessage("**Unpurging samples** from " + getId());
-
-		if (changePreloadSize)
-		{
-			auto f = [shouldBePurged](Processor* p)
-			{
-				auto s = static_cast<ModulatorSampler*>(p);
-
-				jassert(s->allVoicesAreKilled());
-
-				s->purged = shouldBePurged;
-
-				for (int i = 0; i < s->sounds.size(); i++)
-				{
-					ModulatorSamplerSound *sound = static_cast<ModulatorSamplerSound*>(s->getSound(i));
-					sound->setPurged(shouldBePurged);
-				}
-
-				s->refreshPreloadSizes();
-				s->refreshMemoryUsage();
-
-				return SafeFunctionCall::OK;
-			};
-
-			killAllVoicesAndCall(f, true);
-		}
-		else
-		{
-			purged = shouldBePurged;
-
-			SoundIterator iter(this);
-
-			while (auto s = iter.getNextSound())
-				s->setPurged(shouldBePurged);
-		}
-	}
-}
-
 void ModulatorSampler::setNumChannels(int numNewChannels)
 {
 	jassert(numNewChannels <= (NUM_MAX_CHANNELS / 2));
@@ -324,11 +250,11 @@ void ModulatorSampler::setNumChannels(int numNewChannels)
 	}
 
 	const int prevVoiceAmount = voiceAmount;
-	
+	const int prevVoiceLimit = (int)getAttribute(ModulatorSynth::VoiceLimit);
 
 	voiceAmount = -1;
 	setVoiceAmount(prevVoiceAmount);
-	ModulatorSynth::setVoiceLimit(realVoiceAmount * getNumActiveGroups());
+	setVoiceLimit(prevVoiceLimit);
 
 	if (numChannels < 1) numChannels = 1;
 	if (numChannels > NUM_MIC_POSITIONS) numChannels = NUM_MIC_POSITIONS;
@@ -342,14 +268,6 @@ void ModulatorSampler::setNumChannels(int numNewChannels)
 
 }
 
-int ModulatorSampler::getNumActiveGroups() const
-{
-	if (crossfadeGroups)
-		return rrGroupAmount;
-	
-	return jmax(1, (int)multiRRGroupState.getNumSetBits());
-}
-
 void ModulatorSampler::setNumMicPositions(StringArray &micPositions)
 {
 	if (micPositions.size() == 0) return;
@@ -361,7 +279,7 @@ void ModulatorSampler::setNumMicPositions(StringArray &micPositions)
 		channelData[i].suffix = micPositions[i];
 	}
 
-	sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom);
+	sendChangeMessage();
 
 }
 
@@ -372,13 +290,11 @@ bool ModulatorSampler::checkAndLogIsSoftBypassed(DebugLogger::Location location)
 
 void ModulatorSampler::refreshCrossfadeTables()
 {
-	ModulatorSynth::setVoiceLimit(realVoiceAmount * getNumActiveGroups());
+	
 }
 
 void ModulatorSampler::restoreFromValueTree(const ValueTree &v)
 {
-	getMainController()->getSampleManager().setCurrentPreloadMessage("Loading " + getId());
-
 	loadAttribute(PreloadSize, "PreloadSize");
     loadAttribute(UseStaticMatrix, "UseStaticMatrix");
 	
@@ -429,13 +345,10 @@ void ModulatorSampler::restoreFromValueTree(const ValueTree &v)
     loadAttribute(CrossfadeGroups, "CrossfadeGroups");
     loadAttribute(RRGroupAmount, "RRGroupAmount");
 
-	TimestretchOptions newOptions;
-	newOptions.restoreFromValueTree(v.getChildWithName(TimestretchOptions::getStaticId()));
-
-	setTimestretchOptions(newOptions);
-
-	for (int i = 0; i < 8; i++)
-		loadTable(getTableUnchecked(i), "Group" + String(i) + "Table");
+	for (int i = 0; i < crossfadeTables.size(); i++)
+	{
+		loadTable(crossfadeTables[i], "Group" + String(i) + "Table");
+	}
 
 	ModulatorSynth::restoreFromValueTree(v);
 };
@@ -468,26 +381,17 @@ ValueTree ModulatorSampler::exportAsValueTree() const
 
 	v.addChild(channels, -1, nullptr);
 
-	if (currentTimestretchOptions)
-		v.addChild(currentTimestretchOptions.exportAsValueTree(), -1, nullptr);
-
-	for (int i = 0; i < 8; i++)
+	for (int i = 0; i < crossfadeTables.size(); i++)
 	{
-		saveTable(getTableUnchecked(i), "Group" + String(i) + "Table");
+		saveTable(crossfadeTables[i], "Group" + String(i) + "Table");
 	}
 
 	if (sampleMap->isUsingUnsavedValueTree())
 	{
-		auto id = sampleMap->getId();
+		debugError(const_cast<ModulatorSampler*>(this), "Saving embedded samplemaps is bad practice. Save the samplemap to a file instead.");
 
-		static const Identifier cj("CustomJSON");
-
-		if (id != cj)
-		{
-			debugError(const_cast<ModulatorSampler*>(this), "Saving embedded samplemaps is bad practice. Save the samplemap to a file instead.");
-		}
-		
 		v.addChild(sampleMap->getValueTree().createCopy(), -1, nullptr);
+
 	}
 	else
 	{
@@ -514,8 +418,6 @@ ValueTree ModulatorSampler::exportAsValueTree() const
 
 float ModulatorSampler::getAttribute(int parameterIndex) const
 {
-	if (parameterIndex == ModulatorSynth::VoiceLimit) return realVoiceAmount;
-
 	if (parameterIndex < ModulatorSynth::numModulatorSynthParameters) return ModulatorSynth::getAttribute(parameterIndex);
 
 	switch (parameterIndex)
@@ -528,12 +430,9 @@ float ModulatorSampler::getAttribute(int parameterIndex) const
 	case PitchTracking:		return pitchTrackingEnabled ? 1.0f : 0.0f;
 	case OneShot:			return oneShotEnabled ? 1.0f : 0.0f;
 	case CrossfadeGroups:	return crossfadeGroups ? 1.0f : 0.0f;
-	case Purged:			
-		if (enablePlayFromPurge) return 2.0f;
-		else return purged ? 1.0f : 0.0f;
+	case Purged:			return purged ? 1.0f : 0.0f;
 	case Reversed:			return reversed ? 1.0f : 0.0f;
     case UseStaticMatrix:   return useStaticMatrix ? 1.0f : 0.0f;
-	case LowPassEnvelopeOrder: return (float)lowPassOrder * 6.0f;
 	default:				jassertfalse; return -1.0f;
 	}
 }
@@ -562,13 +461,8 @@ void ModulatorSampler::setInternalAttribute(int parameterIndex, float newValue)
 	case OneShot:			oneShotEnabled = newValue > 0.5f; break;
 	case Reversed:			setReversed(newValue > 0.5f); break;
 	case CrossfadeGroups:	crossfadeGroups = newValue > 0.5f; refreshCrossfadeTables(); break;
-	case Purged:			updatePurgeFromAttribute(roundToInt(newValue)); break;
+	case Purged:			purgeAllSamples(newValue > 0.5f); break;
 	case UseStaticMatrix:   setUseStaticMatrix(newValue > 0.5f); break;
-	case LowPassEnvelopeOrder: 
-		lowPassOrder = roundToInt(newValue / 6);
-		if (envelopeFilter != nullptr)
-			envelopeFilter->setOrder(lowPassOrder);
-		break;
 	default:				jassertfalse; break;
 	}
 }
@@ -616,10 +510,6 @@ void ModulatorSampler::prepareToPlay(double newSampleRate, int samplesPerBlock)
 	if (samplesPerBlock > 0 && prevBlockSize != samplesPerBlock)
 	{
         refreshMemoryUsage();
-
-		if (envelopeFilter != nullptr)
-			setEnableEnvelopeFilter();
-		StreamingSamplerVoice::initTemporaryVoiceBuffer(&temporaryVoiceBuffer, samplesPerBlock, (double)MAX_SAMPLER_PITCH);
 	}
 }
 
@@ -655,7 +545,6 @@ void ModulatorSampler::refreshStreamingBuffers()
 		SynthesiserVoice *v = getVoice(i);
 		static_cast<ModulatorSamplerVoice*>(v)->resetVoice();
 		static_cast<ModulatorSamplerVoice*>(v)->setLoaderBufferSize(bufferSize * preloadScaleFactor);
-		static_cast<ModulatorSamplerVoice*>(v)->setEnablePlayFromPurge(enablePlayFromPurge);
 	}
 }
 
@@ -672,14 +561,14 @@ void ModulatorSampler::deleteSound(int index)
 		}
 
 		{
-			LockHelpers::SafeLock sl(getMainController(), LockHelpers::Type::SampleLock);
+			LockHelpers::SafeLock sl(getMainController(), LockHelpers::SampleLock);
 			removeSound(index);
 		}
 
 		if (!delayUpdate)
 		{
 			refreshMemoryUsage();
-			sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom);
+			sendChangeMessage();
 		}
 		
 	}
@@ -697,10 +586,8 @@ void ModulatorSampler::deleteAllSounds()
 		static_cast<ModulatorSamplerVoice*>(getVoice(i))->resetVoice();
 	}
 
-
-
 	{
-		LockHelpers::SafeLock sl(getMainController(), LockHelpers::Type::SampleLock);
+		LockHelpers::SafeLock sl(getMainController(), LockHelpers::SampleLock);
 
 		// The lifetime could exceed this function, so we need to flag it as pending for delete
 		// so that async tasks will not use this later.
@@ -714,12 +601,10 @@ void ModulatorSampler::deleteAllSounds()
 			if(getSampleMap() != nullptr)
 				getSampleMap()->getCurrentSamplePool()->clearUnreferencedMonoliths();
 		}
-
-		envelopeFilter = nullptr;
 	}
 	
 	refreshMemoryUsage();
-	sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom, dispatch::sendNotificationAsync);
+	sendChangeMessage();
 }
 
 void ModulatorSampler::refreshPreloadSizes()
@@ -762,7 +647,7 @@ double ModulatorSampler::getDiskUsage()
 	return diskUsage * 100.0;
 }
 
-void ModulatorSampler::refreshMemoryUsage(bool fastMode)
+void ModulatorSampler::refreshMemoryUsage()
 {
 	if (sampleMap == nullptr)
 		return;
@@ -770,14 +655,12 @@ void ModulatorSampler::refreshMemoryUsage(bool fastMode)
     if(getLargestBlockSize() <= 0)
         return;
 
-	if (!fastMode)
-	{
-		const auto temporaryBufferIsFloatingPoint = getTemporaryVoiceBuffer()->isFloatingPoint();
-
+	const auto temporaryBufferIsFloatingPoint = getTemporaryVoiceBuffer()->isFloatingPoint();
+    
 #if HISE_IOS
-		const auto temporaryBufferShouldBeFloatingPoint = false;
+    const auto temporaryBufferShouldBeFloatingPoint = false;
 #else
-		const auto temporaryBufferShouldBeFloatingPoint = !sampleMap->isMonolith();
+	const auto temporaryBufferShouldBeFloatingPoint = !sampleMap->isMonolith();
 #endif
 
 	if (temporaryBufferIsFloatingPoint != temporaryBufferShouldBeFloatingPoint)
@@ -788,19 +671,8 @@ void ModulatorSampler::refreshMemoryUsage(bool fastMode)
 
 		for (auto i = 0; i < getNumVoices(); i++)
 		{
-			temporaryVoiceBuffer = hlac::HiseSampleBuffer(temporaryBufferShouldBeFloatingPoint, 2, 0);
-
-			for (auto i = 0; i < getNumVoices(); i++)
-				static_cast<ModulatorSamplerVoice*>(getVoice(i))->setStreamingBufferDataType(temporaryBufferShouldBeFloatingPoint);
+			static_cast<ModulatorSamplerVoice*>(getVoice(i))->setStreamingBufferDataType(temporaryBufferShouldBeFloatingPoint);
 		}
-
-		StreamingSamplerVoice::initTemporaryVoiceBuffer(&temporaryVoiceBuffer, getLargestBlockSize(), (double)MAX_SAMPLER_PITCH);
-
-		PrepareSpecs ps;
-		ps.blockSize = getLargestBlockSize() * MAX_SAMPLER_PITCH;
-		ps.numChannels = 2;
-
-		DspHelpers::increaseBuffer(stretchBuffer, ps);
 	}
 
 	int64 actualPreloadSize = 0;
@@ -821,12 +693,11 @@ void ModulatorSampler::refreshMemoryUsage(bool fastMode)
 				}
 			}
 		}
-
-        if(!fastMode && maxPitch > (double)MAX_SAMPLER_PITCH)
+        
+        if(maxPitch > (double)MAX_SAMPLER_PITCH)
         {
             StreamingSamplerVoice::initTemporaryVoiceBuffer(&temporaryVoiceBuffer, getLargestBlockSize(), maxPitch * 1.2); // give it a little more to be safe...
         }
-
 	}
 
 	const int64 streamBufferSizePerVoice = 2 *				// two buffers
@@ -836,7 +707,7 @@ void ModulatorSampler::refreshMemoryUsage(bool fastMode)
 
 	memoryUsage = actualPreloadSize + streamBufferSizePerVoice * getNumVoices();
 
-	sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom, dispatch::sendNotificationAsync);
+	sendChangeMessage();
 	getSampleMap()->getCurrentSamplePool()->sendChangeMessage();
 }
 
@@ -854,7 +725,7 @@ void ModulatorSampler::setVoiceAmount(int newVoiceAmount)
 
 		
 		if (getAttribute(ModulatorSynth::VoiceLimit) > voiceAmount)
-			setAttribute(ModulatorSynth::VoiceLimit, float(voiceAmount), sendNotificationAsync);
+			setAttribute(ModulatorSynth::VoiceLimit, float(voiceAmount), sendNotification);
 
 		auto f = [](Processor*p) { static_cast<ModulatorSampler*>(p)->setVoiceAmountInternal(); return SafeFunctionCall::OK; };
 		killAllVoicesAndCall(f, false);
@@ -872,10 +743,15 @@ void ModulatorSampler::setVoiceAmountInternal()
 
 		for (int i = 0; i < voiceAmount; i++)
 		{
+
 			if (numChannels != 1)
+			{
 				addVoice(new MultiMicModulatorSamplerVoice(this, numChannels));
+			}
 			else
+			{
 				addVoice(new ModulatorSamplerVoice(this));
+			}
 
 			dynamic_cast<ModulatorSamplerVoice*>(voices.getLast())->setStreamingBufferDataType(temporaryVoiceBuffer.isFloatingPoint());
 
@@ -883,8 +759,6 @@ void ModulatorSampler::setVoiceAmountInternal()
 			{
 				static_cast<ModulatorSamplerVoice*>(getVoice(i))->prepareToPlay(Processor::getSampleRate(), getLargestBlockSize());
 			}
-
-			static_cast<ModulatorSamplerVoice*>(getVoice(i))->setTimestretchOptions(currentTimestretchOptions);
 		};
 	}
 
@@ -898,10 +772,10 @@ bool ModulatorSampler::killAllVoicesAndCall(const ProcessorFunction& f, bool res
 {
 	auto currentThread = getMainController()->getKillStateHandler().getCurrentThread();
 
-	bool correctThread = (currentThread == MainController::KillStateHandler::TargetThread::SampleLoadingThread) ||
-						 (!restrictToSampleLoadingThread && currentThread == MainController::KillStateHandler::TargetThread::ScriptingThread);
+	bool correctThread = (currentThread == MainController::KillStateHandler::SampleLoadingThread) ||
+						 (!restrictToSampleLoadingThread && currentThread == MainController::KillStateHandler::ScriptingThread);
 
-	bool hasSampleLock = LockHelpers::isLockedBySameThread(getMainController(), LockHelpers::Type::SampleLock);
+	bool hasSampleLock = LockHelpers::isLockedBySameThread(getMainController(), LockHelpers::SampleLock);
 
 	if ((hasSampleLock || !isOnAir()) && correctThread)
 	{
@@ -915,39 +789,11 @@ bool ModulatorSampler::killAllVoicesAndCall(const ProcessorFunction& f, bool res
 	}
 }
 
-void ModulatorSampler::setDisplayedGroup(int index, bool shouldBeVisible, ModifierKeys mods, NotificationType notifyListener)
-{
-#if USE_BACKEND
-	auto& s = getSamplerDisplayValues().visibleGroups;
-	
-	if (index == -1 || !mods.isAnyModifierKeyDown())
-		s.clear();
-	
-	if (index >= 0)
-	{
-		if (mods.isShiftDown())
-		{
-			auto startBit = s.getHighestBit();
-			auto numToSet = index - startBit + 1;
-
-			if (numToSet > 0)
-				s.setRange(startBit, numToSet, true);
-		}
-		else
-		{
-			s.setBit(index, shouldBeVisible);
-		}
-	}
-
-	getSampleEditHandler()->groupBroadcaster.sendMessage(notifyListener, getCurrentRRGroup(), &getSamplerDisplayValues().visibleGroups);
-#endif
-}
-
 void ModulatorSampler::setSortByGroup(bool shouldSortByGroup)
 {
 	if (shouldSortByGroup != (soundCollector != nullptr))
 	{
-		LockHelpers::SafeLock sl(getMainController(), LockHelpers::Type::AudioLock);
+		LockHelpers::SafeLock sl(getMainController(), LockHelpers::AudioLock);
 
 		if (shouldSortByGroup)
 			soundCollector = new GroupedRoundRobinCollector(this);
@@ -968,104 +814,6 @@ bool ModulatorSampler::callAsyncIfJobsPending(const ProcessorFunction& f)
 	
 	f(this);
 	return true;
-}
-
-void ModulatorSampler::setEnableEnvelopeFilter()
-{
-	envelopeFilter = new CascadedEnvelopeLowPass(true);
-
-	if (getSampleRate() > 0)
-	{
-		PrepareSpecs ps;
-		ps.blockSize = getLargestBlockSize();
-		ps.sampleRate = getSampleRate();
-		ps.numChannels = 2;
-		envelopeFilter->prepare(ps);
-	}
-}
-
-void ModulatorSampler::setPlayFromPurge(bool shouldPlayFromPurge, bool refreshPreload)
-{
-	if (enablePlayFromPurge != shouldPlayFromPurge)
-	{
-		enablePlayFromPurge = shouldPlayFromPurge;
-
-		if (refreshPreload)
-		{
-			auto pf = [](Processor* p)
-			{
-				auto s = static_cast<ModulatorSampler*>(p);
-
-				// if there are some sounds loaded already, purge them all
-				if (s->getNumSounds() > 0)
-				{
-					s->refreshPreloadSizes();
-				}
-
-				s->refreshStreamingBuffers();
-				s->refreshMemoryUsage();
-
-				return SafeFunctionCall::OK;
-			};
-
-			killAllVoicesAndCall(pf);
-		}
-	}
-}
-
-void ModulatorSampler::setCurrentTimestretchMode(TimestretchOptions::TimestretchMode newMode)
-{
-	if(currentTimestretchOptions.mode != newMode)
-	{
-		auto options = currentTimestretchOptions;
-		options.mode = newMode;
-
-		setTimestretchOptions(options);
-	}
-}
-
-void ModulatorSampler::setTimestretchOptions(const TimestretchOptions& newOptions)
-{
-	currentTimestretchOptions = newOptions;
-
-	auto f = [](Processor* p)
-	{
-		auto s = static_cast<ModulatorSampler*>(p);
-
-		const auto& options = s->currentTimestretchOptions;
-
-		auto enableSync = options.mode == TimestretchOptions::TimestretchMode::TempoSynced;
-
-		s->syncer.setEnabled(enableSync);
-		s->syncVoiceHandler.setEnabled(enableSync);
-
-		if (enableSync)
-			s->getMainController()->addTempoListener(&s->syncer);
-		else
-			s->getMainController()->removeTempoListener(&s->syncer);
-		
-		for (auto v : s->voices)
-		{
-			dynamic_cast<ModulatorSamplerVoice*>(v)->setTimestretchOptions(options);
-		}
-
-		return SafeFunctionCall::OK;
-	};
-
-	killAllVoicesAndCall(f, true);
-}
-
-double ModulatorSampler::getCurrentTimestretchRatio() const
-{
-	if (currentTimestretchOptions.mode == TimestretchOptions::TimestretchMode::Disabled)
-		return 1.0;
-
-	return syncer.getRatio(ratioToUse);
-}
-
-void ModulatorSampler::setTimestretchRatio(double newRatio)
-{
-	ratioToUse = jlimit(0.0625, 2.0, newRatio);
 }
 
 void ModulatorSampler::AsyncPurger::timerCallback()
@@ -1111,6 +859,13 @@ void ModulatorSampler::setCurrentPlayingPosition(double normalizedPosition)
 void ModulatorSampler::setCrossfadeTableValue(float newValue)
 {
 	samplerDisplayValues.crossfadeTableValue = newValue;
+
+	const int currentlyShownTable = getEditorState(getEditorStateForIndex(ModulatorSampler::EditorStates::CrossfadeTableShown));
+
+	if (currentlyShownTable >= 0 && currentlyShownTable < 8)
+	{
+		sendTableIndexChangeMessage(false, crossfadeTables[currentlyShownTable], newValue);
+	}
 }
 
 void ModulatorSampler::resetNoteDisplay(int noteNumber)
@@ -1118,7 +873,7 @@ void ModulatorSampler::resetNoteDisplay(int noteNumber)
 	lastStartedVoice = nullptr;
 	samplerDisplayValues.currentNotes[jlimit(0, 127, noteNumber)] = 0;
 	samplerDisplayValues.currentSamplePos = -1.0;
-	sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom, dispatch::sendNotificationAsync);
+	sendAllocationFreeChangeMessage();
 }
 
 void ModulatorSampler::resetNotes()
@@ -1126,34 +881,6 @@ void ModulatorSampler::resetNotes()
 	for (int i = 0; i < voices.size(); i++)
 	{
 		static_cast<ModulatorSamplerVoice*>(voices[i])->resetVoice();
-	}
-}
-
-void ModulatorSampler::renderNextBlockWithModulators(AudioSampleBuffer& outputAudio, const HiseEventBuffer& inputMidi)
-{
-	if (purged)
-	{
-		return;
-	}
-
-	if(currentTimestretchOptions.mode == TimestretchOptions::TimestretchMode::TimeVariant)
-	{
-		auto r = getCurrentTimestretchRatio();
-
-		for(auto av: activeVoices)
-		{
-			static_cast<ModulatorSamplerVoice*>(av)->setTimestretchRatio(r);
-		}
-	}
-
-	ModulatorSynth::renderNextBlockWithModulators(outputAudio, inputMidi);
-
-	if(!eventIdsForGroupIndexes.isEmpty())
-	{
-		// Copy over the last state from the queue (this makes it effectively the same as calling
-		// the function with an eventId of -1).
-		multiRRGroupState = eventIdsForGroupIndexes[eventIdsForGroupIndexes.size()-1].second;
-		eventIdsForGroupIndexes.clearQuick();
 	}
 }
 
@@ -1198,35 +925,7 @@ void ModulatorSampler::preStartVoice(int voiceIndex, const HiseEvent& e)
 		samplerDisplayValues.currentSampleStartPos = 0.0f;
 	}
 
-	auto lv = static_cast<ModulatorSamplerVoice*>(getLastStartedVoice());
-
-	lv->setSampleStartModValue(sampleStartModValue);
-
-	
-
-
-	if(currentTimestretchOptions.mode != TimestretchOptions::TimestretchMode::Disabled)
-	{
-		auto v = static_cast<ModulatorSamplerVoice*>(voices[voiceIndex]);
-
-		if(currentTimestretchOptions.mode == TimestretchOptions::TimestretchMode::TempoSynced)
-		{
-			PolyHandler::ScopedVoiceSetter svs(syncVoiceHandler, voiceIndex);
-
-			if(auto nextSound = dynamic_cast<ModulatorSamplerSound*>(soundsToBeStarted[0]))
-			{
-                auto nq = nextSound->getNumQuartersForTimestretch(currentTimestretchOptions.numQuarters);
-                
-				syncer.setSource(nextSound->getSampleRate(), nextSound->getReferenceToSound(0)->getSampleLength(), nq);
-			}
-				
-			v->setTimestretchRatio(getCurrentTimestretchRatio());
-		}
-		else
-		{
-			v->setTimestretchRatio(getCurrentTimestretchRatio());
-		}
-	}
+	static_cast<ModulatorSamplerVoice*>(getLastStartedVoice())->setSampleStartModValue(sampleStartModValue);
 }
 
 bool ModulatorSampler::soundCanBePlayed(ModulatorSynthSound *sound, int midiChannel, int midiNoteNumber, float velocity)
@@ -1235,15 +934,11 @@ bool ModulatorSampler::soundCanBePlayed(ModulatorSynthSound *sound, int midiChan
 
 	if (!messageFits) return false;
 	
-	
-	auto soundGroup = static_cast<ModulatorSamplerSound*>(sound)->getRRGroup();
-
-	const bool rrGroupApplies = (!multiRRGroupState && (crossfadeGroups || multiRRGroupState.getSingleGroupIndex() == soundGroup)) ||
-								multiRRGroupState[soundGroup];
+	const bool rrGroupApplies = crossfadeGroups || static_cast<ModulatorSamplerSound*>(sound)->appliesToRRGroup(currentRRGroupIndex);
 
 	if (!rrGroupApplies) return false;
 
-	const bool preloadBufferIsNonZero = shouldPlayFromPurge() || static_cast<ModulatorSamplerSound*>(sound)->preloadBufferIsNonZero();
+	const bool preloadBufferIsNonZero = static_cast<ModulatorSamplerSound*>(sound)->preloadBufferIsNonZero();
 
 	if (!preloadBufferIsNonZero) return false;
 
@@ -1252,8 +947,8 @@ bool ModulatorSampler::soundCanBePlayed(ModulatorSynthSound *sound, int midiChan
 
 void ModulatorSampler::handleRetriggeredNote(ModulatorSynthVoice *voice)
 {
-	jassert(getMainController()->getSampleManager().isNonRealtime() || getMainController()->getKillStateHandler().getCurrentThread() == MainController::KillStateHandler::TargetThread::AudioThread ||
-	LockHelpers::isLockedBySameThread(getMainController(), LockHelpers::Type::AudioLock));
+	jassert(getMainController()->getSampleManager().isNonRealtime() || getMainController()->getKillStateHandler().getCurrentThread() == MainController::KillStateHandler::AudioThread ||
+	LockHelpers::isLockedBySameThread(getMainController(), LockHelpers::AudioLock));
 
 	switch (repeatMode)
 	{
@@ -1289,7 +984,7 @@ void ModulatorSampler::noteOff(const HiseEvent &m)
 	}
 }
 
-void ModulatorSampler::preHiseEventCallback(HiseEvent &m)
+void ModulatorSampler::preHiseEventCallback(const HiseEvent &m)
 {
 	if (m.isNoteOnOrOff())
 	{
@@ -1297,34 +992,11 @@ void ModulatorSampler::preHiseEventCallback(HiseEvent &m)
 		{
 			if (useRoundRobinCycleLogic)
 			{
-				multiRRGroupState.bumpRoundRobin(rrGroupAmount);
-			}
-			else if (!eventIdsForGroupIndexes.isEmpty())
-			{
-				for(const auto& pending: eventIdsForGroupIndexes)
-				{
-					if(pending.first == m.getEventId())
-					{
-						memcpy(&multiRRGroupState, &pending.second, sizeof(MultiGroupState));
-						break;
-					}
-				}
+				currentRRGroupIndex++;
+				if (currentRRGroupIndex > rrGroupAmount) currentRRGroupIndex = 1;
 			}
 
-#if USE_BACKEND
-
-			getSampleEditHandler()->noteBroadcaster.sendMessage(sendNotificationAsync, m.getNoteNumber(), m.getVelocity());
-
-			if (lockRRGroup != -1)
-				multiRRGroupState.setSingleGroupIndex(lockRRGroup);
-
-			if (lockVelocity > 0)
-				m.setVelocity(lockVelocity);
-
-			getSampleEditHandler()->groupBroadcaster.sendMessage(sendNotificationAsync, multiRRGroupState.getSingleGroupIndex(), &getSamplerDisplayValues().visibleGroups);
-#endif
-		
-			samplerDisplayValues.currentGroup = multiRRGroupState.getSingleGroupIndex();
+			samplerDisplayValues.currentGroup = currentRRGroupIndex;
 		}
 
 		if (m.isNoteOn())
@@ -1333,14 +1005,10 @@ void ModulatorSampler::preHiseEventCallback(HiseEvent &m)
 		}
 		else
 		{
-#if USE_BACKEND
-			getSampleEditHandler()->noteBroadcaster.sendMessage(sendNotificationAsync, m.getNoteNumber(), 0);
-#endif
-
             samplerDisplayValues.currentNotes[m.getNoteNumber() + m.getTransposeAmount()] = 0;
 		}
 		
-        sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom, dispatch::sendNotificationAsync);
+        sendAllocationFreeChangeMessage();
 	}
 
 	if (!m.isNoteOff() || !oneShotEnabled)
@@ -1351,22 +1019,16 @@ void ModulatorSampler::preHiseEventCallback(HiseEvent &m)
 
 float* ModulatorSampler::calculateCrossfadeModulationValuesForVoice(int voiceIndex, int startSample, int numSamples, int groupIndex)
 {
-	// If we have set multiple groups to be active manually
-	// we want to use only as much tables as there are active groups...
-	if (multiRRGroupState)
-		groupIndex %= multiRRGroupState.getNumSetBits();
-
 	if (groupIndex > 8) return nullptr;
 
 	if (auto compressedValues = modChains[Chains::XFade].getWritePointerForManualExpansion(startSample))
 	{
 		int numSamples_cr = numSamples / HISE_CONTROL_RATE_DOWNSAMPLING_FACTOR;
 
-#if HISE_ENABLE_CROSSFADE_MODULATION_THRESHOLD
-        auto firstValue = compressedValues[0];
-        auto lastValue = compressedValues[numSamples_cr - 1];
-        
-		if (fabsf(firstValue - lastValue) < 0.0001f) // -80dB
+		auto firstValue = compressedValues[0];
+		auto lastValue = compressedValues[numSamples_cr - 1];
+
+		if (fabsf(firstValue - lastValue) < 0.001f)
 		{
 			// We need to manually convert the value from the table
 			// and send it to the mod chain to update the ramp value.
@@ -1375,30 +1037,31 @@ float* ModulatorSampler::calculateCrossfadeModulationValuesForVoice(int voiceInd
 			modChains[Chains::XFade].setCurrentRampValueForVoice(voiceIndex, currentCrossfadeValue);
 			return nullptr;
 		}
-#endif
-		
-        while (--numSamples_cr >= 0)
-        {
-            float value = *compressedValues;
-            *compressedValues++ = getCrossfadeValue(groupIndex, value);
-        }
+		else
+		{
+			while (--numSamples_cr >= 0)
+			{
+				float value = *compressedValues;
+				*compressedValues++ = getCrossfadeValue(groupIndex, value);
+			}
 
-        modChains[Chains::XFade].expandVoiceValuesToAudioRate(voiceIndex, startSample, numSamples);
+			modChains[Chains::XFade].expandVoiceValuesToAudioRate(voiceIndex, startSample, numSamples);
 
-        auto return_ptr = modChains[Chains::XFade].getWritePointerForVoiceValues(0);
+			auto return_ptr = modChains[Chains::XFade].getWritePointerForVoiceValues(0);
 
-        // It might be possible that the expansion results in a "constantification", so check again...
-        if (return_ptr != nullptr)
-        {
-            currentCrossfadeValue = 1.0f;
-            return return_ptr;
-        }
-        else
-        {
-            // Just grab the last mod value, it's already converted using the tables.
-            currentCrossfadeValue = modChains[Chains::XFade].getConstantModulationValue();
-            return nullptr;
-        }
+			// It might be possible that the expansion results in a "constantification", so check again...
+			if (return_ptr != nullptr)
+			{
+				currentCrossfadeValue = 1.0f;
+				return return_ptr;
+			}
+			else
+			{
+				// Just grab the last mod value, it's already converted using the tables.
+				currentCrossfadeValue = modChains[Chains::XFade].getConstantModulationValue();
+				return nullptr;
+			}
+		}
 	}
 	else
 	{
@@ -1414,103 +1077,8 @@ const float * ModulatorSampler::getCrossfadeModValues() const
 	return crossfadeGroups ? modChains[Chains::XFade].getReadPointerForVoiceValues(0) : nullptr;
 }
 
-juce::ValueTree ModulatorSampler::parseMetadata(const File& sampleFile)
-{
-	AudioFormatManager *afm = &(getMainController()->getSampleManager().getModulatorSamplerSoundPool2()->afm);
-
-	ScopedPointer<AudioFormatReader> reader = afm->createReaderFor(sampleFile);
-
-	if (reader != nullptr)
-	{
-		auto v = getSamplePropertyTreeFromMetadata(reader->metadataValues);
-		auto fileName = PoolReference(getMainController(), sampleFile.getFullPathName(), FileHandlerBase::Samples).getReferenceString();
-		v.setProperty(SampleIds::FileName, fileName, nullptr);
-		return v;
-	}
-
-	return {};
-
-}
-
-#define SET_PROPERTY_FROM_METADATA_STRING(string, prop) if (string.isNotEmpty()) sample.setProperty(prop, string.getIntValue(), nullptr);
-
-juce::ValueTree ModulatorSampler::getSamplePropertyTreeFromMetadata(const StringPairArray& metadata)
-{
-	ValueTree sample("Metadata");
-
-	const String format = metadata.getValue("MetaDataSource", "");
-	String lowVel, hiVel, loKey, hiKey, root, start, end, loopEnabled, loopStart, loopEnd;
-
-	if (format == "AIFF")
-	{
-		lowVel = metadata.getValue("LowVelocity", "");
-		hiVel = metadata.getValue("HighVelocity", "");
-		loKey = metadata.getValue("LowNote", "");
-		hiKey = metadata.getValue("HighNote", "");
-		root = metadata.getValue("MidiUnityNote", "");
-
-		loopEnabled = metadata.getValue("Loop0Type", "");
-
-		const int loopStartId = metadata.getValue("Loop0StartIdentifier", "-1").getIntValue();
-		const int loopEndId = metadata.getValue("Loop0EndIdentifier", "-1").getIntValue();
-
-		int loopStartIndex = -1;
-		int loopEndIndex = -1;
-
-		const int numCuePoints = metadata.getValue("NumCuePoints", "0").getIntValue();
-
-		for (int i = 0; i < numCuePoints; i++)
-		{
-			const String idTag = "CueLabel" + String(i) + "Identifier";
-
-			if (metadata.getValue(idTag, "-2").getIntValue() == loopStartId)
-			{
-				loopStartIndex = i;
-				loopStart = metadata.getValue("Cue" + String(i) + "Offset", "");
-			}
-			else if (metadata.getValue(idTag, "-2").getIntValue() == loopEndId)
-			{
-				loopEndIndex = i;
-				loopEnd = metadata.getValue("Cue" + String(i) + "Offset", "");
-			}
-		}
-	}
-	else if (format == "WAV")
-	{
-		loopStart = metadata.getValue("Loop0Start", "");
-		loopEnd = metadata.getValue("Loop0End", "");
-		loopEnabled = (loopStart.isNotEmpty() && loopStart != "0" && loopEnd.isNotEmpty() && loopEnd != "0") ? "1" : "";
-	}
-
-	SET_PROPERTY_FROM_METADATA_STRING(lowVel, SampleIds::LoVel);
-	SET_PROPERTY_FROM_METADATA_STRING(hiVel, SampleIds::HiVel);
-	SET_PROPERTY_FROM_METADATA_STRING(loKey, SampleIds::LoKey);
-	SET_PROPERTY_FROM_METADATA_STRING(hiKey, SampleIds::HiKey);
-	SET_PROPERTY_FROM_METADATA_STRING(root, SampleIds::Root);
-	SET_PROPERTY_FROM_METADATA_STRING(start, SampleIds::SampleStart);
-	SET_PROPERTY_FROM_METADATA_STRING(end, SampleIds::SampleEnd);
-	SET_PROPERTY_FROM_METADATA_STRING(loopEnabled, SampleIds::LoopEnabled);
-	SET_PROPERTY_FROM_METADATA_STRING(loopStart, SampleIds::LoopStart);
-	SET_PROPERTY_FROM_METADATA_STRING(loopEnd, SampleIds::LoopEnd);
-
-	return sample;
-}
-
-#undef SET_PROPERTY_FROM_METADATA_STRING
-
-void ModulatorSampler::setVoiceLimit(int newVoiceLimit)
-{
-	realVoiceAmount = jmax(2, newVoiceLimit);
-
-	ModulatorSynth::setVoiceLimit(realVoiceAmount * getNumActiveGroups());
-}
-
 float ModulatorSampler::getConstantCrossFadeModulationValue() const noexcept
 {
-	// Return the rr group volume if it is set
-	if (!crossfadeGroups)
-		return useRRGain ? rrGroupGains[multiRRGroupState.getSingleGroupIndex() -1] : 1.0f;
-
 #if HISE_PLAY_ALL_CROSSFADE_GROUPS_WHEN_EMPTY
 
 	// This plays all crossfade groups until there's a modulator present.
@@ -1520,18 +1088,19 @@ float ModulatorSampler::getConstantCrossFadeModulationValue() const noexcept
 	}
 #endif
 
+	if (!crossfadeGroups)
+		return 1.0f;
+
 	return currentCrossfadeValue;
 }
 
 float ModulatorSampler::getCrossfadeValue(int groupIndex, float modValue) const
 {
-	if (auto st = static_cast<const SampleLookupTable*>(getTableUnchecked(groupIndex)))
-	{
-		modValue = CONSTRAIN_TO_0_1(modValue);
-		return st->getInterpolatedValue((double)modValue, sendNotificationAsync);
-	}
-	
-	return 0.0f;
+	SampleLookupTable * table = crossfadeTables[groupIndex];
+
+	modValue = CONSTRAIN_TO_0_1(modValue);
+
+	return table->getInterpolatedValue((double)modValue * (double)SAMPLE_LOOKUP_TABLE_SIZE);
 }
 
 void ModulatorSampler::clearSampleMap(NotificationType n)
@@ -1548,24 +1117,6 @@ void ModulatorSampler::clearSampleMap(NotificationType n)
 	sampleMap->clear(n);
 }
 
-
-void ModulatorSampler::reloadSampleMap()
-{
-	auto ref = getSampleMap()->getReference();
-
-	if (!ref.isValid())
-		return;
-
-	auto f = [ref](Processor* p)
-	{
-		auto s = static_cast<ModulatorSampler*>(p);
-		s->clearSampleMap(dontSendNotification);
-		s->loadSampleMap(ref);
-		return SafeFunctionCall::OK;
-	};
-
-	killAllVoicesAndCall(f, true);
-}
 
 void ModulatorSampler::loadSampleMap(PoolReference ref)
 {
@@ -1606,7 +1157,7 @@ void ModulatorSampler::updateRRGroupAmountAfterMapLoad()
 		maxGroup = jmax<int>(maxGroup, sound->getSampleProperty(SampleIds::RRGroup));
 	}
 
-	setAttribute(ModulatorSampler::RRGroupAmount, (float)maxGroup, sendNotificationSync);
+	setAttribute(ModulatorSampler::RRGroupAmount, (float)maxGroup, sendNotification);
 
 }
 
@@ -1633,76 +1184,17 @@ bool ModulatorSampler::saveSampleMapAsMonolith(Component* mainEditor) const
 	return sampleMap->saveAsMonolith(mainEditor);
 }
 
-bool ModulatorSampler::setCurrentGroupIndex(int currentIndex, int eventId)
+bool ModulatorSampler::setCurrentGroupIndex(int currentIndex)
 {
 	if (currentIndex <= rrGroupAmount)
 	{
-		if(eventId != -1)
-		{
-			MultiGroupState newState;
-			newState.setSingleGroupIndex(currentIndex);
-			eventIdsForGroupIndexes.insertWithoutSearch({ (uint16)eventId, newState});
-		}
-		else
-			multiRRGroupState.setSingleGroupIndex(currentIndex);
-
+		currentRRGroupIndex = currentIndex;
 		return true;
 	}
 	else
 	{
 		return false;
 	}
-}
-
-void ModulatorSampler::setRRGroupVolume(int groupIndex, float gainValue)
-{
-	if (groupIndex == -1)
-		groupIndex = multiRRGroupState.getSingleGroupIndex();
-
-	FloatSanitizers::sanitizeFloatNumber(gainValue);
-
-	--groupIndex;
-
-	useRRGain = true;
-
-	if (isPositiveAndBelow(groupIndex, rrGroupGains.size()))
-		rrGroupGains.setUnchecked(groupIndex, gainValue);
-}
-
-bool ModulatorSampler::setMultiGroupState(int groupIndex, bool shouldBeEnabled, int eventId)
-{
-	auto& state = multiRRGroupState;
-
-	if(eventId != -1)
-	{
-		eventIdsForGroupIndexes.insertWithoutSearch({(uint16)eventId, MultiGroupState()});
-		state = (eventIdsForGroupIndexes.begin() + (eventIdsForGroupIndexes.size()-1))->second;
-	}
-
-	if (groupIndex == -1)
-	{
-		state.setAll(shouldBeEnabled);
-		return true;
-	}
-	else
-	{
-		state.set(groupIndex, shouldBeEnabled);
-		return (groupIndex - 1) < rrGroupAmount;
-	}
-}
-
-bool ModulatorSampler::setMultiGroupState(const int* data128, int numSet, int eventId)
-{
-	auto& state = multiRRGroupState;
-
-	if(eventId != -1)
-	{
-		eventIdsForGroupIndexes.insertWithoutSearch({(uint16)eventId, MultiGroupState()});
-		state = (eventIdsForGroupIndexes.begin() + (eventIdsForGroupIndexes.size()-1))->second;
-	}
-
-	state.copyFromIntArray(data128, 128, numSet);
-	return true;
 }
 
 void ModulatorSampler::setRRGroupAmount(int newGroupLimit)
@@ -1716,20 +1208,6 @@ void ModulatorSampler::setRRGroupAmount(int newGroupLimit)
 
 	while (auto sound = sIter.getNextSound())
 		sound->setMaxRRGroupIndex(rrGroupAmount);
-
-	rrGroupGains.ensureStorageAllocated(rrGroupAmount);
-
-	for (int i = rrGroupGains.size(); i < rrGroupAmount; i++)
-		rrGroupGains.add(1.0f);
-
-	// reset this, so it doesn't use a lookup as long as setRRGroupVolume isn't called
-	useRRGain = false;
-
-	ModulatorSynth::setVoiceLimit(realVoiceAmount * getNumActiveGroups());
-
-#if USE_BACKEND
-	getSampleEditHandler()->groupBroadcaster.sendMessage(sendNotificationAsync, getCurrentRRGroup(), &getSamplerDisplayValues().visibleGroups);
-#endif
 }
 
 
@@ -1747,41 +1225,9 @@ bool ModulatorSampler::isNoteNumberMapped(int noteNumber) const
 	return false;
 }
 
-int ModulatorSampler::getMidiInputLockValue(const Identifier& id) const
-{
-	if (id == SampleIds::RRGroup)
-		return lockRRGroup;
-	if (id == SampleIds::LoVel || id == SampleIds::HiVel)
-		return lockVelocity;
-    
-    return 0;
-}
-
-void ModulatorSampler::toggleMidiInputLock(const Identifier& id, int lockValue)
-{
-	if (id == SampleIds::RRGroup)
-	{
-		if (lockRRGroup == -1)
-			lockRRGroup = lockValue;
-		else
-			lockRRGroup = -1;
-	}
-		
-	if (id == SampleIds::LoVel || id == SampleIds::HiVel)
-	{
-		if (lockVelocity == -1)
-			lockVelocity = lockValue;
-		else
-			lockVelocity = -1;
-	}
-}
-
 bool ModulatorSampler::preloadAllSamples()
 {
-	int preloadSizeToUse = (int)getAttribute(ModulatorSampler::PreloadSize) * getPreloadScaleFactor();
-
-	if (shouldPlayFromPurge())
-		preloadSizeToUse = 0;
+	const int preloadSizeToUse = (int)getAttribute(ModulatorSampler::PreloadSize) * getPreloadScaleFactor();
 
 	resetNotes();
 	setShouldUpdateUI(false);
@@ -1809,7 +1255,7 @@ bool ModulatorSampler::preloadAllSamples()
 
 		if (getNumMicPositions() == 1)
 		{
-			auto s = sound->getReferenceToSound().get();
+			auto s = sound->getReferenceToSound();
 
 			progress = (double)currentIndex++ / (double)numToLoad;
 
@@ -1828,7 +1274,7 @@ bool ModulatorSampler::preloadAllSamples()
 				{
 					if (isEnabled)
 					{
-						if (!preloadSample(s.get(), preloadSizeToUse))
+						if (!preloadSample(s, preloadSizeToUse))
 							return false;
 					}
 					else
@@ -1843,7 +1289,7 @@ bool ModulatorSampler::preloadAllSamples()
 	refreshMemoryUsage();
 	setShouldUpdateUI(true);
 	setHasPendingSampleLoad(false);
-	sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom);
+	sendChangeMessage();
 
 	return true;
 }
@@ -1878,22 +1324,18 @@ bool ModulatorSampler::preloadSample(StreamingSamplerSound * s, const int preloa
 }
 
 ModulatorSampler::ScopedUpdateDelayer::ScopedUpdateDelayer(ModulatorSampler* s) :
-	sampler(s),
-	prevValue(s->delayUpdate)
+	sampler(s)
 {
 	sampler->delayUpdate = true;
 }
 
 ModulatorSampler::ScopedUpdateDelayer::~ScopedUpdateDelayer()
 {
-	sampler->delayUpdate = prevValue;
+	sampler->delayUpdate = false;
 
-	if (!prevValue)
-	{
-		sampler->refreshMemoryUsage();
-		sampler->sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom);
-		sampler->getSampleMap()->sendSampleMapChangeMessage(sendNotificationAsync);
-	}
+	sampler->refreshMemoryUsage();
+	sampler->sendChangeMessage();
+	sampler->getSampleMap()->sendSampleMapChangeMessage(sendNotificationAsync);
 }
 
 ModulatorSampler::GroupedRoundRobinCollector::GroupedRoundRobinCollector(ModulatorSampler* s):
