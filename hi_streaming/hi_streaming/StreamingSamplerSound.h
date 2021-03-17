@@ -85,7 +85,7 @@ public:
 	StreamingSamplerSound(const String &fileNameToLoad, StreamingSamplerSoundPool *pool);
 
 	/** Creates a new StreamingSamplerSound from a monolithic file. */
-	StreamingSamplerSound(HlacMonolithInfo::Ptr info, int channelIndex, int sampleIndex);
+	StreamingSamplerSound(MonolithInfoToUse *info, int channelIndex, int sampleIndex);
 
 	~StreamingSamplerSound();
 
@@ -151,10 +151,10 @@ public:
 	void setLoopEnd(int newLoopEnd);;
 
 	/** Returns the loop start. */
-	int getLoopStart(bool getReverseLoopPoint=false) const noexcept;;
+	int getLoopStart() const noexcept { return loopStart; };
 
 	/** Returns the loop end. */
-	int getLoopEnd(bool getReverseLoopPoint=false) const noexcept;;
+	int getLoopEnd() const noexcept { return loopEnd; };
 
 	/** Returns the loop length. */
 	int getLoopLength() const noexcept { return loopEnd - loopStart; };
@@ -162,14 +162,11 @@ public:
 	/** This sets the crossfade length. */
 	void setLoopCrossfade(int newCrossfadeLength);;
 
-	/** Returns the length of the crossfade (might not be the actual crossfade length if the sample is reversed). */
+	/** Returns the length of the crossfade. */
 	int getLoopCrossfade() const noexcept { return crossfadeLength; };
 
 	/** Loads the entire sample into the preload buffer and reverses it. */
 	void setReversed(bool shouldBeReversed);
-
-	/** Checks if the sound is reversed. */
-	bool isReversed() const { return fileReader.isReversed(); }
 
 	/** Sets the basic MIDI mapping data (key-range, velocity-range and root note) from the given data object. */
 	void setBasicMappingData(const StreamingHelpers::BasicMappingData& data);
@@ -238,7 +235,12 @@ public:
 	// ==============================================================================================================================================
 
 	/** Returns the sampleRate of the sample (not the current playback samplerate). */
-	double getSampleRate() noexcept;;
+	double getSampleRate() const noexcept 
+	{ 
+		// Must be initialised!
+		jassert(sampleRate != -1.0);
+		return sampleRate; 
+	};
 
 	/** Returns the length of the loaded audio file in samples. */
 	int64 getLengthInSamples() const noexcept { return fileReader.getSampleLength(); };
@@ -282,14 +284,7 @@ public:
 
 	const CriticalSection& getSampleLock() const { return lock; };
 
-    /** Use this in order to skip the preloading before all properties have been set. */
-    void setDelayPreloadInitialisation(bool shouldDelay);
-    
-	void setCrossfadeGammaValue(float newGammaValue);
-
 private:
-
-	
 
 	// ==============================================================================================================================================
 
@@ -306,7 +301,7 @@ private:
 		// ==============================================================================================================================================
 
 		void setFile(const String &fileName);
-		void setMonolithicInfo(HlacMonolithInfo::Ptr info, int channelIndex, int sampleIndex);
+		void setMonolithicInfo(MonolithInfoToUse* info, int channelIndex, int sampleIndex);
 
 		String getFileName(bool getFullPath);
 		void checkFileReference();
@@ -386,25 +381,18 @@ private:
 
 		AudioFormatWriter* createWriterWithSameFormat(OutputStream* out);
 
-		void setReversed(bool shouldBeReversed)
-		{
-			reversed = shouldBeReversed;
-		}
-
-		bool isReversed() const { return reversed; }
-
 		// ==============================================================================================================================================
 
 	private:
 
-		bool reversed = false;
-
 		StreamingSamplerSoundPool *pool;
 
-		HlacMonolithInfo::Ptr monolithicInfo;
+		ReferenceCountedObjectPtr<MonolithInfoToUse> monolithicInfo = nullptr;
 		int monolithicIndex = -1;
 		int monolithicChannelIndex = -1;
 		String monolithicName;
+
+		CriticalSection readLock2;
 
 		ReadWriteLock fileAccessLock;
 
@@ -430,7 +418,7 @@ private:
 
         bool fileFormatSupportsMemoryReading = true;
 
-		bool missing = false;
+		bool missing;
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(FileReader)
 
@@ -459,9 +447,8 @@ private:
 	void loopChanged();
 	void lengthChanged();
 
-	void calculateCrossfadeArea();
-    void rebuildCrossfadeBuffer();
-	void applyCrossfadeToInternalBuffers();
+    void rebuildCrossfadeBuffer(bool preloadContainsLoop);
+	void applyCrossfadeToPreloadBuffer();
 
 	/** This fills the supplied AudioSampleBuffer with samples.
 	*
@@ -473,7 +460,9 @@ private:
 	// used to wrap the read process for looping
 	void fillInternal(hlac::HiseSampleBuffer &sampleBuffer, int samplesToCopy, int uptime, int offsetInBuffer = 0) const;
 
+
 	// ==============================================================================================================================================
+
 
 	CriticalSection lock;
 
@@ -481,12 +470,17 @@ private:
 
 	bool purged;
 
-    bool delayPreloadInitialisation = false;
-    
 	friend class SampleLoader;
 
 	hlac::HiseSampleBuffer preloadBuffer;
 	double sampleRate;
+
+	int monolithOffset;
+	int monolithLength;
+
+	bool reversed = false;
+
+	bool useSmallLoopBuffer = false;
 
 	int preloadSize;
 	int internalPreloadSize;
@@ -501,9 +495,8 @@ private:
 	bool loopEnabled;
 	int loopStart;
 	int loopEnd;
+	int loopLength;
 	int crossfadeLength;
-
-	float crossfadeGamma = 1.0f;
 
 	Range<int> crossfadeArea;
 
@@ -513,8 +506,9 @@ private:
 	BigInteger velocityRange = 0;
 	
 	// contains the precalculated crossfade
-	ScopedPointer<hlac::HiseSampleBuffer> loopBuffer;
-	ScopedPointer<hlac::HiseSampleBuffer> smallLoopBuffer;
+	hlac::HiseSampleBuffer loopBuffer;
+
+	hlac::HiseSampleBuffer smallLoopBuffer;
 
 	// ==============================================================================================================================================
 

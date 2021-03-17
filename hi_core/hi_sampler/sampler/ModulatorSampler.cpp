@@ -619,6 +619,7 @@ void ModulatorSampler::prepareToPlay(double newSampleRate, int samplesPerBlock)
 
 		if (envelopeFilter != nullptr)
 			setEnableEnvelopeFilter();
+		StreamingSamplerVoice::initTemporaryVoiceBuffer(&temporaryVoiceBuffer, samplesPerBlock, (double)MAX_SAMPLER_PITCH);
 	}
 }
 
@@ -779,7 +780,13 @@ void ModulatorSampler::refreshMemoryUsage(bool fastMode)
 		const auto temporaryBufferShouldBeFloatingPoint = !sampleMap->isMonolith();
 #endif
 
-		if (temporaryBufferIsFloatingPoint != temporaryBufferShouldBeFloatingPoint || temporaryVoiceBuffer.getNumSamples() == 0)
+	if (temporaryBufferIsFloatingPoint != temporaryBufferShouldBeFloatingPoint)
+	{
+		temporaryVoiceBuffer = hlac::HiseSampleBuffer(temporaryBufferShouldBeFloatingPoint, 2, 0);
+
+		StreamingSamplerVoice::initTemporaryVoiceBuffer(&temporaryVoiceBuffer, getLargestBlockSize(), (double)MAX_SAMPLER_PITCH);
+
+		for (auto i = 0; i < getNumVoices(); i++)
 		{
 			temporaryVoiceBuffer = hlac::HiseSampleBuffer(temporaryBufferShouldBeFloatingPoint, 2, 0);
 
@@ -814,11 +821,12 @@ void ModulatorSampler::refreshMemoryUsage(bool fastMode)
 				}
 			}
 		}
-        
+
         if(!fastMode && maxPitch > (double)MAX_SAMPLER_PITCH)
         {
             StreamingSamplerVoice::initTemporaryVoiceBuffer(&temporaryVoiceBuffer, getLargestBlockSize(), maxPitch * 1.2); // give it a little more to be safe...
         }
+
 	}
 
 	const int64 streamBufferSizePerVoice = 2 *				// two buffers
