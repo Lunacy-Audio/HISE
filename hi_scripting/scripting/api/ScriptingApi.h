@@ -39,8 +39,6 @@ namespace hise { using namespace juce;
 class ScriptBaseMidiProcessor;
 class JavascriptMidiProcessor;
 
-
-
 /** This class wraps all available functions for the scripting engine provided by a ScriptProcessor.
 *	@ingroup scripting
 */
@@ -114,27 +112,6 @@ public:
 		/** Returns the Velocity. */
 		int getVelocity() const;
 
-		/** Checks if the message is a MONOPHONIC aftertouch message. */
-		bool isMonophonicAfterTouch() const;;
-
-		/** Returns the aftertouch value of the monophonic aftertouch message. */
-		int getMonophonicAftertouchPressure() const;;
-
-		/** Sets the pressure value of the monophonic aftertouch message */
-		void setMonophonicAfterTouchPressure(int pressure);;
-
-		/** Checks if the message is a POLYPHONIC aftertouch message (Use isChannelPressure() for monophonic aftertouch). */
-		bool isPolyAftertouch() const;;
-
-		/** Returns the polyphonic aftertouch note number. */
-		int getPolyAfterTouchNoteNumber() const;
-
-		/** Checks if the message is a POLYPHONIC aftertouch message (Use isChannelPressure() for monophonic aftertouch). */
-		int getPolyAfterTouchPressureValue() const;;
-
-		/** Copied from MidiMessage. */
-		void setPolyAfterTouchNoteNumberAndPressureValue(int noteNumber, int aftertouchAmount);;
-
 		/** Ignores the event. */
 		void ignoreEvent(bool shouldBeIgnored=true);;
 
@@ -176,20 +153,11 @@ public:
 		/** Stores a copy of the current event into the given holder object. */
 		void store(var messageEventHolder) const;
 
-		/** Creates a artificial copy of this event and returns the new event ID. If the event is already artificial it will return the event ID. */
+		/** Creates a artificial copy of this event and returns the new event ID. */
 		int makeArtificial();
-
-		/** Creates a artificial copy of this event and returns the new event ID. If the event is artificial it will make a new one with a new ID. */
-		int makeArtificialOrLocal();
 
 		/** Checks if the event was created by a script earlier. */
 		bool isArtificial() const;
-
-		/** Sets a callback that will be performed when an all notes off message is received. */
-		void setAllNotesOffCallback(var onAllNotesOffCallback);
-
-		/** This will forward the message to the MIDI out of the plugin. */
-		void sendToMidiOut();
 
 		// ============================================================================================================
 
@@ -200,21 +168,7 @@ public:
 
 		struct Wrapper;
 
-		void pushArtificialNoteOn(const HiseEvent& e)
-		{
-			jassert(e.isArtificial());
-			artificialNoteOnIds[e.getNoteNumber()] = e.getEventId();
-		}
-
-		void onAllNotesOff();
-
 	private:
-
-		int makeArtificialInternal(bool makeLocal);
-		
-		WeakCallbackHolder allNotesOffCallback;
-
-		friend class Synth;
 
 		friend class JavascriptMidiProcessor;
 		friend class HardcodedScriptProcessor;
@@ -224,10 +178,7 @@ public:
 
 		uint16 artificialNoteOnIds[128];
 
-		HiseEvent artificialNoteOnThatWasKilled;
-
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Message);
-		JUCE_DECLARE_WEAK_REFERENCEABLE(Message);
 	};
 
 	/** All scripting methods related to the main engine can be accessed here.
@@ -241,7 +192,7 @@ public:
 		// ============================================================================================================
 
 		Engine(ProcessorWithScriptingContent *p);
-		~Engine();
+		~Engine() {};
 
 		Identifier getObjectName() const override  { RETURN_STATIC_IDENTIFIER("Engine"); };
 
@@ -259,20 +210,11 @@ public:
 		/** Sets the minimum sample rate for the global processing (and adds oversampling if the current samplerate is lower). */
 		bool setMinimumSampleRate(double minimumSampleRate);
 
-		/** Sets the maximum buffer size that is processed at once. If the buffer size from the audio driver / host is bigger than this number, it will split up the incoming buffer and call process multiple times. */
-		void setMaximumBlockSize(int numSamplesPerBlock);
-
 		/** Returns the current sample rate. */
 		double getSampleRate() const;
 
-		/** Returns the current maximum processing block size. */
-		int getBufferSize() const;
-
 		/** Converts milli seconds to samples */
 		double getSamplesForMilliSeconds(double milliSeconds) const;;
-
-		/** Returns the tempo name for the given index */
-		String getTempoName(int tempoIndex);
 
 		/** Converts samples to quarter beats using the current tempo. */
 		double getQuarterBeatsForSamples(double samples);
@@ -322,26 +264,11 @@ public:
 		/** Iterates the given sub-directory of the Samples folder and returns a list with all references to audio files. */
 		var getSampleFilesFromDirectory(const String& relativePathFromSampleFolder, bool recursive);
 
-		/** Returns the platform specific extra definitions from the Project settings as JSON object. */
-		var getExtraDefinitionsInBackend();
-		
 		/** Shows a message with a question and executes the function after the user has selected his choice. */
 		void showYesNoWindow(String title, String markdownMessage, var callback);
 
-		/** Decodes an Base64 encrypted valuetree (eg. HiseSnippets). */
-		String decodeBase64ValueTree(const String& b64Data);
-
 		/** Creates a (or returns an existing ) script look and feel object. */
 		var createGlobalScriptLookAndFeel();
-
-		/** Performs an action that can be undone via Engine.undo(). */
-		bool performUndoAction(var thisObject, var undoAction);
-
-		/** Returns the amount of output channels. */
-		int getNumPluginChannels() const;
-
-        /** Creates an FFT object. */
-		var createFFT();
 
 		/** Returns the latency of the plugin as reported to the host. Default is 0. */
 		int getLatencySamples() const;
@@ -361,47 +288,8 @@ public:
 		/** Creates (and activates) the expansion handler. */
 		var createExpansionHandler();
 
-		/** Creates a MIDI Automation handler. */
-		var createMidiAutomationHandler();
-
-		/** Creates an user preset handler. */
-		var createUserPresetHandler();
-
-		/** Creates a broadcaster that can send messages to attached listeners. */
-		var createBroadcaster(var defaultValues);
-
 		/** Creates a reference to the DSP network of another script processor. */
 		var getDspNetworkReference(String processorId, String id);
-
-		/** Returns a reference to the global routing manager. */
-		var getGlobalRoutingManager();
-
-        /** Returns a reference to the global Loris manager. */
-        var getLorisManager();
-        
-		/** Returns a reference to a complex data type from the given module. */
-		var getComplexDataReference(String dataType, String moduleId, int index);
-
-		/** Creates a background task that can execute heavyweight functions. */
-		var createBackgroundTask(String name);
-
-        /** Creates a fix object factory using the data layout. */
-        var createFixObjectFactory(var layoutDescription);
-
-		/** Creates a thread safe storage container. */
-		var createThreadSafeStorage();
-
-		/** Creates a reference to the script license manager. */
-		var createLicenseUnlocker();
-
-		/** Creates a beatport manager object. */
-		var createBeatportManager();
-
-		/** Renders a MIDI event list as audio data on a background thread and calls a function when it's ready. */
-		void renderAudio(var eventList, var finishCallback);
-
-		/** Previews a audio buffer with a callback indicating the state. */
-		void playBuffer(var bufferData, var callback, double fileSampleRate);
 
 		/** Sends an allNotesOff message at the next buffer. */
 		void allNotesOff();
@@ -418,12 +306,6 @@ public:
 		/** Extends the compilation timeout. Use this if you have a long task that would get cancelled otherwise. This is doing nothing in compiled plugins. */
 		void extendTimeOut(int additionalMilliseconds);
 
-		/** Sets the global pitch factor (in semitones). */
-		void setGlobalPitchFactor(double pitchFactorInSemitones);
-
-		/** Returns the global pitch factor (in semitones). */
-		double getGlobalPitchFactor() const;
-
 		/** Changes the lowest visible key on the on screen keyboard. */
 		void setLowestKeyToDisplay(int keyNumber);
 
@@ -433,20 +315,11 @@ public:
 		/** Shows a message with an overlay on the compiled plugin with an "OK" button in order to notify the user about important events. */
 		void showMessage(String message);
 
-		/** Shows a message box with an OK button and a icon defined by the type variable. */
-		void showMessageBox(String title, String markdownMessage, int type);
-
 		/** Returns the millisecond value for the supplied tempo (HINT: Use "TempoSync" mode from Slider!) */
 		double getMilliSecondsForTempo(int tempoIndex) const;;
 
-		/** launches the given URL in the system's web browser. */
-		void openWebsite(String url);
-
-		/** Copies the given text to the clipboard. */
-		void copyToClipboard(String textToCopy);
-
-		/** Returns the clipboard content. */
-		String getClipboardContent();
+        /** launches the given URL in the system's web browser. */
+        void openWebsite(String url);
 
 		/** Creates a list of all available expansions. */
 		var getExpansionList();
@@ -466,6 +339,9 @@ public:
 		/** Returns the currently loaded user preset (without extension). */
 		String getCurrentUserPresetName();
 
+		/** Returns the currently loaded user preset file */
+		var getCurrentUserPresetFile();
+
 		/** Asks for a preset name (if presetName is empty) and saves the current user preset. */
 		void saveUserPreset(var presetName);
 
@@ -478,11 +354,14 @@ public:
 		/** Sets the tags that appear in the user preset browser. */
 		void setUserPresetTagList(var listOfTags);
 
+		/** Parses tags from presetXML */
+		var getTagsFromPreset(var file);
+
+		/** Writes tags in preset XML */
+		void setTagsForPreset(var file, var listOfTags);
+
 		/** Returns a list of all available user presets as relative path. */
 		var getUserPresetList() const;
-
-		/** Checks if the user preset is read only. */
-		bool isUserPresetReadOnly(var optionalFile);
 
 		/** Sets whether the samples are allowed to be duplicated. Set this to false if you operate on the same samples differently. */
 		void setAllowDuplicateSamples(bool shouldAllow);
@@ -492,9 +371,6 @@ public:
 
 		/** Loads a file and returns its content as array of Buffers. */
 		var loadAudioFileIntoBufferArray(String audioFileReference);
-
-		/** Returns the list of wavetables of the current expansion (or factory content). */
-		var getWavetableList();
 
 		/** Loads an image into the pool. You can use a wildcard to load multiple images at once. */
 		void loadImageIntoPool(const String& id);
@@ -529,12 +405,9 @@ public:
 		/** Enables the macro system to be used by the end user. */
 		void setFrontendMacros(var nameList);
 
-		/** Returns the current operating system ("OSX", "LINUX", or ("WIN"). */
+		/** Returns the current operating system ("OSX" or ("WIN"). */
 		String getOS();
-		
-		/** Returns info about the current hardware and OS configuration. */
-		var getSystemStats();
-				
+
 		/** Returns the mobile device that this software is running on. */
 		String getDeviceType();
 
@@ -543,12 +416,6 @@ public:
 
 		/** Returns true if running as VST / AU / AAX plugin. */
 		bool isPlugin() const;
-
-		/** Returns true if the project is running inside HISE. You can use this during development to simulate different environments. */
-		bool isHISE();
-
-		/** Forces a full (asynchronous) reload of all samples (eg. after the sample directory has changed). */
-		void reloadAllSamples();
 
 		/** Returns the preload progress from 0.0 to 1.0. Use this to display some kind of loading icon. */
 		double getPreloadProgress();
@@ -568,14 +435,11 @@ public:
 		/** Returns an object that contains all filter modes. */
 		var getFilterModeList() const;
 
-		/** Returns the product version (not the HISE version!). */
-    String getVersion();
+        /** Returns the product version (not the HISE version!). */
+        String getVersion();
 
-    /** Returns the product name (not the HISE name!). */
-    String getName();
-
-		/** Returns project and company info from the Project's preferences. */
-		var getProjectInfo();
+        /** Returns the product name (not the HISE name!). */
+        String getName();
 
 		/** Returns the current peak volume (0...1) for the given channel. */
 		double getMasterPeakLevel(int channel);
@@ -587,13 +451,13 @@ public:
 		DynamicObject *getPlayHead();
 
 		/** Checks if the given CC number is used for parameter automation and returns the index of the control. */
-		int isControllerUsedByAutomation(int controllerNumber);
+		var isControllerUsedByAutomation(int controllerNumber);
 
 		/** Creates a MIDI List object. */
-    ScriptingObjects::MidiList *createMidiList();
+        ScriptingObjects::MidiList *createMidiList();
 
-		/** Creates a unordered stack that can hold up to 128 float numbers. */
-		ScriptingObjects::ScriptUnorderedStack* createUnorderedStack();
+		/** Creates a SliderPack Data object. */
+		ScriptingObjects::ScriptSliderPackData* createSliderPackData();
 
 		/** Creates a SliderPack Data object and registers it so you can access it from other modules. */
 		ScriptingObjects::ScriptSliderPackData* createAndRegisterSliderPackData(int index);
@@ -604,35 +468,14 @@ public:
 		/** Creates a audio file holder and registers it so you can access it from other modules. */
 		ScriptingObjects::ScriptAudioFile* createAndRegisterAudioFile(int index);
 
-		/** Creates a ring buffer and registers it so you can access it from other modules. */
-		ScriptingObjects::ScriptRingBuffer* createAndRegisterRingBuffer(int index);
-
 		/** Creates a new timer object. */
 		ScriptingObjects::TimerObject* createTimerObject();
 
 		/** Creates a storage object for Message events. */
 		ScriptingObjects::ScriptingMessageHolder* createMessageHolder();
 
-		/** Creates a neural network with the given ID. */
-		ScriptingObjects::ScriptNeuralNetwork* createNeuralNetwork(String id);
-
-		/** Creates an object that can listen to transport events. */
-		var createTransportHandler();
-
-		/** Creates a modulation matrix object that handles dynamic modulation using the given Global Modulator Container as source. */
-		var createModulationMatrix(String containerId);
-
-		/** Creates a macro handler that lets you programmatically change the macro connections. */
-		var createMacroHandler();
-
 		/** Exports an object as JSON. */
 		void dumpAsJSON(var object, String fileName);
-
-		/** Compresses a JSON object as Base64 string using zstd. */
-		String compressJSON(var object);
-
-		/** Expands a compressed JSON object. */
-		var uncompressJSON(const String& b64);
 
 		/** Imports a JSON file as object. */
 		var loadFromJSON(String fileName);
@@ -643,22 +486,11 @@ public:
 		/** Matches the string against the regex token. */
 		bool matchesRegex(String stringToMatch, String regex);
 
-		/** Creates an error handler that reacts on initialisation errors. */
-		var createErrorHandler();
+        /** Returns an array with all matches. */
+        var getRegexMatches(String stringToMatch, String regex);
 
-		/** Returns an array with all matches. */
-		var getRegexMatches(String stringToMatch, String regex);
-
-		/** Returns a string of the value with the supplied number of digits. */
-		String doubleToString(double value, int digits);
-		
-		/** Returns the width of the string for the given font properties. */
-		float getStringWidth(String text, String fontName, float fontSize, float fontSpacing);
-
-		String intToHexString(int value);
-
-		/** Signals that the application should terminate. */
-		void quit();
+        /** Returns a string of the value with the supplied number of digits. */
+        String doubleToString(double value, int digits);
 
 		/** Reverts the last controller change. */
 		void undo();
@@ -666,191 +498,16 @@ public:
 		/** Redo the last controller change. */
 		void redo();
 
-        /** Clears the undo history. */
-        void clearUndoHistory();
-        
 		/** Returns a fully described string of this date and time in ISO-8601 format (using the local timezone) with or without divider characters. */
 		String getSystemTime(bool includeDividerCharacters);
-		
+
 		// ============================================================================================================
 
-
-		/** This warning will show up in the console so people can migrate in the next years... */
-		void logSettingWarning(const String& methodName) const;
-
 		struct Wrapper;
-
-		double unused = 0.0;
 
 		ScriptBaseMidiProcessor* parentMidiProcessor;
 
-		ScopedPointer<Thread> currentExportThread;
-
-		struct PreviewHandler;
-
-		ScopedPointer<PreviewHandler> previewHandler;
-
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Engine);
-	};
-
-	/** This class takes over a few of the Engine methods in order to break down this gigantomanic object. */
-	class Date : public ApiClass,
-				   public ScriptingObject
-	{
-	public:
-
-		Date(ProcessorWithScriptingContent* s);
-		~Date() {};
-
-		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Date"); }
-
-		// ================================================================================================== API Calls
-
-		/** Returns a fully described string of this date and time in milliseconds or ISO-8601 format (using the local timezone) with or without divider characters. */
-		String getSystemTimeISO8601(bool includeDividerCharacters);
-		
-		/** Returns the system time in milliseconds. */
-		int64 getSystemTimeMs();
-		
-		/** Returns a time in milliseconds to a date string. */
-		String millisecondsToISO8601(int64 miliseconds, bool includeDividerCharacters);
-		
-		/** Returns a date string to time in milliseconds. */
-		int64 ISO8601ToMilliseconds(String iso8601);
-		
-
-		struct Wrapper;
-	};
-
-
-	/** This class takes over a few of the Engine methods in order to break down this gigantomanic object. */
-	class Settings : public ApiClass,
-					 public ScriptingObject
-	{
-	public:
-
-		Settings(ProcessorWithScriptingContent* s);;
-
-		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Settings"); }
-
-		// ================================================================================================== API Calls
-
-		/** Returns the UI Zoom factor. */
-		double getZoomLevel() const;
-
-		/** Changes the UI zoom (1.0 = 100%). */
-		void setZoomLevel(double newLevel);
-
-		/** Gets the Streaming Mode (0 -> Fast-SSD, 1 -> Slow-HDD) */
-		int getDiskMode();
-
-		/** Sets the Streaming Mode (0 -> Fast-SSD, 1 -> Slow-HDD) */
-		void setDiskMode(int mode);
-
-		/** Returns available audio device types. */
-		var getAvailableDeviceTypes();
-		
-		/** Returns the current audio device type. */
-		String getCurrentAudioDeviceType();
-		
-		/** Sets the current audio device type*/
-		void setAudioDeviceType(String deviceName);
-
-		/** Returns names of available audio devices. */
-		var getAvailableDeviceNames();
-
-		/** Gets the current audio device name*/
-		String getCurrentAudioDevice();
-				
-		/** Sets the current audio device */
-		void setAudioDevice(String name);
-		
-		/** Returns array of available output channel pairs. */
-		var getAvailableOutputChannels();
-
-		/** Returns current output channel pair. */
-		int getCurrentOutputChannel();
-		
-		/** Sets the output channel pair */
-		void setOutputChannel(int index);
-		
-		/** Returns available buffer sizes for the selected audio device. */
-		var getAvailableBufferSizes();
-		
-		/** Returns the current buffer block size. */
-		int getCurrentBufferSize();
-		
-		/** Sets the buffer block size for the selected audio device. */
-		void setBufferSize(int newBlockSize);
-		
-		/** Returns array of available sample rate. */
-		var getAvailableSampleRates();
-
-		/** Returns the current output sample rate (-1 if no audio device selected)*/
-		double getCurrentSampleRate();
-				
-		/** Sets the output sample rate */
-		void setSampleRate(double sampleRate);
-		
-		/** Returns current voice amount multiplier setting. */
-		int getCurrentVoiceMultiplier();
-
-		/** Sets the voice limit multiplier (1, 2, 4, or 8). */
-		void setVoiceMultiplier(int newVoiceAmount);
-
-		/** Clears all MIDI CC assignments. */
-		void clearMidiLearn();
-
-		/** Returns array of MIDI input device names. */
-		var getMidiInputDevices();
-		
-		/** Enables or disables named MIDI input device. */
-		void toggleMidiInput(const String &midiInputName, bool enableInput);
-
-		/** Returns enabled state of midi input device. */
-		bool isMidiInputEnabled(const String &midiInputName);
-		
-		/** Enables or disables MIDI channel (0 = All channels). */
-		void toggleMidiChannel(int index, bool value);
-		
-		/** Returns enabled state of midi channel (0 = All channels). */
-		bool isMidiChannelEnabled(int index);
-
-		/** Returns an array of the form [width, height]. */
-		var getUserDesktopSize();
-
-		/** Returns whether OpenGL is enabled or not. The return value might be out of sync with the actual state (after you changed this setting until the next reload). */
-		bool isOpenGLEnabled() const;
-
-		/** Enable OpenGL. This setting will be applied the next time the interface is rebuild. */
-		void setEnableOpenGL(bool shouldBeEnabled);
-		
-		/** Enables or disables debug logging */
-		void setEnableDebugMode(bool shouldBeEnabled);
-
-		/** Changes the sample folder. */
-		void setSampleFolder(var sampleFolder);
-
-		/** Starts the perfetto profile recording. */
-		void startPerfettoTracing();
-
-		/** Stops the perfetto profile recording and dumps the data to the given file. */
-		void stopPerfettoTracing(var traceFileToUse);
-
-		/** Calls abort to terminate the program. You can use this to check your crash reporting workflow. */
-		void crashAndBurn();
-
-		// ============================================================================================================
-
-	private:
-
-		
-
-		GlobalSettingManager* gm;
-		AudioProcessorDriver* driver;
-		MainController* mc;
-
-		struct Wrapper;
 	};
 
 	/** All scripting functions for sampler specific functionality. */
@@ -863,9 +520,7 @@ public:
 		Sampler(ProcessorWithScriptingContent *p, ModulatorSampler *sampler);
 		~Sampler() {};
 
-		static Identifier getClassName() { RETURN_STATIC_IDENTIFIER("Sampler"); }
-
-		Identifier getObjectName() const override { return getClassName(); }
+		Identifier getObjectName() const override { return "Sampler"; }
 		bool objectDeleted() const override { return sampler.get() == nullptr; }
 		bool objectExists() const override { return sampler.get() != nullptr; }
 
@@ -876,27 +531,6 @@ public:
 
 		/** Enables the group with the given index (one-based). Works only with samplers and `enableRoundRobin(false)`. */
 		void setActiveGroup(int activeGroupIndex);
-
-		/** Enables the group with the given index (one-based) for the given event ID. Works only with samplers and `enableRoundRobin(false)`. */
-		void setActiveGroupForEventId(int eventId, int activeGroupIndex);
-
-		/** Enables the group with the given index (one-based). Allows multiple groups to be active. */
-		void setMultiGroupIndex(var groupIndex, bool enabled);
-
-		/** Enables the group with the given index (one-based) for the given event id. Allows multiple groups to be active. */
-		void setMultiGroupIndexForEventId(int eventId, var groupIndex, bool enabled);
-
-		/** Sets the volume of a particular group (use -1 for active group). Only works with disabled crossfade tables. */
-		void setRRGroupVolume(int groupIndex, int gainInDecibels);
-
-		/** Returns the currently (single) active RR group. */
-		int getActiveRRGroup();
-
-		/** Returns the RR group that is associated with the event ID. */
-		int getActiveRRGroupForEventId(int eventId);
-
-		/** Returns the number of currently active groups. */
-		int getNumActiveGroups() const;
 
 		/** Returns the amount of actual RR groups for the notenumber and velocity*/
 		int getRRGroupsForMessage(int noteNumber, int velocity);
@@ -925,9 +559,6 @@ public:
 		/** Purges all samples of the given mic (Multimic samples only). */
 		void purgeMicPosition(String micName, bool shouldBePurged);
 
-		/** Purges the array of sampler sounds (and unpurges the rest). */
-		void purgeSampleSelection(var selection);
-
 		/** Returns the name of the channel with the given index (Multimic samples only. */
 		String getMicPositionName(int channelIndex);
 
@@ -937,17 +568,11 @@ public:
 		/** Returns an array with all samples from the index data (can be either int or array of int, -1 selects all.). */
 		var createSelectionFromIndexes(var indexData);
 
-		/** Returns an array with all samples that match the filter function. */
-		var createSelectionWithFilter(var filterFunction);
-
 		/** Returns a list of the sounds selected by the selectSounds() method. */
 		var createListFromScriptSelection();
 
 		/** Returns a list of the sounds selected in the samplemap. */
 		var createListFromGUISelection();
-
-		/** Sets the currently selected samples on the interface to the given list. */
-		void setGUISelection(var sampleList, bool addToSelection);
 
         /** Loads the content of the given sample into an array of VariantBuffers that can be used
             for analysis.
@@ -969,33 +594,6 @@ public:
 		/** Loads a new samplemap into this sampler. */
 		void loadSampleMap(const String &fileName);
 
-		/** Loads a samplemap from a list of JSON objects. */
-		void loadSampleMapFromJSON(var jsonSampleMap);
-
-		/** Loads a base64 compressed string with the samplemap. */
-		void loadSampleMapFromBase64(const String& b64);
-
-		/** Returns a base64 compressed string containing the entire samplemap. */
-		String getSampleMapAsBase64();
-
-		/** Creates a JSON object from the sample file that can be used with loadSampleMapFromJSON. */
-		var parseSampleFile(var sampleFile);
-
-		/** Sets the timestretch ratio for the sampler depending on its timestretch mode. */
-		void setTimestretchRatio(double newRatio);
-
-		/** Returns the current timestretching options as JSON object. */
-		var getTimestretchOptions();
-
-		/** Sets the timestretching options from a JSON object. */
-		void setTimestretchOptions(var newOptions);
-
-		/** Converts the user preset data of a audio waveform to a base 64 samplemap. */
-		String getAudioWaveformContentAsBase64(var presetObj);
-
-		/** Loads an SFZ file into the sampler. */
-		var loadSfzFile(var sfzFile);
-
 		/** Loads a few samples in the current samplemap and returns a list of references to these samples. */
 		var importSamples(var fileNameList, bool skipExistingSamples);
 
@@ -1013,9 +611,6 @@ public:
         
         /** Returns the ID of the attribute with the given index. */
 		String getAttributeId(int index);
-
-		/** Returns the index of the attribute with the given ID. */
-		int getAttributeIndex(String id);
 
         /** Sets a attribute to the given value. */
         void setAttribute(int index, var newValue);
@@ -1035,10 +630,8 @@ public:
 		// ============================================================================================================
 
 		struct Wrapper;
-		
-	private:
 
-		ValueTree convertJSONListToValueTree(var jsonSampleList);
+	private:
 
 		WeakReference<Processor> sampler;
 		SelectedItemSet<ModulatorSamplerSound::Ptr> soundSelection;
@@ -1059,8 +652,8 @@ public:
 
 		// ============================================================================================================
 
-		Synth(ProcessorWithScriptingContent *p, Message* messageObject, ModulatorSynth *ownerSynth);
-		~Synth() {}
+		Synth(ProcessorWithScriptingContent *p, ModulatorSynth *ownerSynth);
+		~Synth() { artificialNoteOns.clear(); }
 
 		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Synth"); };
 
@@ -1070,7 +663,6 @@ public:
 		typedef ScriptingObjects::ScriptingSynth ScriptSynth;
 		typedef ScriptingObjects::ScriptingAudioSampleProcessor ScriptAudioSampleProcessor;
 		typedef ScriptingObjects::ScriptingTableProcessor ScriptTableProcessor;
-		typedef ScriptingObjects::ScriptSliderPackProcessor ScriptSliderPackProcessor;
 		typedef ScriptingObjects::ScriptingSlotFX ScriptSlotFX;
 		typedef ScriptingObjects::ScriptedMidiPlayer ScriptMidiPlayer;
 		typedef ScriptingObjects::ScriptRoutingMatrix ScriptRoutingMatrix;
@@ -1079,8 +671,6 @@ public:
 
 		/** Adds the interface to the Container's body (or the frontend interface if compiled) */
 		void addToFront(bool addToFront);
-
-		
 
 		/** Defers all callbacks to the message thread (midi callbacks become read-only). */
 		void deferCallbacks(bool makeAsynchronous);
@@ -1094,23 +684,11 @@ public:
 		/** Sends a note off message for the supplied event ID with the given delay in samples. */
 		void noteOffDelayedByEventId(int eventId, int timestamp);
 
-        /** Injects a note on to the incoming MIDI buffer (just as if the virtual keyboard was pressed. */
-        void playNoteFromUI(int channel, int noteNumber, int velocity);
-        
-        /** Injects a note off to the incoming MIDI buffer (similar to playNoteFromUI). */
-        void noteOffFromUI(int channel, int noteNumber);
-        
 		/** Plays a note and returns the event id. Be careful or you get stuck notes! */
 		int playNote(int noteNumber, int velocity);
 
 		/** Plays a note and returns the event id with the given channel and start offset. */
 		int playNoteWithStartOffset(int channel, int number, int velocity, int offset);
-
-		/** Attaches an artificial note to be stopped when the original note is stopped. */
-		bool attachNote(int originalNoteId, int artificialNoteId);
-
-		/** Adds a few additional safe checks to prevent stuck notes from note offs being processed before their note-on message. */
-		void setFixNoteOnAfterNoteOff(bool shouldBeFixed);
 
 		/** Fades all voices with the given event id to the target volume (in decibels). */
 		void addVolumeFade(int eventId, int fadeTimeMilliseconds, int targetVolume);
@@ -1135,9 +713,6 @@ public:
 
 		/** Returns the attribute of the parent synth. */
 		float getAttribute(int attributeIndex) const;
-
-		/** Creates a Builder object that can be used to create the module tree. */
-		var createBuilder();
 
 		/** Adds a note on to the buffer. */
 		int addNoteOn(int channel, int noteNumber, int velocity, int timeStampSamples);
@@ -1193,9 +768,6 @@ public:
 		*/
 		void setModulatorAttribute(int chainId, int modulatorIndex, int attributeIndex, float newValue);
 
-		/** Checks if the artificial event is active */
-		bool isArtificialEventActive(int eventId);
-
 		/** Returns the number of pressed keys (!= the number of playing voices!). */
 		int getNumPressedKeys() const {return numPressedKeys.get(); };
 
@@ -1244,12 +816,6 @@ public:
 		/** Returns the table processor with the given name. */
 		ScriptTableProcessor *getTableProcessor(const String &name);
 
-		/** Returns the sliderpack processor with the given name. */
-		ScriptSliderPackProcessor* getSliderPackProcessor(const String& name);
-
-		/** Returns a reference to a processor that holds a display buffer. */
-		ScriptingObjects::ScriptDisplayBufferSource* getDisplayBufferSource(const String& name);
-
 		/** Returns the first sampler with the name name. */
 		Sampler *getSampler(const String &name);
 
@@ -1268,33 +834,31 @@ public:
 		/** Returns true if the sustain pedal is pressed. */
 		bool isSustainPedalDown() const { return sustainState; }
 
-		/** Use a uniform voice index for the given container. */
-		void setUseUniformVoiceHandler(String containerId, bool shouldUseUniformVoiceHandling);
-
 		// ============================================================================================================
 
-		void handleNoteCounter(const HiseEvent& e) noexcept
+		void clearNoteCounter()
+		{
+			keyDown.clear();
+			numPressedKeys.set(0);
+		}
+
+		void handleNoteCounter(const HiseEvent& e, bool inc) noexcept
 		{
 			if (e.isArtificial())
 				return;
 
-			if (e.isNoteOn())
+			if (inc)
 			{
 				++numPressedKeys;
 				keyDown.setBit(e.getNoteNumber(), true);
 			}
-			else if (e.isNoteOff())
+			else
 			{
 				--numPressedKeys; 
 				if (numPressedKeys.get() < 0) 
 					numPressedKeys.set(0);
 
 				keyDown.setBit(e.getNoteNumber(), false);
-			}
-			else if (e.isAllNotesOff())
-			{
-				numPressedKeys = 0;
-				keyDown.clear();
 			}
 		}
 
@@ -1308,8 +872,7 @@ public:
 
 		friend class ModuleHandler;
 
-		WeakReference<Message> messageObject;
-
+		OwnedArray<Message> artificialNoteOns;
 		ModulatorSynth * const owner;
 		Atomic<int> numPressedKeys;
 		BigInteger keyDown;
@@ -1351,16 +914,10 @@ public:
 		void print(var debug);
 
 		/** Starts the benchmark. You can give it a name that will be displayed with the result if desired. */
-		void startBenchmark() { startTime = Time::highResolutionTicksToSeconds(Time::getHighResolutionTicks()); };
+		void start() { startTime = Time::highResolutionTicksToSeconds(Time::getHighResolutionTicks()); };
 
 		/** Stops the benchmark and prints the result. */
-		void stopBenchmark();
-
-		/** Causes the execution to stop(). */
-		void stop(bool condition);
-
-		/** Sends a blink message to the current editor. */
-		void blink();
+		void stop();
 
 		/** Clears the console. */
 		void clear();
@@ -1377,9 +934,6 @@ public:
 		/** Throws an error message if the value is not an object or array. */
 		void assertIsObjectOrArray(var value);
 
-		/** Throws an error message if the value is a string. */
-		void assertNoString(var value);
-
 		/** Throws an error message if the value is not a legal number (eg. string or array or infinity or NaN). */
 		void assertLegalNumber(var value);
 
@@ -1388,16 +942,7 @@ public:
 
 		struct Wrapper;
 
-		void setDebugLocation(const Identifier& id_, int lineNumber_)
-		{
-			id = id_;
-			lineNumber = lineNumber_;
-		}
-
-private:
-
-		Identifier id;
-		int lineNumber;
+	private:
 
 		double startTime;
 
@@ -1421,145 +966,6 @@ private:
 		static Array<Identifier> getTypeList(ModulatorSynth* s);
 
 		ModulatorSynth* ownerSynth;
-	};
-
-	class TransportHandler : public ConstScriptingObject,
-							 public TempoListener,
-							 public ControlledObject,
-							 public PooledUIUpdater::Listener
-	{
-	public:
-
-		
-
-		TransportHandler(ProcessorWithScriptingContent* sp);;
-		~TransportHandler();
-
-		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("TransportHandler"); }
-		static Identifier getClassName() { RETURN_STATIC_IDENTIFIER("TransportHandler"); };
-
-		struct Callback: public PooledUIUpdater::Broadcaster
-		{
-			Callback(TransportHandler* p, const String& name, const var& f, bool sync, int numArgs);
-
-			void call(var arg1, var arg2 = {}, var arg3 = {}, bool forceSynchronous = false);
-
-
-			void callAsync();
-
-			bool matches(const var& f) const;
-
-		private:
-
-			void callSync();
-
-			const int numArgs;
-			var args[3];
-
-			JavascriptProcessor* jp;
-			WeakReference<TransportHandler> th;
-			const bool synchronous = false;
-			WeakCallbackHolder callback;
-		};
-
-		// ======================================================================================
-
-		/** Registers a callback to tempo changes. */
-		void setOnTempoChange(var sync, var f);
-
-		/** Registers a callback to transport state changes (playing / stopping). */
-		void setOnTransportChange(var sync, var f);
-
-		/** Registers a callback to time signature changes. */
-		void setOnSignatureChange(var sync, var f);
-
-		/** Registers a callback to changes in the musical position (bars / beats). */
-		void setOnBeatChange(var sync, var f);
-
-		/** Registers a callback to changes in the grid. */
-		void setOnGridChange(var sync, var f);
-
-		/** Registers a callback that will be executed asynchronously when the plugin's bypass state changes. */
-		void setOnBypass(var f);
-
-		/** Enables a high precision grid timer. */
-		void setEnableGrid(bool shouldBeEnabled, int tempoFactor);
-
-        /** Sets the internal clock to stop when the external clock was stopped. */
-        void stopInternalClockOnExternalStop(bool shouldStop);
-        
-		/** Starts the internal master clock. */
-		void startInternalClock(int timestamp);
-
-		/** Stops the internal master clock. */
-		void stopInternalClock(int timestamp);
-
-		/** Sets the sync mode for the global clock. */
-		void setSyncMode(int syncMode);
-
-		/** sends a message on the next grid callback to resync the external clock. */
-		void sendGridSyncOnNextCallback();
-
-		/** If enabled, this will link the internal / external BPM to the sync mode. */
-		void setLinkBpmToSyncMode(bool shouldPrefer);
-
-		/** This will return true if the DAW is currently bouncing the audio to a file. You can use this in the transport change callback to modify your processing chain. */
-		bool isNonRealtime() const;
-
-	private:
-
-		static void onBypassUpdate(TransportHandler& handler, bool state);
-
-		void clearIf(ScopedPointer<Callback>& cb, const var& f)
-		{
-			if (cb != nullptr && cb->matches(f))
-				cb = nullptr;
-		}
-
-		double bpm = 120.0;
-		bool play = false;
-		int nom = 4;
-		int denom = 4;
-		int beat = 0;
-		bool newBar = true;
-		int gridIndex = 0;
-		int gridTimestamp = 0;
-		bool firstGridInPlayback = false;
-
-		struct Wrapper;
-
-		ScopedPointer<Callback> tempoChangeCallback;
-		ScopedPointer<Callback> transportChangeCallback;
-		ScopedPointer<Callback> timeSignatureCallback;
-		ScopedPointer<Callback> beatCallback;
-		ScopedPointer<Callback> gridCallback;
-
-		ScopedPointer<Callback> bypassCallback;
-
-		ScopedPointer<Callback> tempoChangeCallbackAsync;
-		ScopedPointer<Callback> transportChangeCallbackAsync;
-		ScopedPointer<Callback> timeSignatureCallbackAsync;
-		ScopedPointer<Callback> beatCallbackAsync;
-		ScopedPointer<Callback> gridCallbackAsync;
-		
-
-		void tempoChanged(double newTempo) override;
-
-		void onTransportChange(bool isPlaying, double ppqPosition) override;
-
-		void onBeatChange(int newBeat, bool isNewBar) override;
-
-		void onSignatureChange(int newNominator, int numDenominator) override;
-
-		void onGridChange(int gridIndex_, uint16 timestamp, bool firstGridInPlayback_) override;
-
-		void handlePooledMessage(PooledUIUpdater::Broadcaster* b) override
-		{
-			if (auto asC = dynamic_cast<Callback*>(b))
-				asC->callAsync();
-		}
-
-		JUCE_DECLARE_WEAK_REFERENCEABLE(TransportHandler);
 	};
 
 	class Server : public ApiClass,
@@ -1601,23 +1007,11 @@ private:
 		/** Adds the given String to the HTTP POST header. */
 		void setHttpHeader(String additionalHeader);
 
-        /** Resends the last call to the Server (eg. in case that there was no internet connection). */
-        bool resendLastCall();
-        
 		/** Downloads a file to the given target and returns a Download object. */
 		var downloadFile(String subURL, var parameters, var targetFile, var callback);
 
-        /** Sets a string that is parsed as timeout message when the server doesn't respond. Default is "{}" (empty JSON object). */
-        void setTimeoutMessageString(String timeoutMessage);
-        
-        /** Sets whether to append a trailing slash to each POST call (default is true). */
-        void setEnforceTrailingSlash(bool shouldAddSlash);
-        
 		/** Returns a list of all pending Downloads. */
 		var getPendingDownloads();
-
-		/** Returns a list of all pending Calls. */
-		var getPendingCalls();
 
 		/** Sets the maximal number of parallel downloads. */
 		void setNumAllowedDownloads(int maxNumberOfParallelDownloads);
@@ -1631,9 +1025,6 @@ private:
 		/** This function will be called whenever there is server activity. */
 		void setServerCallback(var callback);
 
-		/** Checks if given email address is valid - not fool proof. */
-    bool isEmailAddress(String email);
-		
 		void queueChanged(int numItems) override
 		{
 			if (serverCallback)
@@ -1683,8 +1074,6 @@ private:
 			Documents,
 			Desktop,
 			Downloads,
-			Applications,
-			Temp,
 			numSpecialLocations
 		};
 
@@ -1701,18 +1090,12 @@ private:
 		/** Returns the current sample folder as File object. */
 		var getFolder(var locationType);
 
-		/** Returns a file object from an absolute path (eg. C:/Windows/MyProgram.exe). */
-		var fromAbsolutePath(String path);
-
-		/** Returns a file object for the given location type and the reference string which can either contain a wildcard like `{PROJECT_FOLDER}` or a full file path. */
-		var fromReferenceString(String referenceStringOrFullPath, var locationType);
-
 		/** Returns a list of all child files of a directory that match the wildcard. */
 		var findFiles(var directory, String wildcard, bool recursive);
 
-        /** Returns a list of all root drives of the current computer. */
-        var findFileSystemRoots();
-        
+		/** Returns a list of all child directories of a directory that match the wildcard. */
+		var findDirectories(var directory, String wildcard, bool recursive);
+
 		/** Opens a file browser to choose a file. */
 		void browse(var startFolder, bool forSaving, String wildcard, var callback);
 
@@ -1721,21 +1104,6 @@ private:
 
 		/** Returns a unique machine ID that can be used to identify the computer. */
 		String getSystemId();
-		
-		/**  Convert a file size in bytes to a neat string description. */
-		String descriptionOfSizeInBytes(int64 bytes);
-
-		/** Returns the number of free bytes on the volume of a given folder. */
-		int64 getBytesFreeOnVolume(var folder);
-
-        /** Encrypts the given string using a RSA private key. */
-        String encryptWithRSA(const String& dataToEncrypt, const String& privateKey);
-        
-        /** Decrypts the given string using a RSA public key. */
-        String decryptWithRSA(const String& dataToDecrypt, const String& publicKey);
-
-		/** Loads a bunch of dummy assets (audio files, MIDI files, filmstrips) for use in snippets & examples. */
-		void loadExampleAssets();
 
 		// ========================================================= End of API calls
 
@@ -1747,69 +1115,10 @@ private:
 
 		File getFile(SpecialLocations l);
 
-		FileHandlerBase::SubDirectories getSubdirectory(var locationType);
-
 		struct Wrapper;
 
 
 	};
-
-    class Threads: public ApiClass,
-				   public ScriptingObject
-    {
-    public:
-
-        Threads(ProcessorWithScriptingContent* p);
-
-        Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Threads"); }
-
-		// API METHODS ===============================================================================
-
-		/** Returns the thread ID of the thread that is calling this method. */
-        int getCurrentThread() const;
-
-		/** Returns true if the audio callback is running or false if it's suspended during a load operation. */
-        bool isAudioRunning() const;
-
-		/** Returns true if the audio exporter is currently rendering the audio on a background thread. */
-		bool isCurrentlyExporting() const;
-
-		/** Returns true if the given thread is currently locked by the current thread. */
-        bool isLockedByCurrentThread(int thread) const;
-
-		/** Returns the thread ID of the thread the locks the given thread ID. */
-        int getLockerThread(int threadThatIsLocked) const;
-
-		/** Returns true if the given thread is currently locked. */
-        bool isLocked(int thread) const;
-
-		/** Returns the name of the given string (for debugging purposes only!). */
-		String toString(int thread) const;
-
-		/** Returns the name of the current thread (for debugging purposes only!). */
-        String getCurrentThreadName() const
-        {
-			return toString(getCurrentThread());
-        }
-
-        /** Kills all voices, suspends the audio processing and calls the given function on the loading thread. Returns true if the function was executed synchronously. */
-        bool killVoicesAndCall(const var& functionToExecute);
-
-    private:
-
-		using TargetThreadId = MainController::KillStateHandler::TargetThread;
-		using LockId = LockHelpers::Type;
-
-        static TargetThreadId getAsThreadId(int x);
-        static LockId getAsLockId(int x);
-
-        MainController::KillStateHandler& getKillStateHandler();
-        const MainController::KillStateHandler& getKillStateHandler() const;
-
-        struct Wrapper;
-
-        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Threads);
-    };
 
 	class Colours: public ApiClass
 	{
@@ -1825,34 +1134,7 @@ private:
 		// ============================================================================================================ API Methods
 
 		/** Returns a colour value with the specified alpha value. */
-		int withAlpha(var colour, float alpha);
-
-		/** Returns a colour with the specified hue. */
-		int withHue(var colour, float hue);
-
-		/** Returns a colour with the specified saturation. */
-		int withSaturation(var colour, float saturation);
-
-		/** Returns a colour with the specified brightness. */
-		int withBrightness(var colour, float brightness);
-
-		/** Returns a colour with a multiplied alpha value. */
-		int withMultipliedAlpha(var colour, float factor);
-
-		/** Returns a colour with a multiplied saturation value. */
-		int withMultipliedSaturation(var colour, float factor);
-
-		/** Returns a colour with a multiplied brightness value. */
-		int withMultipliedBrightness(var colour, float factor);
-
-		/** Converts a colour to a [r, g, b, a] array that can be passed to GLSL as vec4. */
-		var toVec4(var colour);
-
-		/** Converts a colour from a [r, g, b, a] float array to a uint32 value. */
-		int fromVec4(var vec4);
-
-		/** Linear interpolation between two colours. */
-		int mix(var colour1, var colour2, float alpha);
+		int withAlpha(int colour, float alpha);
 
 		// ============================================================================================================
 
@@ -1878,14 +1160,14 @@ private:
 		void setIntensity(var newValue)
 		{
 			m->setIntensity((float)newValue);
-			BACKEND_ONLY(mod->sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Intensity, dispatch::sendNotificationAsync););
+			BACKEND_ONLY(mod->sendChangeMessage());
 		}
 
 		/** Bypasses the modulator. */
 		void setBypassed(var newValue)
 		{
 			mod->setBypassed((bool)newValue);
-			BACKEND_ONLY(mod->sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Bypassed, dispatch::sendNotificationAsync););
+			BACKEND_ONLY(mod->sendChangeMessage());
 		}
 
 	private:
