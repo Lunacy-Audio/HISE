@@ -37,8 +37,11 @@ AudioProcessorEditor(fp)
 {
 	usesOpenGl = dynamic_cast<GlobalSettingManager*>(fp)->useOpenGL;
 	
-	if(usesOpenGl)
-		setEnableOpenGL(this);
+	if(usesOpenGl) {
+        context.setRenderer(this);
+		context.attachTo(*this);
+    }
+#endif
 
 	fp->addScaleFactorListener(this);
 	fp->incActiveEditors();
@@ -286,6 +289,25 @@ void FrontendProcessorEditor::resized()
 
 	loaderOverlay->setBounds(0, 0, width, height);
 	debugLoggerComponent->setBounds(0, height -90, width, 90);
+}
+
+void FrontendProcessorEditor::newOpenGLContextCreated()
+{
+    // Instead of the std::map we'll abuse the global object of each main controller
+    // (this is used when you define a `global` variable in the script engine, but
+    // it should do the trick and avoid a static storage type that comes with a few
+    // lifetime issues
+    static const Identifier cubeId("isOpenGLContextCreated");
+    if (auto gObj = getMainController()->getGlobalVariableObject())
+    {
+        gObj->setProperty(cubeId, var(true));
+    }
+    else
+    {
+        // the dynamic object is being created in the MainControllers' constructor
+        // so it should be available as long as the MainController is alive...
+        jassertfalse;
+    }
 }
 
 } // namespace hise

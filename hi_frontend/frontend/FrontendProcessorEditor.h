@@ -51,6 +51,7 @@ class FrontendProcessorEditor: public AudioProcessorEditor,
 							   public GlobalSettingManager::ScaleFactorListener,
 							   public TopLevelWindowWithOptionalOpenGL,
 							   public MainController::LockFreeDispatcher::PresetLoadListener
+							   private OpenGLRenderer
 {
 public:
 
@@ -135,6 +136,10 @@ public:
 	
 
 private:
+	// OpenGLRenderer overrides.
+    void newOpenGLContextCreated() override;
+    void renderOpenGL() override {}
+    void openGLContextClosing() override {}
 
     LookAndFeel_V3 globalLookAndFeel;
     
