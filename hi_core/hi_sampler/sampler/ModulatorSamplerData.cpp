@@ -287,8 +287,8 @@ void SampleMap::setCurrentMonolith()
 
 			if (!info.sampleRoots[1].isDirectory())
 			{
-				sampler->getMainController()->sendOverlayMessage(DeactiveOverlay::State::CustomErrorMessage,
-					"The sample directory does not exist");
+				// sampler->getMainController()->sendOverlayMessage(DeactiveOverlay::State::CustomErrorMessage,
+					// "The sample directory does not exist");
 
 				FRONTEND_ONLY(sampler->deleteAllSounds());
 
@@ -308,8 +308,8 @@ void SampleMap::setCurrentMonolith()
 				}
 				else
 				{
-					sampler->getMainController()->sendOverlayMessage(DeactiveOverlay::State::CustomErrorMessage,
-						"The sample " + f.getFileName() + " wasn't found");
+					// sampler->getMainController()->sendOverlayMessage(DeactiveOverlay::State::CustomErrorMessage,
+						// "The sample " + f.getFileName() + " wasn't found");
 
 					FRONTEND_ONLY(sampler->deleteAllSounds());
 
@@ -382,7 +382,7 @@ void SampleMap::parseValueTree(const ValueTree &v)
 #if USE_BACKEND
 		debugToConsole(sampler, s);
 #else
-		sampler->getMainController()->sendOverlayMessage(OverlayMessageBroadcaster::SamplesNotFound);
+		// sampler->getMainController()->sendOverlayMessage(DeactiveOverlay::SamplesNotFound, {});
 #endif
 
 	}
