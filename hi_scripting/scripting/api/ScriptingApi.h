@@ -480,6 +480,9 @@ public:
 		/** Creates a storage object for Message events. */
 		ScriptingObjects::ScriptingMessageHolder* createMessageHolder();
 
+		/** Creates an object that can listen to transport events. */
+		var createTransportHandler();
+
 		/** Exports an object as JSON. */
 		void dumpAsJSON(var object, String fileName);
 
@@ -509,11 +512,46 @@ public:
 
 		// ============================================================================================================
 
+		/** This warning will show up in the console so people can migrate in the next years... */
+		void logSettingWarning(const String& methodName) const;
+
 		struct Wrapper;
 
 		ScriptBaseMidiProcessor* parentMidiProcessor;
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Engine);
+	};
+
+	/** This class takes over a few of the Engine methods in order to break down this gigantomanic object. */
+	class Settings : public ApiClass,
+					 public ScriptingObject
+	{
+	public:
+
+		Settings(ProcessorWithScriptingContent* s);;
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Settings"); }
+
+		// ================================================================================================== API Calls
+
+		/** Returns the UI Zoom factor. */
+		double getZoomLevel() const;
+
+		/** Changes the UI zoom (1.0 = 100%). */
+		void setZoomLevel(double newLevel);
+
+		/** Sets the Streaming Mode (0 -> Fast-SSD, 1 -> Slow-HDD) */
+		void setDiskMode(int mode);
+
+		// ============================================================================================================
+
+	private:
+
+		GlobalSettingManager* gm;
+		AudioProcessorDriver* driver;
+		MainController* mc;
+
+		struct Wrapper;
 	};
 
 	/** All scripting functions for sampler specific functionality. */
@@ -537,6 +575,15 @@ public:
 
 		/** Enables the group with the given index (one-based). Works only with samplers and `enableRoundRobin(false)`. */
 		void setActiveGroup(int activeGroupIndex);
+
+		/** Enables the group with the given index (one-based). Allows multiple groups to be active. */
+		void setMultiGroupIndex(var groupIndex, bool enabled);
+
+		/** Returns the currently (single) active RR group. */
+		int getActiveRRGroup();
+
+		/** Returns the number of currently active groups. */
+		int getNumActiveGroups() const;
 
 		/** Returns the amount of actual RR groups for the notenumber and velocity*/
 		int getRRGroupsForMessage(int noteNumber, int velocity);
@@ -974,6 +1021,138 @@ public:
 		ModulatorSynth* ownerSynth;
 	};
 
+	class TransportHandler : public ConstScriptingObject,
+							 public TempoListener,
+							 public ControlledObject,
+							 public PooledUIUpdater::Listener
+	{
+	public:
+
+		TransportHandler(ProcessorWithScriptingContent* sp);;
+		~TransportHandler();
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("TransportHandler"); }
+		static Identifier getClassName() { RETURN_STATIC_IDENTIFIER("TransportHandler"); };
+
+		struct Callback: public PooledUIUpdater::Broadcaster
+		{
+			Callback(TransportHandler* p, const var& f, bool sync, int numArgs);
+
+			void call(var arg1, var arg2 = {}, bool forceSynchronous=false);
+
+			void callAsync();
+
+			bool matches(const var& f) const;
+
+		private:
+
+			void callSync();
+
+			const int numArgs;
+			var args[2];
+
+			JavascriptProcessor* jp;
+			WeakReference<TransportHandler> th;
+			const bool synchronous = false;
+			WeakCallbackHolder callback;
+		};
+
+		// ======================================================================================
+
+		/** Registers a callback to tempo changes. */
+		void setOnTempoChange(bool sync, var f);
+
+		/** Registers a callback to transport state changes (playing / stopping). */
+		void setOnTransportChange(bool sync, var f);
+
+		/** Registers a callback to time signature changes. */
+		void setOnSignatureChange(bool sync, var f);
+
+		/** Registers a callback to changes in the musical position (bars / beats). */
+		void setOnBeatChange(bool sync, var f);
+
+	private:
+
+		void clearIf(ScopedPointer<Callback>& cb, const var& f)
+		{
+			if (cb != nullptr && cb->matches(f))
+				cb = nullptr;
+		}
+
+		double bpm = 120.0;
+		bool play = false;
+		int nom = 4;
+		int denom = 4;
+		int beat = 0;
+		bool newBar = true;
+
+		struct Wrapper;
+
+		ScopedPointer<Callback> tempoChangeCallback;
+		ScopedPointer<Callback> transportChangeCallback;
+		ScopedPointer<Callback> timeSignatureCallback;
+		ScopedPointer<Callback> beatCallback;
+
+		ScopedPointer<Callback> tempoChangeCallbackAsync;
+		ScopedPointer<Callback> transportChangeCallbackAsync;
+		ScopedPointer<Callback> timeSignatureCallbackAsync;
+		ScopedPointer<Callback> beatCallbackAsync;
+
+		void tempoChanged(double newTempo) override
+		{
+			bpm = newTempo;
+
+			if (tempoChangeCallback != nullptr)
+				tempoChangeCallback->call(newTempo);
+
+			if (tempoChangeCallbackAsync != nullptr)
+				tempoChangeCallbackAsync->call(newTempo);
+		}
+
+		void onTransportChange(bool isPlaying) override
+		{
+			play = isPlaying;
+
+			if (transportChangeCallback != nullptr)
+				transportChangeCallback->call(isPlaying);
+
+			if (transportChangeCallbackAsync != nullptr)
+				transportChangeCallbackAsync->call(isPlaying);
+		}
+
+		void onBeatChange(int newBeat, bool isNewBar) override
+		{
+			beat = newBeat;
+			newBar = isNewBar;
+
+			if (beatCallback != nullptr)
+				beatCallback->call(newBeat, newBar);
+
+			if (beatCallbackAsync != nullptr)
+				beatCallbackAsync->call(newBeat, newBar);
+		}
+
+		void onSignatureChange(int newNominator, int numDenominator) override
+		{
+			nom = newNominator;
+			denom = numDenominator;
+
+			if (timeSignatureCallback != nullptr)
+				timeSignatureCallback->call(newNominator, numDenominator);
+
+			if (timeSignatureCallbackAsync != nullptr)
+				timeSignatureCallbackAsync->call(newNominator, numDenominator);
+		}
+
+		void handlePooledMessage(PooledUIUpdater::Broadcaster* b) override
+		{
+			if (auto asC = dynamic_cast<Callback*>(b))
+				asC->callAsync();
+		}
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(TransportHandler);
+	};
+
 	class Server : public ApiClass,
 				   public ScriptingObject,
 				   public GlobalServer::Listener
@@ -1095,6 +1274,9 @@ public:
 
 		/** Returns the current sample folder as File object. */
 		var getFolder(var locationType);
+
+		/** Returns a file object from an absolute path (eg. C:/Windows/MyProgram.exe). */
+		var fromAbsolutePath(String path);
 
 		/** Returns a list of all child files of a directory that match the wildcard. */
 		var findFiles(var directory, String wildcard, bool recursive);

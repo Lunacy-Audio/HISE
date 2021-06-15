@@ -7169,6 +7169,7 @@ struct ScriptingApi::FileSystem::Wrapper
 	API_METHOD_WRAPPER_1(FileSystem, descriptionOfSizeInBytes);
 	API_METHOD_WRAPPER_1(FileSystem, fromAbsolutePath);
 	API_METHOD_WRAPPER_2(FileSystem, fromReferenceString);
+	API_METHOD_WRAPPER_1(FileSystem, fromAbsolutePath);
 	API_VOID_METHOD_WRAPPER_4(FileSystem, browse);
 	API_VOID_METHOD_WRAPPER_2(FileSystem, browseForDirectory);
 	API_METHOD_WRAPPER_1(FileSystem, getBytesFreeOnVolume);

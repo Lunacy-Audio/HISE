@@ -293,6 +293,24 @@ public:
 			JUCE_DECLARE_WEAK_REFERENCEABLE(SubComponentListener);
 		};
 
+		struct ZLevelListener
+		{
+			enum class ZLevel
+			{
+				Back,
+				Default,
+				Front,	     
+				AlwaysOnTop,
+				numZLevels
+			};
+
+			virtual ~ZLevelListener() {};
+
+			virtual void zLevelChanged(ZLevel newZLevel) = 0;
+
+			JUCE_DECLARE_WEAK_REFERENCEABLE(ZLevelListener);
+		};
+
 		ScriptComponent(ProcessorWithScriptingContent* base, Identifier name_, int numConstants = 0);
 
 		virtual ~ScriptComponent();
@@ -431,8 +449,14 @@ public:
 		/** Returns the current value. */
 		virtual var getValue() const
         {
+			var rv;
+			{
+				SimpleReadWriteLock::ScopedReadLock sl(valueLock);
+				rv = value;
+			}
+			
             jassert(!value.isString());
-            return value;
+            return rv;
         }
 
 		/** Sets the current value
@@ -492,6 +516,9 @@ public:
 
 		/** Returns a list of all property IDs as array. */
 		var getAllProperties();
+
+		/** Changes the depth hierarchy (z-axis) of sibling components (Back, Default, Front or AlwaysOnTop). */
+		void setZLevel(String zLevel);
 
 		// End of API Methods ============================================================================================
 
@@ -597,6 +624,16 @@ public:
 			controlSender.cancelMessage();
 		}
 
+		void addZLevelListener(ZLevelListener* l)
+		{
+			zLevelListeners.addIfNotAlreadyThere(l);
+		}
+
+		void removeZLevelListener(ZLevelListener* l)
+		{
+			zLevelListeners.removeAllInstancesOf(l);
+		}
+
 	protected:
 
 		bool isCorrectlyInitialised(int p) const
@@ -615,6 +652,8 @@ public:
 
 		void setDefaultValue(int p, const var &defaultValue);
 		
+		
+
 		void addLinkedTarget(ScriptComponent* newTarget)
 		{
 			linkedComponentTargets.addIfNotAlreadyThere(newTarget);
@@ -637,7 +676,7 @@ public:
 
 	private:
 
-        struct AsyncControlCallbackSender : private UpdateDispatcher::Listener
+		struct AsyncControlCallbackSender : private UpdateDispatcher::Listener
         {
 		public:
 
@@ -666,6 +705,11 @@ public:
 		Array<Identifier> scriptChangedProperties;
 
 		Array<WeakReference<SubComponentListener>> subComponentListeners;
+		Array<WeakReference<ZLevelListener>> zLevelListeners;
+
+		ZLevelListener::ZLevel currentZLevel = ZLevelListener::ZLevel::Default;
+
+		mutable hise::SimpleReadWriteLock valueLock;
 
 		bool countJsonSetProperties = true;
 		Identifier searchedProperty;
@@ -714,6 +758,7 @@ public:
 			dragDirection,
 			showValuePopup,
 			showTextBox,
+			scrollWheel,
 			enableMidiLearn,
 			numProperties,
 		};
@@ -1263,7 +1308,14 @@ public:
 			Point<float> hitPoint = { 0.0f, 0.0f };
 		} mouseCursorPath;
 
+		struct AnimationListener
+		{
+			virtual ~AnimationListener() {};
 
+			virtual void animationChanged() = 0;
+
+			JUCE_DECLARE_WEAK_REFERENCEABLE(AnimationListener);
+		};
 
 		enum Properties
 		{
@@ -1304,32 +1356,6 @@ public:
 		bool isAutomatable() const override { return true; }
 
 		void preloadStateChanged(bool isPreloading) override;
-
-#if 0
-		void preloadStateInternal(bool isPreloading, Result& r)
-		{
-			jassert_locked_script_thread(getScriptProcessor()->getMainController_());
-
-			var thisObject(this);
-			var b(isPreloading);
-			var::NativeFunctionArgs args(thisObject, &b, 1);
-
-			auto engine = dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine();
-
-			jassert(engine != nullptr);
-
-			if (engine != nullptr)
-			{
-				engine->maximumExecutionTime = RelativeTime(0.5);
-				engine->callExternalFunction(loadRoutine, args, &r);
-
-				if (r.failed())
-				{
-					debugError(dynamic_cast<Processor*>(getScriptProcessor()), r.getErrorMessage());
-				}
-			}
-		}
-#endif
 
 		void preRecompileCallback() override
 		{
@@ -1373,6 +1399,9 @@ public:
 
 		/** Sets a mouse callback. */
 		void setMouseCallback(var mouseCallbackFunction);
+
+		/** Sets a file drop callback. */
+		void setFileDropCallback(String callbackLevel, String wildcard, var dropFunction);
 
 		/** Sets a timer callback. */
 		void setTimerCallback(var timerCallback);
@@ -1441,7 +1470,6 @@ public:
 
 		void forcedRepaint()
 		{
-			
 		};
 
 		MouseCursorInfo getMouseCursorPath() const
@@ -1495,6 +1523,8 @@ public:
 		bool isUsingClippedFixedImage() const { return usesClippedFixedImage; };
 
 		void scaleFactorChanged(float /*newScaleFactor*/) override {} // Do nothing until fixed...
+
+		void fileDropCallback(var fileInformation);
 
 		void mouseCallback(var mouseInformation);
 
@@ -1555,12 +1585,20 @@ public:
 			return nullptr;
 		}
 
+		void addAnimationListener(AnimationListener* l);
+
+		void removeAnimationListener(AnimationListener* l);
+
+		String fileDropExtension;
+		String fileDropLevel;
+
 	private:
 
 #if HISE_INCLUDE_RLOTTIE
 		void updateAnimationData();
 		ScopedPointer<RLottieAnimation> animation;
 		var animationData;
+		Array<WeakReference<AnimationListener>> animationListeners;
 #endif
 
 		bool shownAsPopup = false;
@@ -1589,6 +1627,7 @@ public:
 		WeakCallbackHolder timerRoutine;
 		WeakCallbackHolder loadRoutine;
 		WeakCallbackHolder mouseRoutine;
+		WeakCallbackHolder fileDropRoutine;
 
 		var dragBounds;
 
@@ -1600,6 +1639,8 @@ public:
 		
 		WeakReference<ScriptPanel> parentPanel;
 		ReferenceCountedArray<ScriptPanel> childPanels;
+
+		
 
 		bool isChildPanel = false;
 
@@ -2039,7 +2080,7 @@ public:
 		static ScriptComponent * createComponentFromValueTree(Content* c, const ValueTree& v);
 		static bool hasLocation(ScriptComponent* sc);
 		static void sanitizeNumberProperties(juce::ValueTree copy);
-		static var getCleanedComponentValue(const var& data);
+		static var getCleanedComponentValue(const var& data, bool allowStrings);
 	};
 
 	template <class SubType> SubType* createNewComponent(const Identifier& id, int x, int y)
@@ -2219,7 +2260,6 @@ private:
 
 	ScopedPointer<ValueTreeUpdateWatcher> updateWatcher;
 
-	CriticalSection lock;
 	bool allowGuiCreation;
 	int width, height;
 	ReferenceCountedArray<ScriptComponent> components; // This is ref counted to allow anonymous controls

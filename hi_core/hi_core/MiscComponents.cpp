@@ -432,6 +432,42 @@ void MouseCallbackComponent::sendFileMessage(Action a, const String& f, Point<in
 	case Action::FileEnter:
 	case Action::FileExit: requiredLevel = FileCallbackLevel::DropHover; break;
 	case Action::FileMove: requiredLevel = FileCallbackLevel::AllCallbacks; break;
+	}
+
+	if (fileCallbackLevel < requiredLevel)
+		return;
+
+	static const Identifier x("x");
+	static const Identifier y("y");
+	static const Identifier hover("hover");
+	static const Identifier drop("drop");
+	static const Identifier file("fileName");
+
+	DynamicObject::Ptr e = new DynamicObject();
+	e->setProperty(x, pos.getX());
+	e->setProperty(y, pos.getY());
+	e->setProperty(hover, a != Action::FileExit);
+	e->setProperty(drop, a == Action::FileDrop);
+	e->setProperty(file, f);
+
+	var fileInformation(e);
+
+	for(auto l: listenerList)
+	{
+		l->fileDropCallback(fileInformation);
+	}
+}
+
+void MouseCallbackComponent::sendMessage(const MouseEvent &event, Action action, EnterState state)
+{
+	FileCallbackLevel requiredLevel = FileCallbackLevel::NoCallbacks;
+
+	switch (a)
+	{
+	case Action::FileDrop: requiredLevel = FileCallbackLevel::DropOnly; break;
+	case Action::FileEnter:
+	case Action::FileExit: requiredLevel = FileCallbackLevel::DropHover; break;
+	case Action::FileMove: requiredLevel = FileCallbackLevel::AllCallbacks; break;
     default: break;
 	}
 

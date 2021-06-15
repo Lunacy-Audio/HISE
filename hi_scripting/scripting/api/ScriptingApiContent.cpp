@@ -122,6 +122,7 @@ struct ScriptingApi::Content::ScriptComponent::Wrapper
     API_METHOD_WRAPPER_0(ScriptComponent, getGlobalPositionY);
 	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setControlCallback);
 	API_METHOD_WRAPPER_0(ScriptComponent, getAllProperties);
+	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setZLevel);
 };
 
 #define ADD_SCRIPT_PROPERTY(id, name) static const Identifier id(name); propertyIds.add(id);
@@ -216,6 +217,7 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	ADD_API_METHOD_0(getGlobalPositionY);
 	ADD_API_METHOD_1(setControlCallback);
 	ADD_API_METHOD_0(getAllProperties);
+	ADD_API_METHOD_1(setZLevel);
 
 	//setName(name_.toString());
 
@@ -322,9 +324,8 @@ ValueTree ScriptingApi::Content::ScriptComponent::exportAsValueTree() const
 void ScriptingApi::Content::ScriptComponent::restoreFromValueTree(const ValueTree &v)
 {
 	const var data = v.getProperty("value", var::undefined());
-
-	value = Content::Helpers::getCleanedComponentValue(data);
-
+	bool allowStrings = dynamic_cast<Label*>(this) != nullptr;
+	value = Content::Helpers::getCleanedComponentValue(data, allowStrings);
 }
 
 void ScriptingApi::Content::ScriptComponent::doubleClickCallback(const MouseEvent &, Component* /*componentToNotify*/)
@@ -640,8 +641,8 @@ void ScriptingApi::Content::ScriptComponent::setValue(var controlValue)
 	}
 	else if (parent != nullptr)
 	{
-		ScopedLock sl(parent->lock);
-		value = controlValue;
+		SimpleReadWriteLock::ScopedWriteLock sl(valueLock);
+		std::swap(value, controlValue);
 	}
 
 	if (parent->allowGuiCreation)
@@ -1065,6 +1066,29 @@ void ScriptingApi::Content::ScriptComponent::sendSubComponentChangeMessage(Scrip
 		MessageManager::callAsync(f);
 }
 
+void ScriptingApi::Content::ScriptComponent::setZLevel(String zLevelToUse)
+{
+	static const StringArray validNames = { "Back", "Default", "Front", "AlwaysOnTop" };
+
+	auto idx = validNames.indexOf(zLevelToUse);
+
+	if (idx == -1)
+		reportScriptError("Invalid z-Index: " + zLevelToUse);
+
+	auto newLevel = (ZLevelListener::ZLevel)idx;
+
+	if (newLevel != currentZLevel)
+	{
+		currentZLevel = newLevel;
+
+		for (auto l : zLevelListeners)
+		{
+			if (l != nullptr)
+				l->zLevelChanged(currentZLevel);
+		}
+	}
+}
+
 struct ScriptingApi::Content::ScriptSlider::Wrapper
 {
 	API_VOID_METHOD_WRAPPER_1(ScriptSlider, setMidPoint);
@@ -1099,8 +1123,9 @@ maximum(1.0f)
 	ADD_NUMBER_PROPERTY(i11, "mouseSensitivity");
 	ADD_SCRIPT_PROPERTY(i12, "dragDirection");	ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 	ADD_SCRIPT_PROPERTY(i13, "showValuePopup"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
-	ADD_SCRIPT_PROPERTY(i14, "showTextBox"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
-	ADD_SCRIPT_PROPERTY(i15, "enableMidiLearn"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+	ADD_SCRIPT_PROPERTY(i14, "showTextBox"); 	ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+	ADD_SCRIPT_PROPERTY(i15, "scrollWheel"); 	ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+	ADD_SCRIPT_PROPERTY(i16, "enableMidiLearn"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 
 #if 0
 	componentProperties->setProperty(getIdFor(Mode), 0);
@@ -1139,6 +1164,7 @@ maximum(1.0f)
 	setDefaultValue(ScriptSlider::Properties::dragDirection, "Diagonal");
 	setDefaultValue(ScriptSlider::Properties::showValuePopup, "No");
 	setDefaultValue(ScriptSlider::Properties::showTextBox, true);
+	setDefaultValue(ScriptSlider::Properties::scrollWheel, true);
 	setDefaultValue(ScriptSlider::Properties::enableMidiLearn, true);
 
 	ScopedValueSetter<bool> svs(removePropertyIfDefault, false);
@@ -2646,17 +2672,16 @@ void ScriptingApi::Content::ScriptImage::setImageFile(const String &absoluteFile
 
 	if (absoluteFileName.isEmpty())
 	{
-		setScriptObjectProperty(FileName, absoluteFileName, sendNotification);
 		image.clear();
+		setScriptObjectProperty(FileName, absoluteFileName, sendNotification);
 		return;
 	}
-
-	setScriptObjectProperty(FileName, absoluteFileName, sendNotification);
-
 
 	PoolReference ref(getProcessor()->getMainController(), absoluteFileName, ProjectHandler::SubDirectories::Images);
 	image.clear();
 	image = getProcessor()->getMainController()->getExpansionHandler().loadImageReference(ref);
+
+	setScriptObjectProperty(FileName, absoluteFileName, sendNotification);
 };
 
 
@@ -2714,6 +2739,7 @@ struct ScriptingApi::Content::ScriptPanel::Wrapper
 	API_VOID_METHOD_WRAPPER_1(ScriptPanel, setMouseCallback);
 	API_VOID_METHOD_WRAPPER_1(ScriptPanel, setLoadingCallback);
 	API_VOID_METHOD_WRAPPER_1(ScriptPanel, setTimerCallback);
+	API_VOID_METHOD_WRAPPER_3(ScriptPanel, setFileDropCallback);
 	API_VOID_METHOD_WRAPPER_1(ScriptPanel, startTimer);
 	API_VOID_METHOD_WRAPPER_0(ScriptPanel, stopTimer);
 	API_VOID_METHOD_WRAPPER_0(ScriptPanel, changed);
@@ -2745,7 +2771,8 @@ graphics(new ScriptingObjects::GraphicsObject(base, this)),
 isChildPanel(true),
 loadRoutine(base, var(), 1),
 timerRoutine(base, var(), 0),
-mouseRoutine(base, var(), 1)
+mouseRoutine(base, var(), 1),
+fileDropRoutine(base, var(), 1)
 {
 	init();
 }
@@ -2757,7 +2784,8 @@ ScriptingApi::Content::ScriptPanel::ScriptPanel(ScriptPanel* parent) :
 	parentPanel(parent),
 	loadRoutine(parent->getScriptProcessor(), var(), 1),
 	mouseRoutine(parent->getScriptProcessor(), var(), 1),
-	timerRoutine(parent->getScriptProcessor(), var(), 0)
+	timerRoutine(parent->getScriptProcessor(), var(), 0),
+	fileDropRoutine(parent->getScriptProcessor(), var(), 1)
 {
 	
 	init();
@@ -2817,6 +2845,7 @@ void ScriptingApi::Content::ScriptPanel::init()
 	ADD_API_METHOD_1(setMouseCallback);
 	ADD_API_METHOD_1(setLoadingCallback);
 	ADD_API_METHOD_1(setTimerCallback);
+	ADD_API_METHOD_3(setFileDropCallback);
 	ADD_API_METHOD_1(startTimer);
 	ADD_API_METHOD_0(stopTimer);
 	ADD_API_METHOD_2(loadImage);
@@ -3007,7 +3036,16 @@ void ScriptingApi::Content::ScriptPanel::preloadStateChanged(bool isPreloading)
 		loadRoutine.call1(isPreloading);
 }
 
+void ScriptingApi::Content::ScriptPanel::setFileDropCallback(String callbackLevel, String wildcard, var dropFunction)
+{
+	fileDropLevel = callbackLevel;
+	fileDropExtension = wildcard;
+	fileDropRoutine = WeakCallbackHolder(getScriptProcessor(), dropFunction, 1);
+	fileDropRoutine.incRefCount();
+	fileDropRoutine.setThisObject(this);
+	fileDropRoutine.setHighPriority();
 
+}
 
 void ScriptingApi::Content::ScriptPanel::setMouseCallback(var mouseCallbackFunction)
 {
@@ -3015,6 +3053,17 @@ void ScriptingApi::Content::ScriptPanel::setMouseCallback(var mouseCallbackFunct
 	mouseRoutine.incRefCount();
 	mouseRoutine.setThisObject(this);
 	mouseRoutine.setHighPriority();
+}
+
+void ScriptingApi::Content::ScriptPanel::fileDropCallback(var fileInformation)
+{
+	const bool parentHasMovedOn = !isChildPanel && !parent->hasComponent(this);
+
+	if (parentHasMovedOn || !parent->asyncFunctionsAllowed())
+		return;
+
+	if (fileDropRoutine)
+		fileDropRoutine.call1(fileInformation);
 }
 
 void ScriptingApi::Content::ScriptPanel::mouseCallback(var mouseInformation)
@@ -3070,10 +3119,18 @@ void ScriptingApi::Content::ScriptPanel::loadImage(String imageName, String pret
 {
 	PoolReference ref(getProcessor()->getMainController(), imageName, ProjectHandler::SubDirectories::Images);
 
-	for (const auto& img : loadedImages)
+	for (auto& img : loadedImages)
 	{
-		if (img.image.getRef() == ref)
+		if (img.prettyName == prettyName)
+		{
+			if (img.image.getRef() != ref)
+			{
+				HiseJavascriptEngine::TimeoutExtender xt(dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine());
+				img.image = getProcessor()->getMainController()->getExpansionHandler().loadImageReference(ref);
+			}
+
 			return;
+		}
 	}
 
 	HiseJavascriptEngine::TimeoutExtender xt(dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine());
@@ -3382,6 +3439,12 @@ void ScriptingApi::Content::ScriptPanel::setAnimation(String base64LottieAnimati
 	}
 
 	setAnimationFrame(0);
+
+	for (auto l : animationListeners)
+	{
+		if (l.get() != nullptr)
+			l->animationChanged();
+	}
 }
 
 void ScriptingApi::Content::ScriptPanel::setAnimationFrame(int numFrame)
@@ -3449,6 +3512,23 @@ var ScriptingApi::Content::ScriptPanel::getParentPanel()
 
 	return {};
 }
+
+void ScriptingApi::Content::ScriptPanel::addAnimationListener(AnimationListener* l)
+{
+#if HISE_INCLUDE_RLOTTIE
+	animationListeners.addIfNotAlreadyThere(l);
+#endif
+}
+
+void ScriptingApi::Content::ScriptPanel::removeAnimationListener(AnimationListener* l)
+{
+#if HISE_INCLUDE_RLOTTIE
+	animationListeners.removeAllInstancesOf(l);
+#endif
+}
+
+
+
 
 #endif
 
@@ -4402,8 +4482,9 @@ void ScriptingApi::Content::restoreAllControlsFromPreset(const ValueTree &preset
 		{
 			static const Identifier value_("value");
 
-			v = Helpers::getCleanedComponentValue(presetChild.getProperty(value_));
+			auto allowStrings = dynamic_cast<ScriptLabel*>(components[i].get()) != nullptr;
 
+			v = Helpers::getCleanedComponentValue(presetChild.getProperty(value_), allowStrings);
 		}
 		else
 		{
@@ -5336,13 +5417,19 @@ juce::Colour ScriptingApi::Content::Helpers::getCleanedObjectColour(const var& v
 	return Colour((uint32)colourValue);
 }
 
-var ScriptingApi::Content::Helpers::getCleanedComponentValue(const var& data)
+var ScriptingApi::Content::Helpers::getCleanedComponentValue(const var& data, bool allowStrings)
 {
-	if (data.isString() && data.toString().startsWith("JSON"))
+	if (data.isString() && (data.toString().startsWith("JSON") || allowStrings))
 	{
-		String jsonData = data.toString().fromFirstOccurrenceOf("JSON", false, false);
-
-		return JSON::fromString(jsonData);
+		if (data.toString().startsWith("JSON"))
+		{
+			String jsonData = data.toString().fromFirstOccurrenceOf("JSON", false, false);
+			return JSON::fromString(jsonData);
+		}
+		else
+		{
+			return data;
+		}
 	}
 	else
 	{
