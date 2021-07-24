@@ -135,7 +135,7 @@ Use the Intel Performance Primitives Library for the convolution reverb.
 * Use the vDsp FFT on Apple devices.
 */
 #ifndef USE_VDSP_FFT
-#define USE_VDSP_FFT 0
+#define USE_VDSP_FFT !USE_IPP && JUCE_MAC
 #endif
 
 /** Config: FRONTEND_IS_PLUGIN
@@ -143,6 +143,24 @@ Use the Intel Performance Primitives Library for the convolution reverb.
 If set to 1, the compiled plugin will be a effect (stereo in / out). */
 #ifndef FRONTEND_IS_PLUGIN
 #define FRONTEND_IS_PLUGIN 0
+#endif
+
+
+/** Config: PROCESS_SOUND_GENERATORS_IN_FX_PLUGIN
+
+If set to 1, then the FX plugin will also process child sound generators (eg. global modulators or macro modulation sources). 
+*/
+#ifndef PROCESS_SOUND_GENERATORS_IN_FX_PLUGIN
+#define PROCESS_SOUND_GENERATORS_IN_FX_PLUGIN 1
+#endif
+
+/** Config: FORCE_INPUT_CHANNELS
+
+If set to 1, the compiled plugin will use a stereo input channel pair and render the master containers effect chain on top of it.
+This can be used to simulate an audio effect routing setup (when the appropriate plugin type is selected in the projucer settings).
+*/
+#ifndef FORCE_INPUT_CHANNELS
+#define FORCE_INPUT_CHANNELS 0
 #endif
 
 /** Config: HISE_MIDIFX_PLUGIN
@@ -250,6 +268,13 @@ Set this to 0 to deactivate peak collection for any other processor than the mai
 */
 #ifndef ENABLE_ALL_PEAK_METERS
 #define ENABLE_ALL_PEAK_METERS 1
+#endif
+
+/** Config: READ_ONLY_FACTORY_PRESETS 
+
+Set this to 1 to enable read only presets that are shipped with the plugin / expansion. */
+#ifndef READ_ONLY_FACTORY_PRESETS
+#define READ_ONLY_FACTORY_PRESETS 0
 #endif
 
 /** Config: ENABLE_CONSOLE_OUTPUT

@@ -55,7 +55,7 @@ X(rightShiftUnsigned, ">>>") X(rightShiftEquals, ">>=") X(rightShift,   ">>")   
     X(typeof_,  "typeof")	X(switch_, "switch") X(case_, "case")	 X(default_,  "default")  X(register_var, "reg") \
 	X(in, 		"in")		X(inline_, "inline") X(const_, "const")	 X(global_,   "global")	  X(local_,	   "local") \
 	X(include_,  "include") X(rLock_,   "readLock") X(wLock_,"writeLock") 	X(extern_, "extern") X(namespace_, "namespace") \
-	X(loadJit_, "loadJITModule") X(isDefined_, "isDefined");
+	X(isDefined_, "isDefined");
 
 namespace TokenTypes
 {
@@ -796,7 +796,6 @@ ApiClass::Constant ApiClass::Constant::null;
 #endif
 
 
-
 var HiseJavascriptEngine::callFunction(const Identifier& function, const var::NativeFunctionArgs& args, Result* result)
 {
 #if JUCE_DEBUG
@@ -939,6 +938,11 @@ var HiseJavascriptEngine::getScriptVariableFromRootNamespace(const Identifier & 
 	return var();
 }
 
+void HiseJavascriptEngine::addShaderFile(const File& f)
+{
+	root->hiseSpecialData.includedFiles.add(new ExternalFileData(ExternalFileData::Type::EmbeddedScript, f, f.getFileName()));
+}
+
 int HiseJavascriptEngine::getNumIncludedFiles() const
 {
 	return root->hiseSpecialData.includedFiles.size();
@@ -1074,6 +1078,8 @@ juce::String HiseJavascriptEngine::getHoverString(const String& token)
 	}
 }
 
+
+
 HiseJavascriptEngine::RootObject::Callback::Callback(const Identifier &id, int numArgs_, double bufferTime_) :
 callbackName(id),
 bufferTime(bufferTime_),
@@ -1086,34 +1092,5 @@ numArgs(numArgs_)
 	}
 }
 
-
-
-#if INCLUDE_NATIVE_JIT
-NativeJITScope* HiseJavascriptEngine::RootObject::HiseSpecialData::getNativeJITScope(const Identifier& id)
-{
-	for (int i = 0; i < jitScopes.size(); i++)
-	{
-		if (jitScopes[i]->getName() == id)
-		{
-			return jitScopes[i];
-		}
-	}
-
-	return nullptr;
-}
-
-NativeJITCompiler* HiseJavascriptEngine::RootObject::HiseSpecialData::getNativeCompiler(const Identifier& id)
-{
-	for (int i = 0; i < jitModules.size(); i++)
-	{
-		if (jitModules[i]->getModuleName() == id)
-		{
-			return jitModules[i];
-		}
-	}
-
-	return nullptr;
-}
-#endif
 
 } // namespace hise

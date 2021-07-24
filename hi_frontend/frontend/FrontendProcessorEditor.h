@@ -50,9 +50,13 @@ class FrontendProcessorEditor: public AudioProcessorEditor,
 							   public OverlayMessageBroadcaster::Listener,
 							   public ComponentWithBackendConnection,
 							   public GlobalSettingManager::ScaleFactorListener,
+<<<<<<< HEAD
 							   private OpenGLRenderer
 
 
+=======
+							   public TopLevelWindowWithOptionalOpenGL
+>>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 {
 public:
 
@@ -167,10 +171,10 @@ private:
 
     bool overlayToolbar;
 
-#if HISE_USE_OPENGL_FOR_PLUGIN
+
 	bool usesOpenGl;
 	OpenGLContext context;
-#endif
+
 };
 
 

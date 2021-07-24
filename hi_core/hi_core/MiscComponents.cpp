@@ -535,6 +535,10 @@ void MouseCallbackComponent::sendFileMessage(Action a, const String& f, Point<in
 	case Action::FileEnter:
 	case Action::FileExit: requiredLevel = FileCallbackLevel::DropHover; break;
 	case Action::FileMove: requiredLevel = FileCallbackLevel::AllCallbacks; break;
+<<<<<<< HEAD
+=======
+    default: break;
+>>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 	}
 
 	if (fileCallbackLevel < requiredLevel)
@@ -698,6 +702,14 @@ borderSize(1.0f)
 	closeButton.setImages(false, true, true, img, 1.0f, Colour(0),
 		img, 1.0f, Colours::white.withAlpha(0.05f),
 		img, 1.0f, Colours::white.withAlpha(0.1f));
+
+	WeakReference<BorderPanel> safeThis(this);
+
+	MessageManager::callAsync([safeThis]()
+	{
+		if (safeThis != nullptr)
+			safeThis.get()->registerToTopLevelComponent();
+	});
 }
 
 BorderPanel::~BorderPanel()
@@ -725,10 +737,38 @@ void BorderPanel::changeListenerCallback(SafeChangeBroadcaster* )
 {
 }
 
+struct GraphicHelpers
+{
+	static void quickDraw(Image& dst, const Image& src)
+	{
+		jassert(dst.getFormat() == src.getFormat());
+		jassert(dst.getBounds() == src.getBounds());
+
+		juce::Image::BitmapData srcData(src, juce::Image::BitmapData::readOnly);
+		juce::Image::BitmapData dstData(dst, juce::Image::BitmapData::writeOnly);
+
+		for (int y = 0; y < src.getHeight(); y++)
+		{
+			auto s = srcData.getLinePointer(y);
+			auto d = dstData.getLinePointer(y);
+
+			auto w = src.getWidth() * 4;
+
+			for (int x = 0; x < w; x++)
+				d[x] = jmin(255, s[x] + d[x]);
+		}
+	}
+};
+
 void BorderPanel::paint(Graphics &g)
 {
 	if (recursion)
 		return;
+
+
+	registerToTopLevelComponent();
+
+	
 
 #if HISE_INCLUDE_RLOTTIE
 	if (animation != nullptr)
@@ -745,35 +785,64 @@ void BorderPanel::paint(Graphics &g)
 		if (isOpaque())
 			g.fillAll(Colours::black);
 
+		UnblurryGraphics ug(g, *this);
+
+		auto sf = ug.getTotalScaleFactor();
+		auto st = AffineTransform::scale(jmin<double>(2.0, sf));
+		auto st2 = AffineTransform::scale(sf);
+
+		auto gb = getLocalArea(getTopLevelComponent(), getLocalBounds()).transformed(st2);
+		
+		drawHandler->setGlobalBounds(gb, sf);
+
 		DrawActions::Handler::Iterator it(drawHandler.get());
 
 		if (it.wantsCachedImage())
 		{
+			// We are creating one master image before the loop
+			Image cachedImg;
+			
+			if (!isOpaque() && (getParentComponent() != nullptr && it.wantsToDrawOnParent()))
+			{
+				// fetch the parent component content here...
+				ScopedValueSetter<bool> sv(recursion, true);
+				cachedImg = getParentComponent()->createComponentSnapshot(getBoundsInParent(), true, sf);
+			}
+			else
+			{
+				// just use an empty image
+				cachedImg = Image(Image::ARGB, getWidth() * sf, getHeight() * sf, true);
+			}
+
+			Graphics g2(cachedImg);
+			g2.addTransform(st);
+
 			while (auto action = it.getNextAction())
 			{
 				if (action->wantsCachedImage())
 				{
-					Image cachedImg;
+					Image actionImage;
 
-					if (getParentComponent() != nullptr && action->wantsToDrawOnParent())
-					{
-						ScopedValueSetter<bool> sv(recursion, true);
-						cachedImg = getParentComponent()->createComponentSnapshot(getBoundsInParent());
-					}
+					if (action->wantsToDrawOnParent())
+						actionImage = cachedImg; // just use the cached image
 					else
 					{
-						cachedImg = Image(Image::ARGB, getWidth(), getHeight(), true);
+						actionImage = Image(cachedImg.getFormat(), cachedImg.getWidth(), cachedImg.getHeight(), true);
 					}
 
-					Graphics g2(cachedImg);
-					action->setCachedImage(cachedImg);
-					action->perform(g2);
+					Graphics g3(actionImage);
+					g3.addTransform(st);
+					action->setCachedImage(actionImage);
+					action->perform(g3);
 
-					g.drawImageAt(cachedImg, 0, 0);
+					if (!action->wantsToDrawOnParent())
+						GraphicHelpers::quickDraw(cachedImg, actionImage);
 				}
 				else
-					action->perform(g);
+					action->perform(g2);
 			}
+			
+			g.drawImageTransformed(cachedImg, st.inverted());
 		}
 		else
 		{
@@ -956,6 +1025,67 @@ void MouseCallbackComponent::RectangleConstrainer::addListener(Listener *l)
 void MouseCallbackComponent::RectangleConstrainer::removeListener(Listener *l)
 {
 	listeners.removeAllInstancesOf(l);
+}
+
+bool DrawActions::Handler::beginBlendLayer(const Identifier& blendMode, float alpha)
+{
+	static const Array<Identifier> blendIds = {
+		"Normal",
+		"Lighten",
+		"Darken",
+		"Multiply",
+		"Average",
+		"Add",
+		"Subtract",
+		"Difference",
+		"Negation",
+		"Screen",
+		"Exclusion",
+		"Overlay",
+		"SoftLight",
+		"HardLight",
+		"ColorDodge",
+		"ColorBurn",
+		"LinearDodge",
+		"LinearBurn",
+		"LinearLight",
+		"VividLight",
+		"PinLight",
+		"HardMix",
+		"Reflect",
+		"Glow",
+		"Phoenix"
+	};
+
+	auto idx = blendIds.indexOf(blendMode);
+
+	if (idx == -1)
+		return false;
+
+	auto bm = (gin::BlendMode)idx;
+	ActionLayer* newLayer = new BlendingLayer(bm, alpha);
+	addDrawAction(newLayer);
+	layerStack.insert(-1, newLayer);
+	return true;
+}
+
+void DrawActions::BlendingLayer::perform(Graphics& g)
+{
+	auto imageToBlendOn = cachedImage;
+
+	blendSource = Image(Image::ARGB, cachedImage.getWidth(), cachedImage.getHeight(), true);
+
+	for (auto a : actions)
+	{
+		if (a->wantsCachedImage())
+			a->setCachedImage(blendSource);
+	}
+
+	setCachedImage(blendSource);
+	Graphics g2(blendSource);
+
+	ActionLayer::perform(g2);
+	gin::applyBlend(imageToBlendOn, blendSource, blendMode, alpha);
 }
 
 } // namespace hise

@@ -102,7 +102,11 @@ private:
 };
 
 
+<<<<<<< HEAD
 #define NUM_API_FUNCTION_SLOTS 52
+=======
+#define NUM_API_FUNCTION_SLOTS 60
+>>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 
 
 /** A API class is a class with a fixed number of methods and constants that can be called from Javascript.
@@ -172,8 +176,6 @@ public:
     */
 	ApiClass(int numConstants_);;
 	virtual ~ApiClass();
-
-    
 
 	/** You can overwrite this method and return true if you want to allow illegal calls that would otherwise
 	*	fire a warning. This is eg. used in the Console class to prevent firing when debugging. */
@@ -248,6 +250,8 @@ public:
 	void getAllConstants(Array<Identifier> &ids) const;
 
 	ReadWriteLock apiClassLock;
+
+	
 
 private:
 

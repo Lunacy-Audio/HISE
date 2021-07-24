@@ -369,134 +369,23 @@ struct HiseJavascriptEngine::RootObject::ExpressionTreeBuilder : private TokenIt
 		fo.body = parseBlock();
 	}
 
-#if INCLUDE_NATIVE_JIT
-	Expression* parseNativeJITExpression(NativeJITScope* scope)
-	{
-		const Identifier scopeId = parseIdentifier();
-
-		jassert(scopeId == scope->getName());
-
-		match(TokenTypes::dot);
-
-		static const Identifier pb("processBlock");
-
-		const Identifier id = parseIdentifier();
-
-		if (scope->isFunction(id))
-		{
-			ScopedPointer<RootObject::NativeJIT::FunctionCall> f = new RootObject::NativeJIT::FunctionCall(location);
-			
-			f->scope = scope;
-
-			f->numArgs = scope->getNumArgsForFunction(id);
-
-			f->functionName = id;
-
-
-
-			match(TokenTypes::openParen);
-
-			while (currentType != TokenTypes::closeParen && currentType != TokenTypes::eof)
-			{
-				ExpPtr p = parseExpression();
-				matchIf(TokenTypes::comma);
-
-				f->arguments.add(p.release());
-			}
-
-			match(TokenTypes::closeParen);
-
-			if (f->numArgs != f->arguments.size())
-			{
-				location.throwError("Argument amount mismatch. Expected: " + String(f->numArgs) + ". Actual: " + String(f->arguments.size()));
-			}
-
-			return f.release();
-
-		}
-		else if (scope->isGlobal(id))
-		{
-			ScopedPointer<RootObject::NativeJIT::GlobalReference> r = new RootObject::NativeJIT::GlobalReference(location, scope);
-
-			r->index = scope->getIndexForGlobal(id);
-
-			return parseSuffixes(r.release());
-		}
-		else if (id == pb)
-		{
-			ScopedPointer<RootObject::NativeJIT::ProcessBufferCall> c = new RootObject::NativeJIT::ProcessBufferCall(location, scope);
-
-			match(TokenTypes::openParen);
-
-			ExpPtr target = parseExpression();
-
-			match(TokenTypes::closeParen);
-
-			c->target = target.release();
-
-			return c.release();
-		}
-		else
-		{
-			location.throwError(id.toString() + " not found in " + scope->getName());
-		}
-	}
-#endif
 
 	Expression* parseExpression()
 	{
 		Identifier id = Identifier::isValidIdentifier(currentValue.toString()) ? Identifier(currentValue.toString()) : Identifier::null;
 
-
-		
-
 		bool skipConsoleCalls = false;
 
 #if !ENABLE_SCRIPTING_SAFE_CHECKS
 		static const Identifier c("Console");
-		
+
 		if (id == c)
 		{
 			skipConsoleCalls = true;
 		}
 #endif
 
-		ExpPtr lhs;
-
-#if INCLUDE_NATIVE_JIT
-		if (auto s = hiseSpecialData->getNativeJITScope(id))
-		{
-			lhs = parseNativeJITExpression(s);
-		}
-		else if (auto c = hiseSpecialData->getNativeCompiler(id))
-		{
-			parseIdentifier();
-			match(TokenTypes::dot);
-			parseIdentifier();
-			match(TokenTypes::openParen);
-			match(TokenTypes::closeParen);
-
-			ScopedPointer<NativeJITScope> s = c->compileAndReturnScope();
-
-			if (s == nullptr)
-			{
-				location.throwError("NativeJIT compile error: " + c->getErrorMessage());
-			}
-
-			hiseSpecialData->jitScopes.add(s.get());
-
-			return new RootObject::NativeJIT::ScopeReference(location, s.release());
-
-		}
-		else
-		{
-			lhs = parseLogicOperator();
-		}
-#else
-        lhs = parseLogicOperator();
-#endif
-		
-
+		ExpPtr lhs = parseLogicOperator();
 
 		if (matchIf(TokenTypes::in))
 		{
@@ -592,7 +481,6 @@ private:
 		if (matchIf(TokenTypes::break_))           return new BreakStatement(location);
 		if (matchIf(TokenTypes::continue_))        return new ContinueStatement(location);
 		if (matchIf(TokenTypes::function))         return parseFunction();
-		if (matchIf(TokenTypes::loadJit_))		   return parseJITModule();
 		if (matchIf(TokenTypes::semicolon))        return new Statement(location);
 		if (matchIf(TokenTypes::plusplus))         return parsePreIncDec<AdditionOp>();
 		if (matchIf(TokenTypes::minusminus))       return parsePreIncDec<SubtractionOp>();
@@ -612,7 +500,7 @@ private:
 		return nullptr;
 	}
 
-	String getFileContent(const String &fileNameInScript, String &refFileName)
+	String getFileContent(const String &fileNameInScript, String &refFileName, bool allowMultipleIncludes = false)
 	{
 		String cleanedFileName = fileNameInScript.removeCharacters("\"\'");
 
@@ -645,46 +533,54 @@ private:
 		if (!f.existsAsFile())
 			throwError("File " + refFileName + " not found");
 
-		for (int i = 0; i < hiseSpecialData->includedFiles.size(); i++)
+		if (!allowMultipleIncludes)
 		{
-			if (hiseSpecialData->includedFiles[i]->f == f)
+			for (int i = 0; i < hiseSpecialData->includedFiles.size(); i++)
 			{
-				debugToConsole(dynamic_cast<Processor*>(hiseSpecialData->processor), "File " + shortFileName + " was included multiple times");
-				return String();
+				if (hiseSpecialData->includedFiles[i]->f == f)
+				{
+					debugToConsole(dynamic_cast<Processor*>(hiseSpecialData->processor), "File " + shortFileName + " was included multiple times");
+					return String();
+				}
 			}
-				
 		}
 
 		return f.loadFileAsString();
 
 #else
-		
+
 		refFileName = cleanedFileName;
 
 		if (File::isAbsolutePath(refFileName))
 		{
 			File f(refFileName);
 
-			for (int i = 0; i < hiseSpecialData->includedFiles.size(); i++)
+			if (!allowMultipleIncludes)
 			{
-				if (hiseSpecialData->includedFiles[i]->f == f)
+				for (int i = 0; i < hiseSpecialData->includedFiles.size(); i++)
 				{
-					DBG("File " + refFileName + " was included multiple times");
-					return String();
-				}
+					if (hiseSpecialData->includedFiles[i]->f == f)
+					{
+						DBG("File " + refFileName + " was included multiple times");
+						return String();
+					}
 
+				}
 			}
 
 			return f.loadFileAsString();
 		}
 		else
 		{
-			for (int i = 0; i < hiseSpecialData->includedFiles.size(); i++)
+			if (!allowMultipleIncludes)
 			{
-				if (hiseSpecialData->includedFiles[i]->scriptName == refFileName)
+				for (int i = 0; i < hiseSpecialData->includedFiles.size(); i++)
 				{
-					DBG("Script " + refFileName + " was included multiple times");
-					return String();
+					if (hiseSpecialData->includedFiles[i]->scriptName == refFileName)
+					{
+						DBG("Script " + refFileName + " was included multiple times");
+						return String();
+					}
 				}
 			}
 
@@ -693,7 +589,10 @@ private:
 #endif
 	};
 
-	Statement* parseExternalFile()
+	
+
+	/** Call this to include and register the file, then use getFileContent with the reference String to obtain the actual content. */
+	String addExternalFile()
 	{
 		if (getCurrentNamespace() != hiseSpecialData)
 		{
@@ -701,11 +600,33 @@ private:
 		}
 
 		match(TokenTypes::openParen);
-		
+
 		String refFileName;
 		String fileContent = getFileContent(currentValue.toString(), refFileName);
-        
+
 		if (fileContent.isEmpty())
+			return {};
+
+#if USE_BACKEND
+		File f(refFileName);
+		hiseSpecialData->includedFiles.add(new ExternalFileData(ExternalFileData::Type::RelativeFile, f, String()));
+#else
+
+		if (File::isAbsolutePath(refFileName))
+			hiseSpecialData->includedFiles.add(new ExternalFileData(ExternalFileData::Type::AbsoluteFile, File(refFileName), String()));
+		else
+			hiseSpecialData->includedFiles.add(new ExternalFileData(ExternalFileData::Type::AbsoluteFile, File(), refFileName));
+
+#endif
+
+		return refFileName;
+	}
+
+	Statement* parseExternalFile()
+	{
+		auto refFileName = addExternalFile();
+
+		if (refFileName.isEmpty())
 		{
 			match(TokenTypes::literal);
 			match(TokenTypes::closeParen);
@@ -715,23 +636,10 @@ private:
 		}
 		else
 		{
-#if USE_BACKEND
-            
-            File f(refFileName);
-            
-            
-            hiseSpecialData->includedFiles.add(new ExternalFileData(ExternalFileData::Type::RelativeFile, f, String()));
-#else
-
-			if (File::isAbsolutePath(refFileName)) 
-                hiseSpecialData->includedFiles.add(new ExternalFileData(ExternalFileData::Type::AbsoluteFile, File(refFileName), String()));
-			else
-                hiseSpecialData->includedFiles.add(new ExternalFileData(ExternalFileData::Type::AbsoluteFile, File(), refFileName));
-
-#endif
-
 			try
 			{
+				String fileContent = getFileContent(currentValue.toString(), refFileName, true);
+
 				ExpressionTreeBuilder ftb(fileContent, refFileName);
 
 #if ENABLE_SCRIPTING_BREAKPOINTS
@@ -838,13 +746,6 @@ private:
 		hiseSpecialData->checkIfExistsInOtherStorage(HiseSpecialData::VariableStorageType::ConstVariables, s->name, location);
 
 		s->initialiser = matchIf(TokenTypes::assign) ? parseExpression() : new Expression(location);
-
-#if INCLUDE_NATIVE_JIT
-		if (auto sr = dynamic_cast<RootObject::NativeJIT::ScopeReference*>(s->initialiser.get()))
-		{
-			sr->scope->setName(s->name);
-		}
-#endif
 
 		if (matchIf(TokenTypes::comma))
 		{
@@ -1330,12 +1231,6 @@ private:
 		match(TokenTypes::closeParen);
 		match(TokenTypes::semicolon);
 
-#if INCLUDE_NATIVE_JIT
-		ScopedPointer<NativeJITCompiler> compiler = new NativeJITCompiler(fileContent);
-
-		hiseSpecialData->jitModules.add(compiler.release());
-#endif
-        
 		return new Statement(location);
 	}
 
@@ -1772,18 +1667,6 @@ private:
 				{
 					return parseSuffixes(parseApiExpression());
 				}
-#if INCLUDE_NATIVE_JIT
-				else if (auto compiler = hiseSpecialData->getNativeCompiler(id))
-				{
-					match(TokenTypes::dot);
-					match(TokenTypes::identifier);
-					match(TokenTypes::openParen);
-					match(TokenTypes::closeParen);
-
-					return new RootObject::NativeJIT::ScopeReference(location, compiler->compileAndReturnScope());
-				}
-#endif
-				
 				else if (globalIndex != -1)
 				{
 					return parseSuffixes(new GlobalReference(location, hiseSpecialData->globals, parseIdentifier()));

@@ -289,6 +289,8 @@ struct DrawActions
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ActionBase);
 	};
 
+	
+
 	class ActionLayer : public ActionBase
 	{
 	public:
@@ -319,7 +321,7 @@ struct DrawActions
 					if (p->needsStackData())
 						numDataRequired++;
 				}
-
+				
 				r.reserveStackOperations(numDataRequired);
 
 				for (auto p : postActions)
@@ -337,13 +339,35 @@ struct DrawActions
 			postActions.add(a);
 		}
 
-	private:
+	protected:
 
 		bool drawOnParent = false;
 
 		OwnedArray<ActionBase> internalActions;
 		OwnedArray<PostActionBase> postActions;
 		PostGraphicsRenderer::DataStack stack;
+	};
+
+	class BlendingLayer : public ActionLayer
+	{
+	public:
+
+		BlendingLayer(gin::BlendMode m, float alpha_) :
+			ActionLayer(true),
+			blendMode(m),
+			alpha(alpha_)
+		{
+
+		}
+
+		bool wantsCachedImage() const override { return true; }
+
+		void perform(Graphics& g) override;
+
+		float alpha;
+		ReferenceCountedArray<ActionBase> actions;
+		Image blendSource;
+		gin::BlendMode blendMode;
 	};
 
 	struct Handler: private AsyncUpdater
@@ -378,6 +402,15 @@ struct DrawActions
 				return false;
 			}
 
+			bool wantsToDrawOnParent() const
+			{
+				for (auto action : actionsInIterator)
+					if (action != nullptr && action->wantsToDrawOnParent())
+						return true;
+
+				return false;
+			}
+
 			int index = 0;
 			ReferenceCountedArray<ActionBase> actionsInIterator;
 		};
@@ -394,6 +427,8 @@ struct DrawActions
 		{
 			currentActions.clear();
 		}
+
+		bool beginBlendLayer(const Identifier& blendMode, float alpha);
 
 		void beginLayer(bool drawOnParent)
 		{
@@ -434,10 +469,30 @@ struct DrawActions
 			triggerAsyncUpdate();
 		}
 
+		void logError(const String& message)
+		{
+			if (errorLogger)
+				errorLogger(message);
+		}
+
 		void addDrawActionListener(Listener* l) { listeners.addIfNotAlreadyThere(l); }
 		void removeDrawActionListener(Listener* l) { listeners.removeAllInstancesOf(l); }
 
+		void setGlobalBounds(Rectangle<int> gb, float sf)
+		{
+			globalBounds = gb;
+			scaleFactor = sf;
+		}
+
+		Rectangle<int> getGlobalBounds() const { return globalBounds; }
+		float getScaleFactor() const { return scaleFactor; }
+
+		std::function<void(const String& m)> errorLogger;
+
 	private:
+
+		Rectangle<int> globalBounds;
+		float scaleFactor = 1.0f;
 
 		void handleAsyncUpdate() override
 		{
@@ -466,6 +521,7 @@ class BorderPanel : public MouseCallbackComponent,
                     public SafeChangeListener,
 					public SettableTooltipClient,
 				    public ButtonListener,
+					public OpenGLRenderer,
 					public DrawActions::Handler::Listener
 {
 public:
@@ -475,13 +531,39 @@ public:
 	BorderPanel(DrawActions::Handler* drawHandler);
 	~BorderPanel();
 
+	void newOpenGLContextCreated() override
+	{
+	}
+
+	void renderOpenGL() override
+	{
+		
+	}
+
+	void openGLContextClosing() override
+	{
+	}
+
 	void newPaintActionsAvailable() override { repaint(); }
 
 	void paint(Graphics &g);
 	Colour c1, c2, borderColour;
 
+	void registerToTopLevelComponent()
+	{
+		return;
+
+		if (srs == nullptr)
+		{
+			if (auto tc = findParentComponentOfClass<TopLevelWindowWithOptionalOpenGL>())
+				srs = new TopLevelWindowWithOptionalOpenGL::ScopedRegisterState(*tc, this);
+		}
+	}
+
 	void resized() override
 	{
+		registerToTopLevelComponent();
+
 		if (isPopupPanel)
 		{
 			closeButton.setBounds(getWidth() - 24, 0, 24, 24);
@@ -506,6 +588,8 @@ public:
 
 	// ================================================================================================================
 
+	ScopedPointer<TopLevelWindowWithOptionalOpenGL::ScopedRegisterState> srs;
+
 	bool recursion = false;
 
 	float borderRadius;
@@ -519,6 +603,7 @@ public:
 
 	WeakReference<DrawActions::Handler> drawHandler;
 
+	JUCE_DECLARE_WEAK_REFERENCEABLE(BorderPanel);
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(BorderPanel);
 	
 	// ================================================================================================================

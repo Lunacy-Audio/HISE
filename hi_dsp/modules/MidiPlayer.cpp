@@ -628,7 +628,7 @@ bool MidiPlayer::EditAction::undo()
 	return false;
 }
 
-void MidiPlayer::EditAction::writeArrayToSequence(HiseMidiSequence::Ptr destination, const Array<HiseEvent>& arrayToWrite, double bpm, double sampleRate)
+void MidiPlayer::EditAction::writeArrayToSequence(HiseMidiSequence::Ptr destination, Array<HiseEvent>& arrayToWrite, double bpm, double sampleRate)
 {
 	if (destination == nullptr)
 		return;
@@ -1048,8 +1048,6 @@ void MidiPlayer::preprocessBuffer(HiseEventBuffer& buffer, int numSamples)
 
 			auto timeStampInThisBuffer = e->getTimeStamp() - positionInTicks;
 
-			timeStampInThisBuffer;
-
 			if (timeStampInThisBuffer < 0.0)
 				timeStampInThisBuffer += getCurrentSequence()->getTimeSignature().normalisedLoopRange.getLength() * lengthInTicks;
 
@@ -1377,7 +1375,7 @@ void MidiPlayer::removeSequence(int sequenceIndex)
 
 	if (isPositiveAndBelow(sequenceIndex, getNumSequences()))
 	{
-		SimpleReadWriteLock::ScopedWriteLock sl(sequenceLock, true);
+		SimpleReadWriteLock::ScopedWriteLock sl(sequenceLock);
 		seqToRemove = currentSequences.removeAndReturn(sequenceIndex);
 	}
 
@@ -1801,6 +1799,7 @@ void MidiPlayer::addNoteOffsToPendingNoteOns()
 		{
 			auto channel = futureEvent.getChannel();
 			jassert(channel == currentTrackIndex + 1);
+            ignoreUnused(channel);
 
 			futureEvent.setTimeStamp(getLargestBlockSize() - 2);
 			sortAfterOp = true;

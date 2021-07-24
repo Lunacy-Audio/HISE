@@ -4,9 +4,15 @@
               bundleIdentifier="com.hartinstruments.HISEStandalone" includeBinaryInAppConfig="1"
               companyName="Hart Instruments" companyWebsite="http://hise.audio"
               companyCopyright="Hart Instruments" displaySplashScreen="0" reportAppUsage="0"
+<<<<<<< HEAD
               splashScreenColour="Dark" cppLanguageStandard="14" jucerFormatVersion="1">
+=======
+              splashScreenColour="Dark" cppLanguageStandard="17" jucerFormatVersion="1">
+>>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
   <MAINGROUP id="yomWt4" name="HISE Standalone">
     <GROUP id="{577963C7-1A49-BB2A-D701-52DC7A5895F7}" name="Source">
+      <FILE id="Fw455d" name="ScriptNodeTestSuite.cpp" compile="1" resource="0"
+            file="../../hi_scripting/scripting/scriptnode/ScriptNodeTestSuite.cpp"/>
       <FILE id="ho3qQy" name="logo_new.png" compile="0" resource="1" file="../../hi_core/hi_images/logo_new.png"/>
       <FILE id="YnIt9L" name="logo_mini.png" compile="0" resource="1" file="../../hi_core/hi_images/logo_mini.png"/>
       <FILE id="yjZXfQ" name="DspUnitTests.cpp" compile="1" resource="0"
@@ -36,6 +42,8 @@
       <FILE id="h7HW4R" name="MainComponent.h" compile="0" resource="0" file="Source/MainComponent.h"/>
       <FILE id="btXzOW" name="Main.cpp" compile="1" resource="0" file="Source/Main.cpp"/>
     </GROUP>
+    <FILE id="OLb0nc" name="knob_without_arrow.png" compile="0" resource="1"
+          file="../../hi_core/hi_images/knob_without_arrow.png"/>
   </MAINGROUP>
   <EXPORTFORMATS>
     <XCODE_MAC targetFolder="Builds/MacOSX" smallIcon="ho3qQy" bigIcon="ho3qQy"
@@ -132,7 +140,8 @@
     </XCODE_IPHONE>
     <VS2017 targetFolder="Builds/VisualStudio2017" smallIcon="ho3qQy" bigIcon="ho3qQy"
             useIPP="Sequential" IPPLibrary="Sequential" windowsTargetPlatformVersion="10.0.16299.0"
-            extraDefs="USE_IPP=1&#10;HI_ENABLE_EXPANSION_EDITING=1&#10;HISE_ENABLE_EXPANSIONS=1">
+            extraDefs="USE_IPP=1&#10;HI_ENABLE_EXPANSION_EDITING=1&#10;HISE_ENABLE_EXPANSIONS=1"
+            extraCompilerFlags="/bigobj">
       <CONFIGURATIONS>
         <CONFIGURATION name="Debug" winWarningLevel="4" generateManifest="1" winArchitecture="32-bit"
                        isDebug="1" optimisation="1" targetName="HISE x86 Debug" headerPath="../../../../tools/SDK/ASIOSDK2.3/common"
