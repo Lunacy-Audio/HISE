@@ -40,6 +40,7 @@ AudioProcessorEditor(fp)
 	if(usesOpenGl) {
         context.setRenderer(this);
 		context.attachTo(*this);
+        setEnableOpenGL(this);
     }
 #endif
 

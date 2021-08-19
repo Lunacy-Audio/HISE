@@ -258,6 +258,7 @@ public:
 			text = 0,
 			visible,
 			enabled,
+			locked,
 			x,
 			y,
 			width,
@@ -347,6 +348,11 @@ public:
 		String getDebugDataType() const override { return getObjectName().toString(); }
 		virtual void doubleClickCallback(const MouseEvent &e, Component* componentToNotify) override;
 
+		bool isLocked() const
+		{
+			return getScriptObjectProperty(locked);
+		}
+
 		var getAssignedValue(int index) const override;
 		void assign(const int index, var newValue) override;
 		int getCachedIndex(const var &indexExpression) const override;
@@ -362,6 +368,8 @@ public:
 		virtual bool isAutomatable() const { return false; }
 
 		virtual bool isClickable() const { return getScriptObjectProperty(enabled); };
+
+		
 
 		virtual void handleDefaultDeactivatedProperties();
 
@@ -487,6 +495,9 @@ public:
         /** Returns the absolute y-position relative to the interface. */
         int getGlobalPositionY();
         
+		/** Returns a [x, y, w, h] array that was reduced by the given amount. */
+		var getLocalBounds(float reduceAmount);
+
 		/** Restores all properties from a JSON object. */
 		void setPropertiesFromJSON(const var &jsonData);
 
@@ -800,6 +811,18 @@ public:
 		/** Sets the knob to the specified mode. */
 		void setMode(String mode);
 
+		/** Pass a function that takes a double and returns a String in order to override the popup display text. */
+		void setValuePopupFunction(var newFunction);
+
+		void setTableValueChangedFunction(var newFunction);
+
+		/** Returns the number of graph points */
+		int getNumPoints();
+
+		double getPointX(int pointIndex);
+		double getPointY(int pointIndex);
+		double getPointCurve(int pointIndex);
+
 		/** Sets the value that is shown in the middle position. */
 		void setMidPoint(double valueForMidPoint);
 
@@ -828,6 +851,7 @@ public:
 		HiSlider::Mode m = HiSlider::Mode::Linear;
 		Slider::SliderStyle styleId;
 		Image getImage() const { return image ? *image.getData() : Image(); };
+		var sliderValueFunction;
 
 	private:
 
@@ -1058,7 +1082,121 @@ public:
 	};
 
 
-	struct ScriptTable : public ScriptComponent
+	struct ComplexDataScriptComponent : public ScriptComponent,
+										public ExternalDataHolder
+	{
+		ComplexDataScriptComponent(ProcessorWithScriptingContent* base, Identifier name, snex::ExternalData::DataType type_);;
+			
+		Table* getTable(int) override
+		{
+			return static_cast<Table*>(getUsedData(snex::ExternalData::DataType::Table));
+		}
+
+		SliderPackData* getSliderPack(int) override
+		{
+			return static_cast<SliderPackData*>(getUsedData(snex::ExternalData::DataType::SliderPack));
+		}
+
+		MultiChannelAudioBuffer* getAudioFile(int) override
+		{
+			return static_cast<MultiChannelAudioBuffer*>(getUsedData(snex::ExternalData::DataType::AudioFile));
+		}
+
+		FilterDataObject* getFilterData(int index) override
+		{
+			jassertfalse;
+			return nullptr; // soon;
+		}
+
+		SimpleRingBuffer* getDisplayBuffer(int index) override
+		{
+			jassertfalse;
+			return nullptr; // soon
+		}
+
+		int getNumDataObjects(ExternalData::DataType t) const override
+		{
+			return t == type ? 1 : 0;
+		}
+
+		bool removeDataObject(ExternalData::DataType t, int index) override { return true; }
+
+		// override this and return the property id used for the index
+		virtual int getIndexPropertyId() const = 0;
+
+		StringArray getOptionsFor(const Identifier &id) override;
+
+		void setScriptObjectPropertyWithChangeMessage(const Identifier &id, var newValue, NotificationType notifyEditor = sendNotification) override
+		{
+			ScriptComponent::setScriptObjectPropertyWithChangeMessage(id, newValue, notifyEditor);
+
+			if (getIdFor(processorId) == id || getIdFor(getIndexPropertyId()) == id)
+			{
+				updateCachedObjectReference();
+			}
+
+			if (getIdFor(parameterId) == id)
+			{
+				// don't do anything if you try to connect a table to a parameter...
+				return;
+			}
+		}
+
+		ValueTree exportAsValueTree() const override;
+
+		void restoreFromValueTree(const ValueTree &v) override;
+
+		void handleDefaultDeactivatedProperties();
+
+		void referToDataBase(var newData)
+		{
+			if (auto td = dynamic_cast<ScriptingObjects::ScriptComplexDataReferenceBase*>(newData.getObject()))
+			{
+				if (td->getDataType() != type)
+					reportScriptError("Data Type mismatch");
+
+				otherHolder = td->getHolder();
+
+				setScriptObjectPropertyWithChangeMessage(getIdFor(getIndexPropertyId()), td->getIndex(), sendNotification);
+				updateCachedObjectReference();
+			}
+			else if (auto cd = dynamic_cast<ComplexDataScriptComponent*>(newData.getObject()))
+			{
+				if (cd->type != type)
+					reportScriptError("Data Type mismatch");
+
+				otherHolder = cd;
+				updateCachedObjectReference();
+			}
+		}
+
+		ComplexDataUIBase* getCachedDataObject() const { return cachedObjectReference.get(); };
+
+		void registerComplexDataObjectAtParent(int index = -1);
+
+	protected:
+
+		void updateCachedObjectReference()
+		{
+			cachedObjectReference = getComplexBaseType(type, 0);
+		}
+
+	private:
+
+		const snex::ExternalData::DataType type;
+
+		ComplexDataUIBase* getUsedData(snex::ExternalData::DataType requiredType);
+
+		ExternalDataHolder* getExternalHolder();
+
+		// Overrides itself and the connected processor
+		WeakReference<ExternalDataHolder> otherHolder;
+
+		WeakReference<ComplexDataUIBase> cachedObjectReference;
+		ReferenceCountedObjectPtr<ComplexDataUIBase> ownedObject;
+	};
+
+	struct ScriptTable : public ComplexDataScriptComponent
 	{
 		// ========================================================================================================
 
@@ -1074,80 +1212,58 @@ public:
 
 		// ========================================================================================================
 
+		int getIndexPropertyId() const override { return TableIndex; };
+
 		static Identifier getStaticObjectName() { RETURN_STATIC_IDENTIFIER("ScriptTable"); }
 
 		virtual Identifier 	getObjectName() const override { return getStaticObjectName(); }
 		ScriptCreatedComponentWrapper *createComponentWrapper(ScriptContentComponent *content, int index) override;
-		void setScriptObjectPropertyWithChangeMessage(const Identifier &id, var newValue, NotificationType notifyEditor = sendNotification) override;
-		StringArray getOptionsFor(const Identifier &id) override;
 		void handleDefaultDeactivatedProperties() override;
 
-		ValueTree exportAsValueTree() const override;
-		void restoreFromValueTree(const ValueTree &v) override;
-
 		void resetValueToDefault() override;
-
-		Table *getTable();
-		const Table *getTable() const;
-		LookupTableProcessor * getTableProcessor() const;
 
 		// ======================================================================================================== API Method
 
 		/** Pass a function that takes a double and returns a String in order to override the popup display text. */
 		void setTablePopupFunction(var newFunction);
 
-		void setTableValueChangedFunction(var newFunction);
-
-		/** Returns the number of graph points */
-		int getNumPoints();
-
-		double getPointX(int pointIndex);
-		double getPointY(int pointIndex);
-		double getPointCurve(int pointIndex);
+		void connectToOtherTable(String processorId, int index)
+		{
+			setScriptObjectProperty(ScriptingApi::Content::ScriptComponent::processorId, processorId, dontSendNotification);
+			setScriptObjectProperty(getIndexPropertyId(), index, sendNotification);
+		}
 
 		/** Returns the table value from 0.0 to 1.0 according to the input value from 0 to 127. */
 		float getTableValue(int inputValue);
 
 		/** Connects the table to an existing Processor. */
-		void connectToOtherTable(const String &id, int index);
-
 		/** Makes the table snap to the given x positions (from 0.0 to 1.0). */
 		void setSnapValues(var snapValueArray);
 
-		/** Connects it to a table data object. */
+		/** Connects it to a table data object (or UI element in the same interface). */
 		void referToData(var tableData);
+
+		/** Registers this table with the given index so you can use it from the outside. */
+		void registerAtParent(int index);
 
 		// ========================================================================================================
 
 		struct Wrapper;
 
-		LookupTableProcessor::TableChangeBroadcaster broadcaster;
-
 		var snapValues;
-
 		var tableValueFunction;
-
 		var tableValueChangedFunction;
 
 	private:
 
-		
-
-		ScopedPointer<MidiTable> ownedTable;
-
-		WeakReference<Table> referencedTable;
-		WeakReference<Processor> connectedProcessor;
-
-		
-		bool useOtherTable;
-		int lookupTableIndex;
+		Table* getCachedTable()  { return static_cast<Table*>(getCachedDataObject()); };
+		const Table* getCachedTable() const { return static_cast<const Table*>(getCachedDataObject()); };
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScriptTable);
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptTable);
 	};
 
-
-	struct ScriptSliderPack : public ScriptComponent
+	struct ScriptSliderPack : public ComplexDataScriptComponent
 	{
 		// ========================================================================================================
 
@@ -1168,14 +1284,12 @@ public:
 
 		static Identifier getStaticObjectName() { RETURN_STATIC_IDENTIFIER("ScriptSliderPack"); }
 
+		int getIndexPropertyId() const override { return SliderPackIndex; };
+
 		virtual Identifier 	getObjectName() const override { return getStaticObjectName(); }
 		ScriptCreatedComponentWrapper *createComponentWrapper(ScriptContentComponent *content, int index) override;
 		StringArray getOptionsFor(const Identifier &id) override;
-		ValueTree exportAsValueTree() const override;
-		void restoreFromValueTree(const ValueTree &v) override;
 		void setScriptObjectPropertyWithChangeMessage(const Identifier &id, var newValue, NotificationType notifyEditor = sendNotification) override;
-		void handleDefaultDeactivatedProperties() override;
-
 		void setValue(var newValue) override;
 
 		void resetValueToDefault() override
@@ -1186,10 +1300,6 @@ public:
 		}
 
 		var getValue() const override;
-
-		void setScriptProcessor(ProcessorWithScriptingContent *sb);
-		SliderPackData *getSliderPackData();
-		const SliderPackData *getSliderPackData() const;
 
 		// ======================================================================================================== API Methods
 
@@ -1208,24 +1318,21 @@ public:
 		/** Returns the number of sliders. */
 		int getNumSliders() const;
 
-        /** Sets a non-uniform width per slider using an array in the form [0.0, ... a[i], ... 1.0]. */
-        void setWidthArray(var normalizedWidths);
+		/** Sets a non-uniform width per slider using an array in the form [0.0, ... a[i], ... 1.0]. */
+		void setWidthArray(var normalizedWidths);
         
 		// ========================================================================================================
 
 		struct Wrapper;
 
-        Array<var> widthArray;
-        
+		SliderPackData* getSliderPackData() { return getCachedSliderPack(); };
+
+		Array<var> widthArray;
+
 	private:
 
-		void connectToOtherSliderPack(const String &otherPackId);
-        
-		String otherPackId;
-		int otherPackIndex = 0;
-
-		ScopedPointer<SliderPackData> packData;
-		WeakReference<SliderPackData> existingData;
+		const SliderPackData* getCachedSliderPack() const { return static_cast<const SliderPackData*>(getCachedDataObject()); };
+		SliderPackData* getCachedSliderPack() { return static_cast<SliderPackData*>(getCachedDataObject()); };
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScriptSliderPack);
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptSliderPack);
@@ -1233,6 +1340,54 @@ public:
 		// ========================================================================================================
 	};
 
+	struct ScriptAudioWaveform : public ComplexDataScriptComponent
+	{
+		enum Properties
+		{
+			itemColour3 = ScriptComponent::Properties::numProperties,
+			opaque,
+			showLines,
+			showFileName,
+			sampleIndex,
+			numProperties
+		};
+
+		// ========================================================================================================
+
+		ScriptAudioWaveform(ProcessorWithScriptingContent *base, Content *parentContent, Identifier plotterName, int x, int y, int width, int height);
+		~ScriptAudioWaveform() {};
+
+		// ========================================================================================================
+
+		int getIndexPropertyId() const override { return sampleIndex; };
+
+		static Identifier getStaticObjectName() { RETURN_STATIC_IDENTIFIER("ScriptAudioWaveform"); }
+		virtual Identifier 	getObjectName() const override { return getStaticObjectName(); };
+		ScriptCreatedComponentWrapper *createComponentWrapper(ScriptContentComponent *content, int index) override;
+
+		void handleDefaultDeactivatedProperties() override;
+
+		void resetValueToDefault() override;
+
+		StringArray getOptionsFor(const Identifier &id) override;
+		ValueTree exportAsValueTree() const override;
+		void restoreFromValueTree(const ValueTree &v) override;
+
+		ModulatorSampler* getSampler();
+
+		// ========================================================================================================
+
+	private:
+
+		MultiChannelAudioBuffer* getCachedAudioFile() { return static_cast<MultiChannelAudioBuffer*>(getCachedDataObject()); };
+		const MultiChannelAudioBuffer* getCachedAudioFile() const { return static_cast<const MultiChannelAudioBuffer*>(getCachedDataObject()); };
+		
+
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScriptAudioWaveform);
+		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptAudioWaveform);
+
+		// ========================================================================================================
+	};
 
 	struct ScriptImage : public ScriptComponent
 	{
@@ -1697,60 +1852,7 @@ public:
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptedViewport);
 	};
 
-	struct ScriptAudioWaveform : public ScriptComponent
-	{
-		enum Properties
-		{
-			itemColour3 = ScriptComponent::Properties::numProperties,
-			opaque,
-			showLines,
-			showFileName,
-            sampleIndex,
-			numProperties
-		};
-
-		// ========================================================================================================
-
-		ScriptAudioWaveform(ProcessorWithScriptingContent *base, Content *parentContent, Identifier plotterName, int x, int y, int width, int height);
-		~ScriptAudioWaveform() {};
-
-		// ========================================================================================================
-
-		static Identifier getStaticObjectName() { RETURN_STATIC_IDENTIFIER("ScriptAudioWaveform"); }
-		virtual Identifier 	getObjectName() const override { return getStaticObjectName(); };
-		ScriptCreatedComponentWrapper *createComponentWrapper(ScriptContentComponent *content, int index) override;
-
-		void setScriptObjectPropertyWithChangeMessage(const Identifier &id, var newValue, NotificationType notifyEditor /* = sendNotification */) override;
-		void handleDefaultDeactivatedProperties() override;
-
-		void resetValueToDefault() override
-		{
-			if (auto a = getAudioProcessor())
-			{
-				a->setLoadedFile("", true, true);
-			}
-		}
-
-		StringArray getOptionsFor(const Identifier &id) override;
-		ValueTree exportAsValueTree() const override;
-		void restoreFromValueTree(const ValueTree &v) override;
-		AudioSampleProcessor * getAudioProcessor();;
-
-		ScriptingObjects::ScriptAudioFile::Ptr getScriptAudioFile() { return audioFile; }
-
-		ModulatorSampler* getSampler();
-
-		// ========================================================================================================
-
-	private:
-
-		ScriptingObjects::ScriptAudioFile::Ptr audioFile;
-
-		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScriptAudioWaveform);
-		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptAudioWaveform);
-
-		// ========================================================================================================
-	};
+	
 
 	struct ScriptFloatingTile : public ScriptComponent,
 								public Dispatchable
@@ -1915,6 +2017,9 @@ public:
 
 	/** Creates a Path that can be drawn to a ScriptPanel. */
 	var createPath();
+
+	/** Creates an OpenGL framgent shader. */
+	var createShader(const String& fileName);
 
 	/** Sets the colour for the panel. */
 	void setColour(int red, int green, int blue) { colour = Colour((uint8)red, (uint8)green, (uint8)blue); };
@@ -2358,14 +2463,15 @@ struct ContentValueTreeHelpers
 
 		auto parent = v.getParent();
 
-		if (parent.isValid() && parent.getType() != root)
+		bool ok = parent.isValid() && parent.getType() != root;
+
+		while (parent.isValid() && parent.getType() != root)
 		{
 			offset.addXY((int)parent.getProperty(x), (int)parent.getProperty(y));
-
-			return getAbsolutePosition(parent, offset);
+			parent = parent.getParent();
 		}
 
-		return false;
+		return ok;
 	}
 };
 
