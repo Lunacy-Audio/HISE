@@ -50,13 +50,8 @@ class FrontendProcessorEditor: public AudioProcessorEditor,
 							   public OverlayMessageBroadcaster::Listener,
 							   public ComponentWithBackendConnection,
 							   public GlobalSettingManager::ScaleFactorListener,
-<<<<<<< HEAD
+							   public TopLevelWindowWithOptionalOpenGL,
 							   private OpenGLRenderer
-
-
-=======
-							   public TopLevelWindowWithOptionalOpenGL
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 {
 public:
 

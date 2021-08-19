@@ -37,16 +37,11 @@ AudioProcessorEditor(fp)
 {
 	usesOpenGl = dynamic_cast<GlobalSettingManager*>(fp)->useOpenGL;
 	
-<<<<<<< HEAD
 	if(usesOpenGl) {
         context.setRenderer(this);
 		context.attachTo(*this);
+        setEnableOpenGL(this);
     }
-#endif
-=======
-	if(usesOpenGl)
-		setEnableOpenGL(this);
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 
 	fp->addScaleFactorListener(this);
 	fp->incActiveEditors();

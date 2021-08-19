@@ -127,11 +127,7 @@ compile / debug cycle and don't need all nodes in scriptnode you might want to t
 #include "scripting/api/ScriptingApi.h"
 #include "scripting/api/ScriptingApiContent.h"
 #include "scripting/api/ScriptComponentEditBroadcaster.h"
-<<<<<<< HEAD
 #include "scripting/api/CubeApi.h"
-
-=======
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 
 #include "scripting/ScriptProcessor.h"
 #include "scripting/ScriptProcessorModules.h"

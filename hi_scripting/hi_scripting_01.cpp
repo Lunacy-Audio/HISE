@@ -60,7 +60,6 @@
 #include "scripting/api/ScriptExpansion.cpp"
 #include "scripting/api/GlobalServer.cpp"
 #include "scripting/api/ScriptingApi.cpp"
-<<<<<<< HEAD
 #include "scripting/api/CubeApi.cpp"
 
 
@@ -70,8 +69,6 @@
 #include "scripting/ScriptProcessorModules.cpp"
 #include "scripting/HardcodedScriptProcessor.cpp"
 #include "scripting/hardcoded_modules/Arpeggiator.cpp"
-=======
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 
 #include "scripting/api/ScriptingApiWrappers.cpp"
 #include "scripting/api/ScriptingApiContent.cpp"
