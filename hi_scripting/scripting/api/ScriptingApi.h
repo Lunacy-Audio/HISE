@@ -192,7 +192,7 @@ public:
 		// ============================================================================================================
 
 		Engine(ProcessorWithScriptingContent *p);
-		~Engine() {};
+		~Engine();
 
 		Identifier getObjectName() const override  { RETURN_STATIC_IDENTIFIER("Engine"); };
 
@@ -369,6 +369,9 @@ public:
 		/** Returns a list of all available user presets as relative path. */
 		var getUserPresetList() const;
 
+		/** Checks if the user preset is read only. */
+		bool isUserPresetReadOnly(var optionalFile);
+
 		/** Sets whether the samples are allowed to be duplicated. Set this to false if you operate on the same samples differently. */
 		void setAllowDuplicateSamples(bool shouldAllow);
 
@@ -411,9 +414,9 @@ public:
 		/** Enables the macro system to be used by the end user. */
 		void setFrontendMacros(var nameList);
 
-		/** Returns the current operating system ("OSX" or ("WIN"). */
+		/** Returns the current operating system ("OSX", "LINUX", or ("WIN"). */
 		String getOS();
-
+				
 		/** Returns the mobile device that this software is running on. */
 		String getDeviceType();
 
@@ -441,11 +444,11 @@ public:
 		/** Returns an object that contains all filter modes. */
 		var getFilterModeList() const;
 
-        /** Returns the product version (not the HISE version!). */
-        String getVersion();
+		/** Returns the product version (not the HISE version!). */
+    String getVersion();
 
-        /** Returns the product name (not the HISE name!). */
-        String getName();
+    /** Returns the product name (not the HISE name!). */
+    String getName();
 
 		/** Returns the current peak volume (0...1) for the given channel. */
 		double getMasterPeakLevel(int channel);
@@ -460,10 +463,10 @@ public:
 		var isControllerUsedByAutomation(int controllerNumber);
 
 		/** Creates a MIDI List object. */
-        ScriptingObjects::MidiList *createMidiList();
+    ScriptingObjects::MidiList *createMidiList();
 
-		/** Creates a SliderPack Data object. */
-		ScriptingObjects::ScriptSliderPackData* createSliderPackData();
+		/** Creates a unordered stack that can hold up to 128 float numbers. */
+		ScriptingObjects::ScriptUnorderedStack* createUnorderedStack();
 
 		/** Creates a SliderPack Data object and registers it so you can access it from other modules. */
 		ScriptingObjects::ScriptSliderPackData* createAndRegisterSliderPackData(int index);
@@ -473,6 +476,9 @@ public:
 
 		/** Creates a audio file holder and registers it so you can access it from other modules. */
 		ScriptingObjects::ScriptAudioFile* createAndRegisterAudioFile(int index);
+
+		/** Creates a ring buffer and registers it so you can access it from other modules. */
+		ScriptingObjects::ScriptRingBuffer* createAndRegisterRingBuffer(int index);
 
 		/** Creates a new timer object. */
 		ScriptingObjects::TimerObject* createTimerObject();
@@ -495,11 +501,11 @@ public:
 		/** Matches the string against the regex token. */
 		bool matchesRegex(String stringToMatch, String regex);
 
-        /** Returns an array with all matches. */
-        var getRegexMatches(String stringToMatch, String regex);
+    /** Returns an array with all matches. */
+    var getRegexMatches(String stringToMatch, String regex);
 
-        /** Returns a string of the value with the supplied number of digits. */
-        String doubleToString(double value, int digits);
+    /** Returns a string of the value with the supplied number of digits. */
+    String doubleToString(double value, int digits);
 
 		/** Reverts the last controller change. */
 		void undo();
@@ -509,13 +515,16 @@ public:
 
 		/** Returns a fully described string of this date and time in ISO-8601 format (using the local timezone) with or without divider characters. */
 		String getSystemTime(bool includeDividerCharacters);
-
+		
 		// ============================================================================================================
+
 
 		/** This warning will show up in the console so people can migrate in the next years... */
 		void logSettingWarning(const String& methodName) const;
 
 		struct Wrapper;
+
+		double unused = 0.0;
 
 		ScriptBaseMidiProcessor* parentMidiProcessor;
 
@@ -540,8 +549,80 @@ public:
 		/** Changes the UI zoom (1.0 = 100%). */
 		void setZoomLevel(double newLevel);
 
+		/** Gets the Streaming Mode (0 -> Fast-SSD, 1 -> Slow-HDD) */
+		int getDiskMode();
+
 		/** Sets the Streaming Mode (0 -> Fast-SSD, 1 -> Slow-HDD) */
 		void setDiskMode(int mode);
+
+		/** Returns available audio device types. */
+		var getAvailableDeviceTypes();
+		
+		/** Returns the current audio device type. */
+		String getCurrentAudioDeviceType();
+		
+		/** Sets the current audio device type*/
+		void setAudioDeviceType(String deviceName);
+
+		/** Returns names of available audio devices. */
+		var getAvailableDeviceNames();
+
+		/** Gets the current audio device name*/
+		String getCurrentAudioDevice();
+				
+		/** Sets the current audio device */
+		void setAudioDevice(String name);
+		
+		/** Returns array of available output channel pairs. */
+		var getAvailableOutputChannels();
+
+		/** Returns current output channel pair. */
+		int getCurrentOutputChannel();
+		
+		/** Sets the output channel pair */
+		void setOutputChannel(int index);
+		
+		/** Returns available buffer sizes for the selected audio device. */
+		var getAvailableBufferSizes();
+		
+		/** Returns the current buffer block size. */
+		int getCurrentBufferSize();
+		
+		/** Sets the buffer block size for the selected audio device. */
+		void setBufferSize(int newBlockSize);
+		
+		/** Returns array of available sample rate. */
+		var getAvailableSampleRates();
+
+		/** Returns the current output sample rate (-1 if no audio device selected)*/
+		double getCurrentSampleRate();
+				
+		/** Sets the output sample rate */
+		void setSampleRate(double sampleRate);
+		
+		/** Returns current voice amount multiplier setting. */
+		int getCurrentVoiceMultiplier();
+
+		/** Sets the voice limit multiplier (1, 2, 4, or 8). */
+		void setVoiceMultiplier(int newVoiceAmount);
+
+		/** Clears all MIDI CC assignments. */
+		void clearMidiLearn();
+
+		/** Returns array of MIDI input device names. */
+		var getMidiInputDevices();
+		
+		/** Enables or disables named MIDI input device. */
+		void toggleMidiInput(const String &midiInputName, bool enableInput);
+
+		/** Returns enabled state of midi input device. */
+		bool isMidiInputEnabled(const String &midiInputName);
+		
+		/** Enables or disables MIDI channel (0 = All channels). */
+		void toggleMidiChannel(int index, bool value);
+		
+		/** Returns enabled state of midi channel (0 = All channels). */
+		bool isMidiChannelEnabled(int index);
 
 		// ============================================================================================================
 
@@ -578,6 +659,9 @@ public:
 
 		/** Enables the group with the given index (one-based). Allows multiple groups to be active. */
 		void setMultiGroupIndex(var groupIndex, bool enabled);
+
+		/** Sets the volume of a particular group (use -1 for active group). Only works with disabled crossfade tables. */
+		void setRRGroupVolume(int groupIndex, int gainInDecibels);
 
 		/** Returns the currently (single) active RR group. */
 		int getActiveRRGroup();
@@ -646,6 +730,9 @@ public:
 
 		/** Loads a new samplemap into this sampler. */
 		void loadSampleMap(const String &fileName);
+
+		/** Loads an SFZ file into the sampler. */
+		var loadSfzFile(var sfzFile);
 
 		/** Loads a few samples in the current samplemap and returns a list of references to these samples. */
 		var importSamples(var fileNameList, bool skipExistingSamples);
@@ -821,6 +908,9 @@ public:
 		*/
 		void setModulatorAttribute(int chainId, int modulatorIndex, int attributeIndex, float newValue);
 
+		/** Checks if the artificial event is active */
+		bool isArtificialEventActive(int eventId);
+
 		/** Returns the number of pressed keys (!= the number of playing voices!). */
 		int getNumPressedKeys() const {return numPressedKeys.get(); };
 
@@ -868,6 +958,9 @@ public:
 
 		/** Returns the table processor with the given name. */
 		ScriptTableProcessor *getTableProcessor(const String &name);
+
+		/** Returns a reference to a processor that holds a display buffer. */
+		ScriptingObjects::ScriptDisplayBufferSource* getDisplayBufferSource(const String& name);
 
 		/** Returns the first sampler with the name name. */
 		Sampler *getSampler(const String &name);
@@ -1198,6 +1291,9 @@ public:
 		/** Returns a list of all pending Downloads. */
 		var getPendingDownloads();
 
+		/** Returns a list of all pending Calls. */
+		var getPendingCalls();
+
 		/** Sets the maximal number of parallel downloads. */
 		void setNumAllowedDownloads(int maxNumberOfParallelDownloads);
 
@@ -1323,6 +1419,30 @@ public:
 
 		/** Returns a colour value with the specified alpha value. */
 		int withAlpha(int colour, float alpha);
+
+		/** Returns a colour with the specified hue. */
+		int withHue(int colour, float hue);
+
+		/** Returns a colour with the specified saturation. */
+		int withSaturation(int colour, float saturation);
+
+		/** Returns a colour with the specified brightness. */
+		int withBrightness(int colour, float brightness);
+
+		/** Returns a colour with a multiplied alpha value. */
+		int withMultipliedAlpha(int colour, float factor);
+
+		/** Returns a colour with a multiplied saturation value. */
+		int withMultipliedSaturation(int colour, float factor);
+
+		/** Returns a colour with a multiplied brightness value. */
+		int withMultipliedBrightness(int colour, float factor);
+
+		/** Converts a colour to a [r, g, b, a] array that can be passed to GLSL as vec4. */
+		var toVec4(int colour);
+
+		/** Converts a colour from a [r, g, b, a] float array to a uint32 value. */
+		int fromVec4(var vec4);
 
 		// ============================================================================================================
 

@@ -59,14 +59,6 @@
 #include "scripting/api/ScriptingApi.cpp"
 #include "scripting/api/CubeApi.cpp"
 
-
-#include "scripting/scripting_audio_processor/ScriptDspModules.cpp"
-
-#include "scripting/ScriptProcessor.cpp"
-#include "scripting/ScriptProcessorModules.cpp"
-#include "scripting/HardcodedScriptProcessor.cpp"
-#include "scripting/hardcoded_modules/Arpeggiator.cpp"
-
 #include "scripting/api/ScriptingApiWrappers.cpp"
 #include "scripting/api/ScriptingApiContent.cpp"
 

@@ -33,228 +33,189 @@
 namespace hise { using namespace juce;
 
 
-void FFTDisplayBase::drawSpectrum(Graphics& g)
+
+/** a component that plots a collection of filters.
+@ingroup floating_tile_objects.
+
+Just connect it to a PolyphonicFilterEffect or a CurveEQ and it will automatically update
+the filter graph.
+*/
+class FilterGraph::Panel : public PanelWithProcessorConnection,
+	public SafeChangeListener,
+	public Timer
 {
-	g.fillAll(getColourForAnalyserBase(AudioAnalyserComponent::bgColour));
+public:
 
-#if USE_IPP
-
-	if (auto l_ = SingleWriteLockfreeMutex::ScopedReadLock(ringBuffer.lock))
+	enum SpecialPanelIds
 	{
-		const auto& b = ringBuffer.internalBuffer;
+		showLines,
+		numSpecialPanelIds
+	};
 
-		int size = b.getNumSamples();
+	SET_PANEL_NAME("FilterDisplay");
 
-		if (windowBuffer.getNumSamples() == 0 || windowBuffer.getNumSamples() != size)
+	Panel(FloatingTile* parent) :
+		PanelWithProcessorConnection(parent)
+	{
+		setDefaultPanelColour(FloatingTileContent::PanelColourId::bgColour, Colour(0xFF333333));
+		setDefaultPanelColour(FloatingTileContent::PanelColourId::itemColour1, Colours::white);
+		setDefaultPanelColour(FloatingTileContent::PanelColourId::itemColour2, Colours::white.withAlpha(0.5f));
+		setDefaultPanelColour(FloatingTileContent::PanelColourId::itemColour3, Colours::white.withAlpha(0.2f));
+		setDefaultPanelColour(FloatingTileContent::PanelColourId::textColour, Colours::white);
+	};
+
+	~Panel()
+	{
+		if (auto p = getProcessor())
 		{
-			windowBuffer = AudioSampleBuffer(1, size);
-			fftBuffer = AudioSampleBuffer(1, size);
-			fftBuffer.clear();
+			p->removeChangeListener(this);
 		}
-			
-		if(lastWindowType != fftProperties.window)
-		{
-			auto d = windowBuffer.getWritePointer(0);
-
-			switch (fftProperties.window)
-			{
-			case BlackmannHarris: icstdsp::VectorFunctions::bhw4(d, size); break;
-
-			case Hann:			  icstdsp::VectorFunctions::hann(d, size); break;
-			case Flattop:		  icstdsp::VectorFunctions::flattop(d, size); break;
-			case Rectangle:
-			default:			  FloatVectorOperations::fill(d, 1.0f, size); break;
-			}
-
-			lastWindowType = fftProperties.window;
-		}
-
-		AudioSampleBuffer b2(2, b.getNumSamples());
-
-		auto data = b2.getWritePointer(0);
-		auto lastValues = fftBuffer.getWritePointer(0);
-
-		auto readIndex = ringBuffer.indexInBuffer;
-
-		int numBeforeWrap = size - readIndex;
-		int numAfterWrap = size - numBeforeWrap;
-
-		FloatVectorOperations::copy(data, b.getReadPointer(0, readIndex), numBeforeWrap);
-		FloatVectorOperations::copy(data + numBeforeWrap, b.getReadPointer(0, 0), numAfterWrap);
-
-		FloatVectorOperations::add(data, b.getReadPointer(1, readIndex), numBeforeWrap);
-		FloatVectorOperations::add(data + numBeforeWrap, b.getReadPointer(1, 0), numAfterWrap);
-
-		FloatVectorOperations::multiply(data, 0.5f, size);
-		FloatVectorOperations::multiply(data, windowBuffer.getReadPointer(0), size);
-
-		auto sampleRate = getSamplerate();
-
-		fftObject.realFFTInplace(data, size);
-
-		if (fftProperties.domain == Amplitude)
-		{
-			for (int i = 2; i < size; i += 2)
-			{
-				data[i] = sqrt(data[i] * data[i] + data[i + 1] * data[i + 1]);
-				data[i + 1] = data[i];
-			}
-		}
-		else
-		{
-			auto threshhold = FloatVectorOperations::findMaximum(data, size) / 10000.0;
-
-			data[0] = 0.0f;
-			data[1] = 0.0f;
-
-			for (int i = 2; i < size; i += 2)
-			{
-				auto real = data[i];
-				auto img = data[i + 1];
-				
-				if (real < threshhold) real = 0.0f;
-				if (img < threshhold) img = 0.0f;
-
-				auto phase = atan2f(img, real);
-
-				data[i] = phase;
-				data[i + 1] = phase;
-			}	
-		}
-		
-
-		//fftObject.realFFT(b.getReadPointer(1), b2.getWritePointer(1), b2.getNumSamples());
-
-		FloatVectorOperations::abs(data, b2.getReadPointer(0), size);
-		FloatVectorOperations::multiply(data, 1.0f / 95.0f, size);
-
-		auto asComponent = dynamic_cast<Component*>(this);
-
-		int stride = roundToInt((float)size / asComponent->getWidth());
-		stride *= 2;
-
-		lPath.clear();
-
-		lPath.startNewSubPath(0.0f, (float)asComponent->getHeight());
-		//lPath.lineTo(0.0f, -1.0f);
-
-		if (sampleRate == 0.0)
-			sampleRate = 44100.0;
-
-		int log10Offset = (int)(10.0 / (sampleRate * 0.5) * (double)size + 1.0);
-
-		auto maxPos = log10f((float)(size));
-
-		float lastIndex = 0.0f;
-		float value = 0.0f;
-		int lastI = 0;
-		int sumAmount = 0;
-
-		int lastLineLog = 1;
-
-		g.setColour(getColourForAnalyserBase(AudioAnalyserComponent::lineColour));
-
-		int xLog10Pos = roundToInt(log10((float)log10Offset) / maxPos * (float)asComponent->getWidth());
-
-		for (int i = log10Offset; i < size; i += 2)
-		{
-			auto f = (double)i / (double)size * sampleRate / 2.0;
-
-			auto thisLineLog = (int)log10(f);
-
-			if (thisLineLog == 0)
-				continue;
-
-			float xPos;
-			
-			if (fftProperties.freq2x)
-				xPos = (float)fftProperties.freq2x((float)f);
-			else
-				xPos = (float)log10((float)i) / maxPos * (float)(asComponent->getWidth() + xLog10Pos) - xLog10Pos;
-
-			auto diff = xPos - lastIndex;
-
-			if ((int)thisLineLog != lastLineLog)
-			{
-				g.drawVerticalLine((int)xPos, 0.0f, (float)asComponent->getHeight());
-
-				lastLineLog = (int)thisLineLog;
-			}
-
-			auto indexDiff = i - lastI;
-
-			float v = fabsf(data[i]);
-
-			if (fftProperties.gain2y)
-				v = fftProperties.gain2y(v);
-			else
-			{
-
-				v = Decibels::gainToDecibels(v);
-				v = jlimit<float>(-90.0f, 0.0f, v);
-				v = 1.0f + v / 90.0f;
-				v = powf(v, 0.707f);
-			}
-
-			value += v;
-			sumAmount++;
-
-			if (diff > 1.0f && indexDiff > 4)
-			{
-				value /= (float)(sumAmount);
-
-				sumAmount = 0;
-
-				lastIndex = xPos;
-				lastI = i;
-
-				value = 0.6f * value + 0.4f * lastValues[i];
-
-				if (value > lastValues[i])
-					lastValues[i] = value;
-				else
-					lastValues[i] = jmax<float>(0.0f, lastValues[i] - 0.02f);
-
-				auto yPos = lastValues[i];
-				yPos = 1.0f - yPos;
-
-				yPos *= asComponent->getHeight();
-
-				lPath.lineTo(xPos, yPos);
-
-				value = 0.0f;
-			}
-		}
-
-		lPath.lineTo((float)asComponent->getWidth(), (float)asComponent->getHeight());
-		lPath.closeSubPath();
-
-		g.setColour(getColourForAnalyserBase(AudioAnalyserComponent::fillColour));
-		g.fillPath(lPath);
 	}
 
-#else
-
-	auto asComponent = dynamic_cast<Component*>(this);
-	g.setColour(Colours::grey);
-	g.setFont(GLOBAL_BOLD_FONT());
-	// g.drawText("You need IPP for the FFT Analyser", asComponent->getLocalBounds().toFloat(), Justification::centred, false);
-
-#endif
-}
-
-void OscilloscopeBase::drawWaveform(Graphics& g)
-{
-	if (auto l = SingleWriteLockfreeMutex::ScopedReadLock(ringBuffer.lock))
+	juce::Identifier getProcessorTypeId() const
 	{
-		g.fillAll(getColourForAnalyserBase(AudioAnalyserComponent::bgColour));
-
-		g.setColour(getColourForAnalyserBase(AudioAnalyserComponent::fillColour));
-
-		drawOscilloscope(g, ringBuffer.internalBuffer);
+		return PolyFilterEffect::getClassType();
 	}
-}
 
+
+
+	void changeListenerCallback(SafeChangeBroadcaster* /*b*/) override
+	{
+		updateCoefficients();
+	}
+
+	void timerCallback() override
+	{
+		if (auto filter = dynamic_cast<FilterEffect*>(getProcessor()))
+		{
+			if (auto filterGraph = getContent<FilterGraph>())
+			{
+				filterGraph->setBypassed(getProcessor()->isBypassed());
+
+				IIRCoefficients c = filter->getCurrentCoefficients();
+
+				if (!sameCoefficients(c, currentCoefficients))
+				{
+					currentCoefficients = c;
+
+					filterGraph->setCoefficients(0, getProcessor()->getSampleRate(), dynamic_cast<FilterEffect*>(getProcessor())->getCurrentCoefficients());
+				}
+			}
+		}
+	}
+
+
+
+	Component* createContentComponent(int /*index*/) override
+	{
+		if (auto p = getProcessor())
+		{
+			p->addChangeListener(this);
+
+			auto c = new FilterGraph(1);
+
+			c->useFlatDesign = true;
+			c->showLines = false;
+
+
+			c->setColour(ColourIds::bgColour, findPanelColour(FloatingTileContent::PanelColourId::bgColour));
+			c->setColour(ColourIds::lineColour, findPanelColour(FloatingTileContent::PanelColourId::itemColour1));
+			c->setColour(ColourIds::fillColour, findPanelColour(FloatingTileContent::PanelColourId::itemColour2));
+			c->setColour(ColourIds::gridColour, findPanelColour(FloatingTileContent::PanelColourId::itemColour3));
+			c->setColour(ColourIds::textColour, findPanelColour(FloatingTileContent::PanelColourId::textColour));
+
+			c->setOpaque(c->findColour(bgColour).isOpaque());
+
+			if (dynamic_cast<FilterEffect*>(p) != nullptr)
+			{
+				c->addFilter(FilterType::LowPass);
+				startTimer(30);
+			}
+			else if (auto eq = dynamic_cast<CurveEq*>(p))
+			{
+				stopTimer();
+				updateEq(eq, c);
+			}
+
+			return c;
+		}
+
+		return nullptr;
+	}
+
+	void fillModuleList(StringArray& moduleList)
+	{
+		fillModuleListWithType<CurveEq>(moduleList);
+		fillModuleListWithType<FilterEffect>(moduleList);
+	}
+
+private:
+
+	bool sameCoefficients(IIRCoefficients c1, IIRCoefficients c2)
+	{
+		for (int i = 0; i < 5; i++)
+		{
+			if (c1.coefficients[i] != c2.coefficients[i]) return false;
+		}
+
+		return true;
+	};
+
+	void updateCoefficients()
+	{
+		if (auto filterGraph = getContent<FilterGraph>())
+		{
+			if (auto c = dynamic_cast<CurveEq*>(getProcessor()))
+			{
+				for (int i = 0; i < c->getNumFilterBands(); i++)
+				{
+					IIRCoefficients ic = c->getCoefficients(i);
+
+					filterGraph->enableBand(i, c->getFilterBand(i)->isEnabled());
+					filterGraph->setCoefficients(i, getProcessor()->getSampleRate(), ic);
+				}
+			}
+		}
+	}
+
+	void updateEq(CurveEq* eq, FilterGraph* c)
+	{
+		c->clearBands();
+
+		for (int i = 0; i < eq->getNumFilterBands(); i++)
+		{
+			auto t = CurveEq::StereoFilter::SubType::getFilterType();
+			addFilter(c, i, (int)t);
+		}
+
+		int numFilterBands = eq->getNumFilterBands();
+
+		if (numFilterBands == 0)
+		{
+			c->repaint();
+		}
+	}
+
+	void addFilter(FilterGraph* filterGraph, int filterIndex, int filterType)
+	{
+		if (auto c = dynamic_cast<CurveEq*>(getProcessor()))
+		{
+			switch (filterType)
+			{
+			case CurveEq::LowPass:		filterGraph->addFilter(FilterType::LowPass); break;
+			case CurveEq::HighPass:		filterGraph->addFilter(FilterType::HighPass); break;
+			case CurveEq::LowShelf:		filterGraph->addEqBand(BandType::LowShelf); break;
+			case CurveEq::HighShelf:	filterGraph->addEqBand(BandType::HighShelf); break;
+			case CurveEq::Peak:			filterGraph->addEqBand(BandType::Peak); break;
+			}
+
+			filterGraph->setCoefficients(filterIndex, c->getSampleRate(), c->getCoefficients(filterIndex));
+		}
+	}
+
+	IIRCoefficients currentCoefficients;
+
+};
 
 struct FilterDragOverlay::Panel : public PanelWithProcessorConnection
 {
@@ -285,7 +246,7 @@ struct FilterDragOverlay::Panel : public PanelWithProcessorConnection
 			c->setColour(ColourIds::textColour, findPanelColour(PanelColourId::textColour));
 			c->filterGraph.setColour(FilterGraph::ColourIds::fillColour, findPanelColour(PanelColourId::itemColour1));
 			c->filterGraph.setColour(FilterGraph::ColourIds::lineColour, findPanelColour(PanelColourId::itemColour2));
-			c->fftAnalyser.setColour(AudioAnalyserComponent::ColourId::fillColour, findPanelColour(PanelColourId::itemColour3));
+			c->fftAnalyser.setColour(RingBufferComponentBase::ColourId::fillColour, findPanelColour(PanelColourId::itemColour3));
 
 			c->setOpaque(c->findColour(ColourIds::bgColour).isOpaque());
 
@@ -328,7 +289,7 @@ FilterDragOverlay::FilterDragOverlay(CurveEq* eq_, bool isInFloatingTile_ /*= fa
 	filterGraph.setOpaque(false);
 	filterGraph.setColour(FilterGraph::ColourIds::bgColour, Colours::transparentBlack);
 
-	fftAnalyser.setColour(AudioAnalyserComponent::ColourId::fillColour, Colours::black.withAlpha(0.15f));
+	//fftAnalyser.setColour(AudioAnalyserComponent::ColourId::fillColour, Colours::black.withAlpha(0.15f));
 	fftAnalyser.setInterceptsMouseClicks(false, false);
 	filterGraph.setInterceptsMouseClicks(false, false);
 
@@ -417,7 +378,8 @@ void FilterDragOverlay::updateFilters()
 
 		for (int i = 0; i < numFilters; i++)
 		{
-			addFilterToGraph(i, (int)eq->getFilterBand(i)->getFilterType());
+			auto t = CurveEq::StereoFilter::SubType::getFilterType();
+			addFilterToGraph(i, (int)t);
 			addFilterDragger(i);
 		}
 	}
@@ -543,7 +505,7 @@ void FilterDragOverlay::fillPopupMenu(PopupMenu& m, int handleIndex)
 				auto dp = new DrawablePath();
 				dp->setPath(p);
 
-				m.addItem(typeOffset + i, sa[i], true, isSelected, dp);
+				m.addItem(typeOffset + i, sa[i], true, isSelected, std::unique_ptr<Drawable>(dp));
 			}
 
 			m.addSeparator();
@@ -553,7 +515,6 @@ void FilterDragOverlay::fillPopupMenu(PopupMenu& m, int handleIndex)
 	else
 	{
 		m.addItem(1, "Delete all bands", true, false);
-		// m.addItem(2, "Enable Spectrum Analyser", true, eq->getFFTBuffer().isActive());
 		m.addItem(2, "Cancel");
 	}
 
@@ -643,7 +604,7 @@ void FilterDragOverlay::mouseUp(const MouseEvent& )
 
 void FilterDragOverlay::mouseMove(const MouseEvent &e)
 {
-	setTooltip(String(getGain(e.getPosition().y), 1) + " dB / " + String((int)filterGraph.xToFreq((float)e.getPosition().x)) + " Hz");
+	setTooltip(String(getGain(e.getPosition().y - offset), 1) + " dB / " + String((int)filterGraph.xToFreq((float)e.getPosition().x - offset)) + " Hz");
 };
 
 void FilterDragOverlay::selectDragger(int index)
@@ -798,15 +759,18 @@ void FilterDragOverlay::FilterDragComponent::setIndex(int newIndex)
 }
 
 FilterDragOverlay::FFTDisplay::FFTDisplay(FilterDragOverlay& parent_) :
-	FFTDisplayBase(parent_.eq->getFFTBuffer()),
+	FFTDisplayBase(),
 	parent(parent_)
 {
+	setComplexDataUIBase(parent_.eq->getFFTBuffer());
+
+	setColour(RingBufferComponentBase::ColourId::fillColour, Colours::white.withAlpha(0.6f));
 	fftProperties.freq2x = std::bind(&FilterGraph::freqToX, &parent.filterGraph, std::placeholders::_1);
 }
 
 void FilterDragOverlay::FFTDisplay::paint(Graphics& g)
 {
-	if (ringBuffer.isActive() && !parent.eq->isBypassed())
+	if (rb != nullptr && rb->isActive() && !parent.eq->isBypassed())
 		FFTDisplayBase::drawSpectrum(g);
 }
 
@@ -817,11 +781,11 @@ double FilterDragOverlay::FFTDisplay::getSamplerate() const
 
 juce::Colour FilterDragOverlay::FFTDisplay::getColourForAnalyserBase(int colourId)
 {
-	if (colourId == AudioAnalyserComponent::bgColour)
+	if (colourId == RingBufferComponentBase::bgColour)
 		return Colours::transparentBlack;
-	if (colourId == AudioAnalyserComponent::ColourId::fillColour)
+	if (colourId == RingBufferComponentBase::ColourId::fillColour)
 		return findColour(colourId);
-	if (colourId == AudioAnalyserComponent::ColourId::lineColour)
+	if (colourId == RingBufferComponentBase::ColourId::lineColour)
 		return Colours::white.withAlpha(0.2f);
 
 	return Colours::blue;
