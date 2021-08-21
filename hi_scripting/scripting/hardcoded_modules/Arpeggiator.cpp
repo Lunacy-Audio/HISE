@@ -210,13 +210,8 @@ void Arpeggiator::onInit()
 	
 	
 	lengthSliderPack = Content.addSliderPack("LengthSliderPack", 160, 290);
-<<<<<<< HEAD
 	lengthSliderPack->getSliderPackData()->setDefaultValue(100.0);
-=======
-	lengthSliderPack->getSliderPackData()->setDefaultValue(75.0);
 	lengthSliderPack->registerComplexDataObjectAtParent(2);
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
-
 	lengthSliderPack->set("width", 512);
 	lengthSliderPack->set("max", 100);
 	lengthSliderPack->set("sliderAmount", 4);

@@ -1227,6 +1227,15 @@ public:
 		/** Pass a function that takes a double and returns a String in order to override the popup display text. */
 		void setTablePopupFunction(var newFunction);
 
+		void setTableValueChangedFunction(var newFunction);
+
+		/** Returns the number of graph points */
+		int getNumPoints();
+
+		double getPointX(int pointIndex);
+		double getPointY(int pointIndex);
+		double getPointCurve(int pointIndex);
+
 		void connectToOtherTable(String processorId, int index)
 		{
 			setScriptObjectProperty(ScriptingApi::Content::ScriptComponent::processorId, processorId, dontSendNotification);

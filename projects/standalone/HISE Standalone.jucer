@@ -4,11 +4,7 @@
               bundleIdentifier="com.hartinstruments.HISEStandalone" includeBinaryInAppConfig="1"
               companyName="Hart Instruments" companyWebsite="http://hise.audio"
               companyCopyright="Hart Instruments" displaySplashScreen="0" reportAppUsage="0"
-<<<<<<< HEAD
-              splashScreenColour="Dark" cppLanguageStandard="14" jucerFormatVersion="1">
-=======
               splashScreenColour="Dark" cppLanguageStandard="17" jucerFormatVersion="1">
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
   <MAINGROUP id="yomWt4" name="HISE Standalone">
     <GROUP id="{577963C7-1A49-BB2A-D701-52DC7A5895F7}" name="Source">
       <FILE id="Fw455d" name="ScriptNodeTestSuite.cpp" compile="1" resource="0"

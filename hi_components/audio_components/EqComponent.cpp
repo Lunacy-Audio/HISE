@@ -182,18 +182,11 @@ private:
 	{
 		c->clearBands();
 
-<<<<<<< HEAD:hi_components/eq_plot/EqComponent.cpp
-	auto asComponent = dynamic_cast<Component*>(this);
-	g.setColour(Colours::grey);
-	g.setFont(GLOBAL_BOLD_FONT());
-	// g.drawText("You need IPP for the FFT Analyser", asComponent->getLocalBounds().toFloat(), Justification::centred, false);
-=======
 		for (int i = 0; i < eq->getNumFilterBands(); i++)
 		{
 			auto t = CurveEq::StereoFilter::SubType::getFilterType();
 			addFilter(c, i, (int)t);
 		}
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26:hi_components/audio_components/EqComponent.cpp
 
 		int numFilterBands = eq->getNumFilterBands();
 
@@ -522,13 +515,7 @@ void FilterDragOverlay::fillPopupMenu(PopupMenu& m, int handleIndex)
 	else
 	{
 		m.addItem(1, "Delete all bands", true, false);
-<<<<<<< HEAD:hi_components/eq_plot/EqComponent.cpp
-		// m.addItem(2, "Enable Spectrum Analyser", true, eq->getFFTBuffer().isActive());
 		m.addItem(2, "Cancel");
-=======
-		m.addItem(2, "Enable Spectrum Analyser", true, eq->getFFTBuffer()->isActive());
-		m.addItem(3, "Cancel");
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26:hi_components/audio_components/EqComponent.cpp
 	}
 
 	
@@ -585,13 +572,8 @@ void FilterDragOverlay::popupMenuAction(int result, int handleIndex)
 			while (eq->getNumFilterBands() > 0)
 				eq->removeFilterBand(0);
 		}
-<<<<<<< HEAD:hi_components/eq_plot/EqComponent.cpp
 		// else if (result == 2)
 		// 	eq->enableSpectrumAnalyser(!eq->getFFTBuffer().isActive());
-=======
-		else if (result == 2)
-			eq->enableSpectrumAnalyser(!eq->getFFTBuffer()->isActive());
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26:hi_components/audio_components/EqComponent.cpp
 	}
 }
 

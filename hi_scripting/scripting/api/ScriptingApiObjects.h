@@ -290,11 +290,7 @@ namespace ScriptingObjects
 		/** Returns the parent directory as File. */
 		var getParentDirectory();
 
-<<<<<<< HEAD
-		/** Returns the new directory made at the file location if directory doesn't already exist */
-=======
 		/** Returns the new directory created at the file location, if directory doesn't already exist */
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 		var createDirectory(String directoryName);
 
 		/** Returns a String representation of that file. */
@@ -349,113 +345,6 @@ namespace ScriptingObjects
 	private:
 
 		struct Wrapper;
-<<<<<<< HEAD
-
-		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptFile);
-	};
-
-	class ScriptAudioFile : public ConstScriptingObject,
-							public AsyncUpdater,
-							public PooledUIUpdater::SimpleTimer
-	{
-	public:
-
-		struct RefCountedBuffer : public ReferenceCountedObject
-		{
-			void setRange(int min, int max)
-			{
-				int numChannels = all.getNumChannels();
-				sampleRange = { min, max };
-
-				for (int i = 0; i < numChannels; i++)
-					ptrs[i] = all.getWritePointer(i, min);
-
-				range.setDataToReferTo(ptrs, numChannels, sampleRange.getLength());
-			}
-
-			bool clear = true;
-			using Ptr = ReferenceCountedObjectPtr<RefCountedBuffer>;
-
-			double sampleRate = 44100.0;
-			AudioSampleBuffer all;
-			AudioSampleBuffer range;
-			Range<int> sampleRange;
-			float* ptrs[NUM_MAX_CHANNELS];
-			PoolReference currentFileReference;
-		};
-
-		using Ptr = ReferenceCountedObjectPtr<ScriptAudioFile>;
-
-		struct Listener
-		{
-			virtual ~Listener() {};
-
-			virtual void contentChanged() = 0;
-
-			virtual void playbackPositionChanged(double /*newPos*/) {};
-
-			JUCE_DECLARE_WEAK_REFERENCEABLE(Listener);
-		};
-
-		ScriptAudioFile(ProcessorWithScriptingContent* pwsc);;
-
-		String getDebugName() const override { return "AudioFile"; };
-		String getDebugValue() const override { return "AudioFile"; };
-
-		void rightClickCallback(const MouseEvent& , Component *) override {};
-
-		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("AudioFile"); }
-
-		void addListener(Listener* l, bool isSynchronous=false)
-		{
-			ignoreUnused(isSynchronous);
-			listeners.addIfNotAlreadyThere(l);
-		}
-
-		void removeListener(Listener* l)
-		{
-			listeners.removeAllInstancesOf(l);
-		}
-
-		void handleAsyncUpdate();
-
-		// ============================================================================================================
-
-		void clear();
-
-		/** Sets a new sample range. */
-		void setRange(int min, int max);
-
-		/** Loads an audio file from the given reference. */
-		void loadFile(const String& filePath);
-		
-		/** Returns the current audio data as array of channels. */
-		var getContent();
-
-		/** Sends an update message to all registered listeners. */
-		void update();
-
-		/** returns the amount of samples. */
-		int getNumSamples() const;
-
-		/** Returns the samplerate of the audio file. */
-		double getSampleRate() const;
-
-		/** Returns the reference string for the currently loaded file. */
-		String getCurrentlyLoadedFile() const;
-
-		// ============================================================================================================
-
-		void timerCallback() override;
-
-		RefCountedBuffer::Ptr getBuffer();
-
-		void setPosition(double newPosition)
-		{
-			position = newPosition;
-		}
-=======
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptFile);
 	};

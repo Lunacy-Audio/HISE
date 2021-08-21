@@ -478,12 +478,7 @@ void MultiChannelAudioBufferDisplay::paintOverChildren(Graphics& g)
 
 	jassert(laf != nullptr);
 
-<<<<<<< HEAD
-    static const String text = "Drop audio file or right-click to open browser";
-=======
-	
     static const String text = "Drop audio file or Right click to open browser";
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
     
 	auto f = GLOBAL_BOLD_FONT();
 
@@ -1034,14 +1029,12 @@ void HiseAudioThumbnail::drawSection(Graphics &g, bool enabled)
 	}
 	else
 	{
-<<<<<<< HEAD
 		// g.setColour(fillColour.withAlpha(0.08f));
 		g.setGradientFill(ColourGradient(Colour(0xFFF48272),
 			0.0f, 0.0f,
 			Colour(0xFF6D64A6),
 			(float)getWidth(), (float)getHeight(),
 			false));
-=======
 		auto a1 = getLocalBounds();
 		auto a2 = a1.removeFromBottom(a1.getHeight() / 2);
 
@@ -1058,7 +1051,6 @@ void HiseAudioThumbnail::drawSection(Graphics &g, bool enabled)
 			laf->drawHiseThumbnailPath(g, *this, enabled, rightWaveform);
 		else if (!rightPeaks.isEmpty())
 			laf->drawHiseThumbnailRectList(g, *this, enabled, rightPeaks);
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 
 #if 0
 		int h = getHeight()/2;

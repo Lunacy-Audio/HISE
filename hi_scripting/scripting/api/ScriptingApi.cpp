@@ -837,14 +837,11 @@ struct ScriptingApi::Engine::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Engine, loadPreviousUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, setUserPresetTagList);
-<<<<<<< HEAD
 	API_METHOD_WRAPPER_1(Engine, getTagsFromPreset);
 	API_VOID_METHOD_WRAPPER_2(Engine, setTagsForPreset);
 	API_METHOD_WRAPPER_1(Engine, getAuthorFromPreset);
 	API_VOID_METHOD_WRAPPER_2(Engine, setAuthorForPreset);
-=======
 	API_VOID_METHOD_WRAPPER_1(Engine, isUserPresetReadOnly);
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 	API_METHOD_WRAPPER_0(Engine, getUserPresetList);
 	API_METHOD_WRAPPER_0(Engine, getCurrentUserPresetName);
 	API_METHOD_WRAPPER_0(Engine, getCurrentUserPresetFile);
@@ -2171,9 +2168,9 @@ void ScriptingApi::Engine::setAuthorForPreset(var file, String authorName)
 
 	if (userPreset.existsAsFile())
 	{
-		ScopedPointer<XmlElement> xml = XmlDocument::parse(userPreset);
+        std::unique_ptr<XmlElement> xml = XmlDocument::parse(userPreset);
 
-		if (xml != nullptr)
+		if (xml.get() != nullptr)
 		{
 			xml->setAttribute("Author", authorName);
 

@@ -535,10 +535,7 @@ void MouseCallbackComponent::sendFileMessage(Action a, const String& f, Point<in
 	case Action::FileEnter:
 	case Action::FileExit: requiredLevel = FileCallbackLevel::DropHover; break;
 	case Action::FileMove: requiredLevel = FileCallbackLevel::AllCallbacks; break;
-<<<<<<< HEAD
-=======
     default: break;
->>>>>>> 150e1b2bd91c559ab407875f309745d63b6d4c26
 	}
 
 	if (fileCallbackLevel < requiredLevel)

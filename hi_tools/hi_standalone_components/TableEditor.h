@@ -798,7 +798,7 @@ private:
 				editedTable->fillLookUpTable();
 		}
 
-		for (auto l : listeners)
+		for (auto l : editListeners)
 		{
 			if (l.get() != nullptr)
 			{

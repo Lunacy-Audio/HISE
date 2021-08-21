@@ -2180,7 +2180,7 @@ void ScriptingApi::Content::ScriptTable::setTableValueChangedFunction(var newFun
 
 int ScriptingApi::Content::ScriptTable::getNumPoints()
 {
-	if (auto t = getTable())
+	if (auto t = getCachedTable())
 	{
 		return t->getNumGraphPoints();
 	}
@@ -2189,10 +2189,10 @@ int ScriptingApi::Content::ScriptTable::getNumPoints()
 
 double ScriptingApi::Content::ScriptTable::getPointX(int pointIndex)
 {
-	if (auto t = getTable())
+	if (auto t = getCachedTable())
 	{
 		if (pointIndex < t->getNumGraphPoints()) {
-			DiscreteTable::GraphPoint graphPoint = t->getGraphPoint(pointIndex);
+			Table::GraphPoint graphPoint = t->getGraphPoint(pointIndex);
 			return graphPoint.x;
 		}
 	}
@@ -2201,10 +2201,10 @@ double ScriptingApi::Content::ScriptTable::getPointX(int pointIndex)
 
 double ScriptingApi::Content::ScriptTable::getPointY(int pointIndex)
 {
-	if (auto t = getTable())
+	if (auto t = getCachedTable())
 	{
 		if (pointIndex < t->getNumGraphPoints()) {
-			DiscreteTable::GraphPoint graphPoint = t->getGraphPoint(pointIndex);
+			Table::GraphPoint graphPoint = t->getGraphPoint(pointIndex);
 			return graphPoint.y;
 		}
 	}
@@ -2213,10 +2213,10 @@ double ScriptingApi::Content::ScriptTable::getPointY(int pointIndex)
 
 double ScriptingApi::Content::ScriptTable::getPointCurve(int pointIndex)
 {
-	if (auto t = getTable())
+	if (auto t = getCachedTable())
 	{
 		if (pointIndex < t->getNumGraphPoints()) {
-			DiscreteTable::GraphPoint graphPoint = t->getGraphPoint(pointIndex);
+			Table::GraphPoint graphPoint = t->getGraphPoint(pointIndex);
 			return graphPoint.curve;
 		}
 	}
