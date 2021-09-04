@@ -54,7 +54,12 @@ juce::String NodeComponent::Header::getPowerButtonId(bool getOff) const
 				return "on";
 		}
 		else
+		{
+			if (path == "soft_bypass")
+				return "on";
+
 			return path;
+		}
 	}
 		
 	return "on";
@@ -71,12 +76,23 @@ NodeComponent::Header::Header(NodeComponent& parent_) :
 {
 	powerButton.setToggleModeWithColourChange(true);
 	
-	powerButtonUpdater.setCallback(parent.node->getValueTree(), { PropertyIds::Bypassed, PropertyIds::DynamicBypass},
+	powerButtonUpdater.setCallback(parent.node->getValueTree(), { PropertyIds::Bypassed},
 		valuetree::AsyncMode::Asynchronously,
 		BIND_MEMBER_FUNCTION_2(NodeComponent::Header::updatePowerButtonState));
 
 	colourUpdater.setCallback(parent.node->getValueTree(), { PropertyIds::NodeColour }, valuetree::AsyncMode::Asynchronously,
 		BIND_MEMBER_FUNCTION_2(NodeComponent::Header::updateColour));
+
+	dynamicPowerUpdater.setTypesToWatch({ PropertyIds::Nodes, PropertyIds::Connections });
+
+	dynamicPowerUpdater.setCallback(parent.node->getRootNetwork()->getValueTree(), valuetree::AsyncMode::Asynchronously, [this](ValueTree v, bool wasAdded)
+	{
+		auto on = parent.node->getDynamicBypassSource(true).isEmpty();
+		powerButton.setVisible(on);
+
+		if(auto dng = findParentComponentOfClass<DspNetworkGraph>())
+			dng->repaint();
+	});
 
 	addAndMakeVisible(powerButton);
 	addAndMakeVisible(deleteButton);
@@ -102,7 +118,7 @@ void NodeComponent::Header::buttonClicked(Button* b)
 {
 	if (b == &powerButton)
 	{
-		parent.node->setValueTreeProperty(PropertyIds::Bypassed, !b->getToggleState());
+		parent.node->setBypassed(!b->getToggleState());
 	}
 	if (b == &deleteButton)
 	{
@@ -125,20 +141,19 @@ void NodeComponent::Header::buttonClicked(Button* b)
 
 void NodeComponent::Header::updatePowerButtonState(Identifier id, var newValue)
 {
-	if (id == PropertyIds::DynamicBypass)
-	{
-		auto nv = newValue.toString().isEmpty();
-		powerButton.setVisible(nv);
-	}
-	else
-	{
-		powerButton.setToggleStateAndUpdateIcon(!(bool)newValue);
-		repaint();
-	}
+	powerButton.setToggleStateAndUpdateIcon(!(bool)newValue);
+	repaint();
 }
 
-void NodeComponent::Header::mouseDoubleClick(const MouseEvent& )
+void NodeComponent::Header::mouseDoubleClick(const MouseEvent& e)
 {
+	if (powerButton.getBoundsInParent().expanded(2).contains(e.getPosition()))
+	{
+		parent.node->addConnectionToBypass({});
+		findParentComponentOfClass<DspNetworkGraph>()->repaint();
+		return;
+	}
+
 	parent.dataReference.setProperty(PropertyIds::Folded, !parent.isFolded(), nullptr);
 	parent.getParentComponent()->repaint();
 }

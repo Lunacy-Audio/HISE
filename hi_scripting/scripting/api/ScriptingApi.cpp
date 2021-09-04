@@ -832,7 +832,8 @@ struct ScriptingApi::Engine::Wrapper
 	API_VOID_METHOD_WRAPPER_2(Engine, showErrorMessage);
 	API_VOID_METHOD_WRAPPER_1(Engine, showMessage);
 	API_VOID_METHOD_WRAPPER_1(Engine, setLowestKeyToDisplay);
-    API_VOID_METHOD_WRAPPER_1(Engine, openWebsite);
+  API_VOID_METHOD_WRAPPER_1(Engine, openWebsite);
+	API_METHOD_WRAPPER_1(Engine, isEmailAddress);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadNextUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadPreviousUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadUserPreset);
@@ -947,7 +948,8 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_2(showErrorMessage);
 	ADD_API_METHOD_1(showMessage);
 	ADD_API_METHOD_1(setLowestKeyToDisplay);
-    ADD_API_METHOD_1(openWebsite);
+  ADD_API_METHOD_1(openWebsite);
+	ADD_API_METHOD_1(isEmailAddress);
 	ADD_API_METHOD_1(loadNextUserPreset);
 	ADD_API_METHOD_1(loadPreviousUserPreset);
 	ADD_API_METHOD_1(isUserPresetReadOnly);
@@ -1586,6 +1588,12 @@ void ScriptingApi::Engine::openWebsite(String url)
     {
         reportScriptError("not a valid URL");
     }
+}
+
+bool ScriptingApi::Engine::isEmailAddress(String email)
+{
+	URL u("");
+	return u.isProbablyAnEmailAddress(email);
 }
 
 var ScriptingApi::Engine::getExpansionList()
@@ -2604,6 +2612,7 @@ struct ScriptingApi::Sampler::Wrapper
 	API_METHOD_WRAPPER_1(Sampler, loadSfzFile);
 	API_METHOD_WRAPPER_1(Sampler, createSelection);
 	API_METHOD_WRAPPER_1(Sampler, createSelectionFromIndexes);
+	API_METHOD_WRAPPER_1(Sampler, createSelectionWithFilter);
 	API_METHOD_WRAPPER_0(Sampler, createListFromGUISelection);
 	API_METHOD_WRAPPER_0(Sampler, createListFromScriptSelection);
 	API_METHOD_WRAPPER_1(Sampler, saveCurrentSampleMap);
@@ -2649,6 +2658,7 @@ sampler(sampler_)
 	ADD_API_METHOD_1(setSortByRRGroup);
 	ADD_API_METHOD_1(createSelection);
 	ADD_API_METHOD_1(createSelectionFromIndexes);
+	ADD_API_METHOD_1(createSelectionWithFilter);
 	ADD_API_METHOD_0(createListFromGUISelection);
 	ADD_API_METHOD_0(createListFromScriptSelection);
 	ADD_API_METHOD_1(saveCurrentSampleMap);
@@ -2923,6 +2933,50 @@ var ScriptingApi::Sampler::createSelectionFromIndexes(var indexData)
 	}
 
 	return var(selection);
+}
+
+var ScriptingApi::Sampler::createSelectionWithFilter(var filterFunction)
+{
+	ModulatorSampler *s = static_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+	{
+		reportScriptError("createSelectionWithFilter() only works with Samplers.");
+		RETURN_IF_NO_THROW({});
+	}
+
+	ReferenceCountedArray<ModulatorSamplerSound> list;
+
+	{
+		ModulatorSampler::SoundIterator it(s, false);
+
+		while (auto so = it.getNextSound())
+			list.add(so.get());
+	}
+
+	Array<var> results;
+
+	if (auto jp = dynamic_cast<JavascriptProcessor*>(getScriptProcessor()))
+	{
+		auto engine = jp->getScriptEngine();
+
+		
+
+		for (auto so : list)
+		{
+			var x = var(new ScriptingObjects::ScriptingSamplerSound(getScriptProcessor(), s, so));
+			var::NativeFunctionArgs args(x, nullptr, 0);
+
+			auto ok = (int)engine->callExternalFunctionRaw(filterFunction, args);
+
+			if(ok != 0)
+				results.add(x);
+		}
+	}
+
+	
+
+	return var(results);
 }
 
 var ScriptingApi::Sampler::createListFromScriptSelection()
@@ -3667,6 +3721,7 @@ struct ScriptingApi::Synth::Wrapper
 	API_METHOD_WRAPPER_1(Synth, getAudioSampleProcessor);
 	API_METHOD_WRAPPER_1(Synth, getDisplayBufferSource);
 	API_METHOD_WRAPPER_1(Synth, getTableProcessor);
+	API_METHOD_WRAPPER_1(Synth, getSliderPackProcessor);
 	API_METHOD_WRAPPER_1(Synth, getRoutingMatrix);
 	API_METHOD_WRAPPER_1(Synth, getSampler);
 	API_METHOD_WRAPPER_1(Synth, getSlotFX);
@@ -3739,6 +3794,7 @@ ScriptingApi::Synth::Synth(ProcessorWithScriptingContent *p, ModulatorSynth *own
 	ADD_API_METHOD_1(getAudioSampleProcessor);
 	ADD_API_METHOD_1(getDisplayBufferSource);
 	ADD_API_METHOD_1(getTableProcessor);
+	ADD_API_METHOD_1(getSliderPackProcessor);
 	ADD_API_METHOD_1(getSampler);
 	ADD_API_METHOD_1(getSlotFX);
 	ADD_API_METHOD_1(getEffect);
@@ -4377,13 +4433,12 @@ ScriptingObjects::ScriptingTableProcessor *ScriptingApi::Synth::getTableProcesso
 
 	if (getScriptProcessor()->objectsCanBeCreated())
 	{
-		Processor::Iterator<LookupTableProcessor> it(owner);
+		Processor::Iterator<ExternalDataHolder> it(owner);
 
-		while (LookupTableProcessor *lut = it.getNextProcessor())
+		while (auto lut = it.getNextProcessor())
 		{
 			if (dynamic_cast<Processor*>(lut)->getId() == name)
 			{
-
 				return new ScriptTableProcessor(getScriptProcessor(), lut);
 			}
 		}
@@ -4395,6 +4450,32 @@ ScriptingObjects::ScriptingTableProcessor *ScriptingApi::Synth::getTableProcesso
 	{
 		reportIllegalCall("getScriptingTableProcessor()", "onInit");
 		RETURN_IF_NO_THROW(new ScriptTableProcessor(getScriptProcessor(), nullptr));
+	}
+}
+
+hise::ScriptingApi::Synth::ScriptSliderPackProcessor* ScriptingApi::Synth::getSliderPackProcessor(const String& name)
+{
+	WARN_IF_AUDIO_THREAD(true, ScriptGuard::ObjectCreation);
+
+	if (getScriptProcessor()->objectsCanBeCreated())
+	{
+		Processor::Iterator<ExternalDataHolder> it(owner);
+
+		while (auto sp = it.getNextProcessor())
+		{
+			if (dynamic_cast<Processor*>(sp)->getId() == name)
+			{
+				return new ScriptSliderPackProcessor(getScriptProcessor(), sp);
+			}
+		}
+
+		reportScriptError(name + " was not found. ");
+		RETURN_IF_NO_THROW(new ScriptSliderPackProcessor(getScriptProcessor(), nullptr));
+	}
+	else
+	{
+		reportIllegalCall("getSliderPackProcessor()", "onInit");
+		RETURN_IF_NO_THROW(new ScriptSliderPackProcessor(getScriptProcessor(), nullptr));
 	}
 }
 
@@ -4878,8 +4959,9 @@ int ScriptingApi::Synth::getModulatorIndex(int chain, const String &id) const
 struct ScriptingApi::Console::Wrapper
 {
 	API_VOID_METHOD_WRAPPER_1(Console, print);
-	API_VOID_METHOD_WRAPPER_0(Console, start);
-	API_VOID_METHOD_WRAPPER_0(Console, stop);
+	API_VOID_METHOD_WRAPPER_0(Console, startBenchmark);
+	API_VOID_METHOD_WRAPPER_0(Console, stopBenchmark);
+	API_VOID_METHOD_WRAPPER_1(Console, stop);
 	API_VOID_METHOD_WRAPPER_0(Console, clear);
 	API_VOID_METHOD_WRAPPER_1(Console, assertTrue);
 	API_VOID_METHOD_WRAPPER_2(Console, assertEqual);
@@ -4887,6 +4969,7 @@ struct ScriptingApi::Console::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Console, assertIsObjectOrArray);
 	API_VOID_METHOD_WRAPPER_1(Console, assertLegalNumber);
 	API_VOID_METHOD_WRAPPER_0(Console, breakInDebugger);
+	API_VOID_METHOD_WRAPPER_0(Console, blink);
 };
 
 ScriptingApi::Console::Console(ProcessorWithScriptingContent *p) :
@@ -4895,9 +4978,11 @@ ApiClass(0),
 startTime(0.0)
 {
 	ADD_API_METHOD_1(print);
-	ADD_API_METHOD_0(start);
-	ADD_API_METHOD_0(stop);
+	ADD_API_METHOD_0(startBenchmark);
+	ADD_API_METHOD_0(stopBenchmark);
+	ADD_API_METHOD_1(stop);
 	ADD_API_METHOD_0(clear);
+	ADD_API_METHOD_0(blink);
 
 	ADD_API_METHOD_1(assertTrue);
 	ADD_API_METHOD_2(assertEqual);
@@ -4916,17 +5001,21 @@ void ScriptingApi::Console::print(var x)
 
 	AudioThreadGuard::Suspender suspender;
 	ignoreUnused(suspender);
+    
+    auto jp = dynamic_cast<JavascriptProcessor*>(getScriptProcessor());
+    jp->addInplaceDebugValue(id, lineNumber, x.toString());
+    
 	debugToConsole(getProcessor(), x);
 #endif
 }
 
-void ScriptingApi::Console::stop()
+void ScriptingApi::Console::stopBenchmark()
 {
 #if USE_BACKEND
 	AudioThreadGuard::Suspender suspender;
 	ignoreUnused(suspender);
 
-	if(startTime == 0.0)
+	if (startTime == 0.0)
 	{
 		reportScriptError("The Benchmark was not started!");
 		return;
@@ -4936,13 +5025,72 @@ void ScriptingApi::Console::stop()
 	const double ms = (now - startTime) * 1000.0;
 	startTime = 0.0;
 
+    
+    
 	debugToConsole(getProcessor(), "Benchmark Result: " + String(ms, 3) + " ms");
 #endif
+}
+
+void ScriptingApi::Console::stop(bool condition)
+{
+	if (!condition)
+		return;
+
+	auto c = getScriptProcessor()->getMainController_()->getKillStateHandler().getCurrentThread();
+
+	if (c == MainController::KillStateHandler::ScriptingThread ||
+		c == MainController::KillStateHandler::SampleLoadingThread ||
+		c == MainController::KillStateHandler::AudioThread)
+	{
+		auto n = Time::getMillisecondCounter();
+
+		auto jp = dynamic_cast<JavascriptProcessor*>(getScriptProcessor());
+		
+		MessageManager::callAsync([jp]()
+		{
+			ScopedReadLock sl(jp->getDebugLock());
+			jp->getScriptEngine()->rebuildDebugInformation();
+			jp->rebuild();
+		});
+
+		auto& jtp = getScriptProcessor()->getMainController_()->getJavascriptThreadPool();
+
+		JavascriptThreadPool::ScopedSleeper ss(jtp, id, lineNumber);
+
+		n = Time::getMillisecondCounter() - n;
+		jp->getScriptEngine()->extendTimeout(n);
+	}
+	else
+	{
+		String message;
+		message << "Breakpoint in UI Thread at " << id << "(Line " << lineNumber << ")";
+
+		debugToConsole(dynamic_cast<Processor*>(getScriptProcessor()), message);
+	}
 }
 
 
 
 
+
+void ScriptingApi::Console::blink()
+{
+#if USE_BACKEND && HISE_USE_NEW_CODE_EDITOR
+	if (auto e = getProcessor()->getMainController()->getLastActiveEditor())
+	{
+		Identifier i = id;
+		int l = lineNumber;
+
+		MessageManager::callAsync([e, i, l]()
+		{
+			if (PopupIncludeEditor::matchesId(e, i))
+			{
+				CommonEditorFunctions::as(e)->sendBlinkMessage(l);
+			}
+		});
+	}
+#endif
+}
 
 void ScriptingApi::Console::clear()
 {

@@ -937,15 +937,15 @@ ParameterSlider::ParameterSlider(NodeBase* node_, int index_) :
 	SimpleTimer(node_->getScriptProcessor()->getMainController_()->getGlobalUIUpdater()),
 	parameterToControl(node_->getParameter(index_)),
 	node(node_),
-	pTree(node_->getParameter(index_)->getTreeWithValue()),
+	pTree(node_->getParameter(index_)->data),
 	index(index_)
 {
 	addAndMakeVisible(rangeButton);
 
 	setName(pTree[PropertyIds::ID].toString());
 
-	connectionListener.setTypesToWatch({ PropertyIds::Connections, PropertyIds::ModulationTargets });
-	connectionListener.setCallback(pTree.getRoot(), valuetree::AsyncMode::Asynchronously,
+	connectionListener.setTypesToWatch({ PropertyIds::Connections, PropertyIds::ModulationTargets, PropertyIds::Nodes });
+	connectionListener.setCallback(pTree.getRoot(), valuetree::AsyncMode::Synchronously,
 		BIND_MEMBER_FUNCTION_2(ParameterSlider::updateOnConnectionChange));
 
 	rangeListener.setCallback(pTree, RangeHelpers::getRangeIds(),
@@ -984,6 +984,9 @@ ParameterSlider::~ParameterSlider()
 
 void ParameterSlider::updateOnConnectionChange(ValueTree p, bool wasAdded)
 {
+	if (p.hasType(PropertyIds::Node) && wasAdded)
+		return;
+
 	if (!matchesConnection(p))
 		return;
 
@@ -999,7 +1002,10 @@ void ParameterSlider::checkEnabledState()
 	if (modulationActive)
 		start();
 	else
+	{
 		stop();
+		parameterToControl->getDynamicParameterAsHolder()->setDisplaySource(nullptr);
+	}
 
 	if (auto g = findParentComponentOfClass<DspNetworkGraph>())
 		g->repaint();
@@ -1238,7 +1244,7 @@ void ParameterSlider::sliderValueChanged(Slider*)
 			n->getCurrentParameterHandler()->setParameter(index, getValue());
 		}
 		
-		parameterToControl->getTreeWithValue().setProperty(PropertyIds::Value, getValue(), parameterToControl->parent->getUndoManager());
+		parameterToControl->data.setProperty(PropertyIds::Value, getValue(), parameterToControl->parent->getUndoManager());
 	}
 
 	if (auto nl = dynamic_cast<ParameterKnobLookAndFeel::SliderLabel*>(getTextBox()))

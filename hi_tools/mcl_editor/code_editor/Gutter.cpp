@@ -123,7 +123,7 @@ void mcl::GutterComponent::paint(Graphics& g)
 							showFoldRange = true;
 						}
 
-						g.fillRect(ib);
+						//g.fillRect(ib);
 					}
 				}
 			}
@@ -132,15 +132,17 @@ void mcl::GutterComponent::paint(Graphics& g)
 
 		if ((r.isRowSelected || isErrorLine) && !showFoldRange)
 		{
+			auto b2 = b.withHeight(jmax(b.getHeight(), document.getRowHeight() * scaleFactor));
+
 			g.setColour(ln.contrasting(0.1f));
-			g.fillRect(b);
+			g.fillRect(b2);
 		}
 
 		auto lfb = b;
 
 		lfb = lfb.removeFromRight(15 * transform.getScaleFactor());
 
-		g.setColour(getParentComponent()->findColour(CodeEditorComponent::lineNumberTextId).withAlpha(0.5f));
+		g.setColour(getParentComponent()->findColour(CodeEditorComponent::lineNumberTextId).withBrightness(0.35f));
 
 		
 
@@ -149,21 +151,35 @@ void mcl::GutterComponent::paint(Graphics& g)
 		case FoldableLineRange::Holder::RangeStartOpen:
 		case FoldableLineRange::Holder::RangeStartClosed:
 		{
+			g.setColour(getParentComponent()->findColour(CodeEditorComponent::lineNumberTextId).withBrightness(0.35f));
+
 			auto w = lfb.getWidth() - 4.0f * transform.getScaleFactor();
 			auto box = lfb.withSizeKeepingCentre(w, w);
 
 			box = ug.getRectangleWithFixedPixelWidth(box, (int)box.getWidth());
-			
+
+			if (t == FoldableLineRange::Holder::RangeStartClosed)
+			{
+				g.setColour(Colours::white.withAlpha(0.2f));
+				g.fillRect(box);
+				g.setColour(getParentComponent()->findColour(CodeEditorComponent::lineNumberTextId).withBrightness(0.7f));
+			}
+
 			g.drawRect(box, 1.0f);
+
 			box = box.reduced(2.0f * transform.getScaleFactor());
 
 			g.drawHorizontalLine(box.getCentreY(), box.getX(), box.getRight());
+
+			
 
 			if (t == FoldableLineRange::Holder::RangeStartClosed)
 			{
 
 				ug.draw1PxHorizontalLine(b.getBottom(), 0.0f, b.getRight());
 				g.drawVerticalLine((int)box.getCentreX(), box.getY(), box.getBottom());
+
+				
 
 			}
 				
@@ -203,7 +219,7 @@ void mcl::GutterComponent::paint(Graphics& g)
 
 		A.removeFromRight(15 * transform.getScaleFactor());
 
-		g.setColour(getParentComponent()->findColour(CodeEditorComponent::lineNumberTextId).withMultipliedAlpha(0.7f));
+		g.setColour(getParentComponent()->findColour(CodeEditorComponent::lineNumberTextId).withMultipliedAlpha(0.4f));
 		g.drawText(String(r.rowNumber + 1), A.reduced(5.0f, 0.0f), Justification::right, false);
 	}
 
@@ -212,7 +228,7 @@ void mcl::GutterComponent::paint(Graphics& g)
 	{
 		if (auto r = getRowData(currentBreakLine.getLineNumber()-1))
 		{
-			auto b = getRowBounds(*r);
+			auto b = getRowBounds(*r).withHeight(document.getRowHeight() * scaleFactor);
 			g.setColour(Colours::red.withAlpha(0.05f));
 			g.fillRect(b.withWidth(getWidth()));
 		}
@@ -222,9 +238,9 @@ void mcl::GutterComponent::paint(Graphics& g)
 	{
 		if (auto r = getRowData(bp->getLineNumber()))
 		{
-			auto b = getRowBounds(*r);
+			auto b = getRowBounds(*r).withHeight(document.getRowHeight() * scaleFactor);
 
-			b = b.removeFromLeft(b.getHeight()).reduced(3.5f);
+			b = b.withWidth(b.getHeight()).reduced(JUCE_LIVE_CONSTANT_OFF(6.0f) * scaleFactor);
 
 			auto t = h.getLineType(*bp);
 
@@ -249,7 +265,7 @@ void mcl::GutterComponent::paint(Graphics& g)
 				g.setColour(Colours::white);
 
 				Path arrow = createArrow();
-				PathFactory::scalePath(arrow, b.reduced(1.0f));
+				PathFactory::scalePath(arrow, b.reduced(2.0f * scaleFactor));
 				g.fillPath(arrow);
 			}
 		}
@@ -275,16 +291,34 @@ bool mcl::GutterComponent::hitTest(int x, int y)
 
 juce::Rectangle<float> mcl::GutterComponent::getRowBounds(const TextDocument::RowData& r) const
 {
-	auto b = r.bounds.getRectangle(0);
-	b.removeFromBottom(2.6f);
+	if (r.bounds.getNumRectangles() == 1)
+	{
+		auto b = r.bounds.getRectangle(0);
+		b.removeFromBottom(2.6f);
 
-	b = b
-		.transformedBy(transform)
-		.withX(0)
-		.withWidth(getGutterWidth());
+		b = b
+			.transformedBy(transform)
+			.withX(0)
+			.withWidth(getGutterWidth());
 
-	return b;
+		return b;
+	}
+	else
+	{
+		
 
+		auto y = r.bounds.getRectangle(0).getY();
+
+		auto numLines = r.bounds.getNumRectangles();
+
+		auto h = document.getFontHeight() * (numLines - 1) + document.getRowHeight();
+		
+
+		auto x = 0.0;
+
+		Rectangle<float> s(x, y, 0, h);
+		return s.transformedBy(transform).withX(0).withWidth(getGutterWidth());
+	}
 }
 
 void mcl::GutterComponent::mouseDown(const MouseEvent& e)

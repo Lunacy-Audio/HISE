@@ -1084,13 +1084,15 @@ void JavascriptTimeVariantModulator::calculateBlock(int startSample, int numSamp
 		auto ptr = internalBuffer.getWritePointer(0, startSample);
 		FloatVectorOperations::clear(ptr, numSamples);
 
-		snex::Types::ProcessDataDyn d(&ptr, 1, numSamples);
+		snex::Types::ProcessDataDyn d(&ptr, numSamples, 1);
 
 		if (auto s = SimpleReadWriteLock::ScopedTryReadLock(n->getConnectionLock()))
 		{
 			if(n->getExceptionHandler().isOk())
 				n->getRootNode()->process(d);
 		}
+
+		FloatVectorOperations::clip(ptr, ptr, 0.0f, 1.0f, numSamples);
 	}
 	else if (!processBlockCallback->isSnippetEmpty() && lastResult.wasOk())
 	{

@@ -309,6 +309,8 @@ public:
 
 			virtual void zLevelChanged(ZLevel newZLevel) = 0;
 
+			virtual void wantsToLoseFocus() {}
+
 			JUCE_DECLARE_WEAK_REFERENCEABLE(ZLevelListener);
 		};
 
@@ -531,8 +533,19 @@ public:
 		/** Changes the depth hierarchy (z-axis) of sibling components (Back, Default, Front or AlwaysOnTop). */
 		void setZLevel(String zLevel);
 
+		/** Adds a callback to react on key presses (when this component is focused). */
+		void setKeyPressCallback(var keyboardFunction);
+
+		/** Call this method in order to give away the focus for this component. */
+		void loseFocus();
+
 		// End of API Methods ============================================================================================
 
+		bool handleKeyPress(const KeyPress& k);
+
+		void handleFocusChange(bool isFocused);
+
+		bool wantsKeyboardFocus() const { return (bool)keyboardCallback; }
 
 		void addSubComponentListener(SubComponentListener* l)
 		{
@@ -687,6 +700,8 @@ public:
 
 	private:
 
+		WeakCallbackHolder keyboardCallback;
+
 		struct AsyncControlCallbackSender : private UpdateDispatcher::Listener
         {
 		public:
@@ -813,15 +828,6 @@ public:
 
 		/** Pass a function that takes a double and returns a String in order to override the popup display text. */
 		void setValuePopupFunction(var newFunction);
-
-		void setTableValueChangedFunction(var newFunction);
-
-		/** Returns the number of graph points */
-		int getNumPoints();
-
-		double getPointX(int pointIndex);
-		double getPointY(int pointIndex);
-		double getPointCurve(int pointIndex);
 
 		/** Sets the value that is shown in the middle position. */
 		void setMidPoint(double valueForMidPoint);
@@ -1227,15 +1233,6 @@ public:
 		/** Pass a function that takes a double and returns a String in order to override the popup display text. */
 		void setTablePopupFunction(var newFunction);
 
-		void setTableValueChangedFunction(var newFunction);
-
-		/** Returns the number of graph points */
-		int getNumPoints();
-
-		double getPointX(int pointIndex);
-		double getPointY(int pointIndex);
-		double getPointCurve(int pointIndex);
-
 		void connectToOtherTable(String processorId, int index)
 		{
 			setScriptObjectProperty(ScriptingApi::Content::ScriptComponent::processorId, processorId, dontSendNotification);
@@ -1261,7 +1258,6 @@ public:
 
 		var snapValues;
 		var tableValueFunction;
-		var tableValueChangedFunction;
 
 	private:
 
@@ -1499,6 +1495,18 @@ public:
 			numProperties
 		};
 
+		enum class DebugWatchIndex
+		{
+			Data,
+			ChildPanels,
+			PaintRoutine,
+			TimerCallback,
+			MouseCallback,
+			PreloadCallback,
+			FileCallback,
+			NumDebugWatchIndexes
+		};
+
 		ScriptPanel(ProcessorWithScriptingContent *base, Content *parentContent, Identifier panelName, int x, int y, int width, int height);;
 		
 		ScriptPanel(ScriptPanel* parent);
@@ -1523,6 +1531,8 @@ public:
 
 		void preRecompileCallback() override
 		{
+			cachedList.clear();
+
 			ScriptComponent::preRecompileCallback();
 
 			timerRoutine.clear();
@@ -1537,6 +1547,14 @@ public:
 		void prepareCycleReferenceCheck() override;
 
 		void handleDefaultDeactivatedProperties() override;
+
+		int getNumChildElements() const override;
+
+		DebugInformationBase* getChildElement(int index) override;
+
+		DebugInformationBase::Ptr createChildElement(DebugWatchIndex index) const;
+
+		
 
 		// ======================================================================================================== API Methods
 
@@ -1786,7 +1804,7 @@ public:
 
 		var paintRoutine;
 
-		
+		void buildDebugListIfEmpty() const;
 
 		WeakCallbackHolder timerRoutine;
 		WeakCallbackHolder loadRoutine;
@@ -1804,7 +1822,7 @@ public:
 		WeakReference<ScriptPanel> parentPanel;
 		ReferenceCountedArray<ScriptPanel> childPanels;
 
-		
+		mutable DebugInformationBase::List cachedList;
 
 		bool isChildPanel = false;
 
@@ -1960,6 +1978,33 @@ public:
 	};
 
 
+	struct ScreenshotListener
+	{
+        virtual ~ScreenshotListener() {};
+        
+		virtual void makeScreenshot(const File& targetFile, Rectangle<float> area) = 0;
+
+		virtual void visualGuidesChanged() = 0;
+
+	private:
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(ScreenshotListener);
+	};
+
+	struct VisualGuide
+	{
+		enum class Type
+		{
+			HorizontalLine,
+			VerticalLine,
+			Rectangle
+		};
+
+		Rectangle<float> area;
+		Colour c;
+		Type t;
+	};
+
 	// ================================================================================================================
 
 	Content(ProcessorWithScriptingContent *p);;
@@ -2015,6 +2060,9 @@ public:
 	/** Returns the reference to the given component. */
 	var getComponent(var name);
 	
+	/** Returns the current tooltip. */
+	String getCurrentTooltip();
+
 	/** Returns an array of all components that match the given regex. */
     var getAllComponents(String regex);
 
@@ -2038,6 +2086,12 @@ public:
 
 	/** Sets the height of the content. */
 	void setWidth(int newWidth) noexcept;
+
+	/** Creates a screenshot of the area relative to the content's origin. */
+	void createScreenshot(var area, var directory, String name);
+
+	/** Creates either a line or rectangle with the given colour. */
+	void addVisualGuide(var guideData, var colour);
 
     /** Sets this script as main interface with the given size. */
     void makeFrontInterface(int width, int height);
@@ -2120,6 +2174,11 @@ public:
 	const ValueTree getContentProperties() const
 	{
 		return contentPropertyData;
+	}
+
+	void setScreenshotListener(ScreenshotListener* l)
+	{
+		screenshotListener = l;
 	}
 
 	var getValuePopupProperties() const { return valuePopupData; };
@@ -2271,6 +2330,8 @@ public:
     
 	void suspendPanelTimers(bool shouldBeSuspended);
 
+	Array<VisualGuide> guides;
+
 private:
 
 	struct AsyncRebuildMessageBroadcaster : public AsyncUpdater
@@ -2304,7 +2365,7 @@ private:
 		}
 	};
 
-	
+	WeakReference<ScreenshotListener> screenshotListener;
 
 	static void initNumberProperties();
 

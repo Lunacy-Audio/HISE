@@ -1124,7 +1124,8 @@ public:
 
 		UnorderedStack<uint16, 4096> pendingTickets;
 		uint16 ticketCounter = 0;
-		CriticalSection ticketLock;
+
+		mutable hise::SimpleReadWriteLock ticketLock;
 
 		std::atomic<State> currentState;
 
@@ -1410,7 +1411,7 @@ public:
 	/** Returns the amount of playing voices. */
 	int getNumActiveVoices() const;;
 
-	void setLastActiveEditor(CodeEditorComponent *editor, CodeDocument::Position position)
+	void setLastActiveEditor(Component *editor, CodeDocument::Position position)
 	{
 		auto old = lastActiveEditor;
 
@@ -1424,7 +1425,7 @@ public:
 			lastActiveEditor->repaint();
 	}
 
-	CodeEditorComponent* getLastActiveEditor()
+	Component* getLastActiveEditor()
 	{
 		return lastActiveEditor.getComponent();
 	}
@@ -1468,7 +1469,7 @@ public:
 		return false;
 	}
     
-    SafeChangeBroadcaster &getFontSizeChangeBroadcaster() { return codeFontChangeNotificator; };
+	LambdaBroadcaster<float> &getFontSizeChangeBroadcaster() { return codeFontChangeNotificator; };
     
     /** This sets the global pitch factor. */
     void setGlobalPitchFactor(double pitchFactorInSemiTones)
@@ -1750,10 +1751,10 @@ private:
 
 	Font globalFont;
 
-	Component::SafePointer<CodeEditorComponent> lastActiveEditor;
+	Component::SafePointer<Component> lastActiveEditor;
 	int lastCharacterPositionOfSelectedEditor;
 
-    SafeChangeBroadcaster codeFontChangeNotificator;
+    LambdaBroadcaster<float> codeFontChangeNotificator;
         
 	WeakReference<Console> console;
 

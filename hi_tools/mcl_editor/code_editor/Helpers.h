@@ -38,6 +38,7 @@ class TextDocument;           // stores text data and caret ranges, supplies met
 class TextEditor;             // is a component, issues actions, computes view transform
 struct Transaction;            // a text replacement, the document computes the inverse on fulfilling it
 class CodeMap;
+class LanguageManager;		  
 
 //==============================================================================
 template <typename ArgType, typename DataType>
@@ -161,7 +162,7 @@ struct CoallescatedCodeDocumentListener : public CodeDocument::Listener
 		codeChanged(true, insertIndex, insertIndex + newText.length());
 	}
 
-	virtual void codeChanged(bool wasAdded, int startIndex, int endIndex) = 0;
+	virtual void codeChanged(bool wasAdded, int startIndex, int endIndex) {};
 
 protected:
 

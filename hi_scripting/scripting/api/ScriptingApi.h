@@ -318,8 +318,11 @@ public:
 		/** Returns the millisecond value for the supplied tempo (HINT: Use "TempoSync" mode from Slider!) */
 		double getMilliSecondsForTempo(int tempoIndex) const;;
 
-        /** launches the given URL in the system's web browser. */
-        void openWebsite(String url);
+    /** launches the given URL in the system's web browser. */
+    void openWebsite(String url);
+
+		/** Checks if given email address is valid - not fool proof. */
+    bool isEmailAddress(String email);
 
 		/** Creates a list of all available expansions. */
 		var getExpansionList();
@@ -339,9 +342,6 @@ public:
 		/** Returns the currently loaded user preset (without extension). */
 		String getCurrentUserPresetName();
 
-		/** Returns the currently loaded user preset file */
-		var getCurrentUserPresetFile();
-
 		/** Asks for a preset name (if presetName is empty) and saves the current user preset. */
 		void saveUserPreset(var presetName);
 
@@ -353,18 +353,6 @@ public:
 
 		/** Sets the tags that appear in the user preset browser. */
 		void setUserPresetTagList(var listOfTags);
-
-		/** Parses tags from presetXML */
-		var getTagsFromPreset(var file);
-
-		/** Writes tags in preset XML */
-		void setTagsForPreset(var file, var listOfTags);
-
-		/** Parses author from presetXML */
-		String getAuthorFromPreset(var file);
-
-		/** Writes author in preset XML */
-		void setAuthorForPreset(var file, String authorName);
 
 		/** Returns a list of all available user presets as relative path. */
 		var getUserPresetList() const;
@@ -460,7 +448,7 @@ public:
 		DynamicObject *getPlayHead();
 
 		/** Checks if the given CC number is used for parameter automation and returns the index of the control. */
-		var isControllerUsedByAutomation(int controllerNumber);
+		int isControllerUsedByAutomation(int controllerNumber);
 
 		/** Creates a MIDI List object. */
     ScriptingObjects::MidiList *createMidiList();
@@ -705,6 +693,9 @@ public:
 		/** Returns an array with all samples from the index data (can be either int or array of int, -1 selects all.). */
 		var createSelectionFromIndexes(var indexData);
 
+		/** Returns an array with all samples that match the filter function. */
+		var createSelectionWithFilter(var filterFunction);
+
 		/** Returns a list of the sounds selected by the selectSounds() method. */
 		var createListFromScriptSelection();
 
@@ -803,6 +794,7 @@ public:
 		typedef ScriptingObjects::ScriptingSynth ScriptSynth;
 		typedef ScriptingObjects::ScriptingAudioSampleProcessor ScriptAudioSampleProcessor;
 		typedef ScriptingObjects::ScriptingTableProcessor ScriptTableProcessor;
+		typedef ScriptingObjects::ScriptSliderPackProcessor ScriptSliderPackProcessor;
 		typedef ScriptingObjects::ScriptingSlotFX ScriptSlotFX;
 		typedef ScriptingObjects::ScriptedMidiPlayer ScriptMidiPlayer;
 		typedef ScriptingObjects::ScriptRoutingMatrix ScriptRoutingMatrix;
@@ -959,6 +951,9 @@ public:
 		/** Returns the table processor with the given name. */
 		ScriptTableProcessor *getTableProcessor(const String &name);
 
+		/** Returns the sliderpack processor with the given name. */
+		ScriptSliderPackProcessor* getSliderPackProcessor(const String& name);
+
 		/** Returns a reference to a processor that holds a display buffer. */
 		ScriptingObjects::ScriptDisplayBufferSource* getDisplayBufferSource(const String& name);
 
@@ -1060,10 +1055,16 @@ public:
 		void print(var debug);
 
 		/** Starts the benchmark. You can give it a name that will be displayed with the result if desired. */
-		void start() { startTime = Time::highResolutionTicksToSeconds(Time::getHighResolutionTicks()); };
+		void startBenchmark() { startTime = Time::highResolutionTicksToSeconds(Time::getHighResolutionTicks()); };
 
 		/** Stops the benchmark and prints the result. */
-		void stop();
+		void stopBenchmark();
+
+		/** Causes the execution to stop(). */
+		void stop(bool condition);
+
+		/** Sends a blink message to the current editor. */
+		void blink();
 
 		/** Clears the console. */
 		void clear();
@@ -1088,9 +1089,20 @@ public:
 
 		struct Wrapper;
 
+		void setDebugLocation(const Identifier& id_, int lineNumber_)
+		{
+			id = id_;
+			lineNumber = lineNumber_;
+		}
+
 	private:
 
+		Identifier id;
+		int lineNumber;
+
 		double startTime;
+
+
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Console)
 	};
@@ -1376,9 +1388,6 @@ public:
 
 		/** Returns a list of all child files of a directory that match the wildcard. */
 		var findFiles(var directory, String wildcard, bool recursive);
-
-		/** Returns a list of all child directories of a directory that match the wildcard. */
-		var findDirectories(var directory, String wildcard, bool recursive);
 
 		/** Opens a file browser to choose a file. */
 		void browse(var startFolder, bool forSaving, String wildcard, var callback);

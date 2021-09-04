@@ -12,16 +12,6 @@
 #pragma once
 
 
-/* TODO:
-
-	- fix scrollbar being too wide OK
-	- fix return key at the end jumping to start OK
-	- highlight rectangle gets off with high zoom factor
-	- make "Back / Forward" View Undo for navigation options OK
-*/
-
-
-
 /** CONFIG: MCL_ENABLE_OPEN_GL
 *
 *	Disable this if your project doesn't include the open gl module
@@ -44,6 +34,7 @@
 #include "code_editor/Selection.h"
 #include "code_editor/GlyphArrangementArray.h"
 #include "code_editor/TextDocument.h"
+#include "code_editor/LanguageManager.h"
 #include "code_editor/DocTree.h"
 #include "code_editor/CodeMap.h"
 #include "code_editor/CaretComponent.h"

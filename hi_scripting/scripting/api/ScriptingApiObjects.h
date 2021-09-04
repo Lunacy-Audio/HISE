@@ -66,6 +66,8 @@ public:
 		Component::SafePointer<Component> mainEditor;
 	};
 
+	static var getVarFromPoint(Point<float> pos);
+
 	static Point<float> getPointFromVar(const var& data, Result* r = nullptr);
 
 	static var getVarRectangle(Rectangle<float> floatRectangle, Result* r = nullptr);
@@ -79,6 +81,8 @@ public:
 	static StringArray getJustificationNames();
 
 	static Justification getJustification(const String& justificationName, Result* r = nullptr);
+
+	static Array<Identifier> getGlobalApiClasses();
 
 #if USE_BACKEND
 
@@ -119,6 +123,13 @@ namespace ScriptingObjects
 		int getCachedIndex(const var &indexExpression) const override;
 		var getAssignedValue(int index) const override;
 
+		int getNumChildElements() const override { return 128; }
+
+		DebugInformationBase* getChildElement(int index) override
+		{
+			IndexedValue i(this, index);
+			return new LambdaValueInformation(i, i.getId(), {}, DebugInformation::Type::Constant, getLocation());
+		}
 		// ================================================================================================ API METHODS
 
 		/** Fills the MidiList with a number specified with valueToFill. */
@@ -166,11 +177,13 @@ namespace ScriptingObjects
 		int numValues = 0;
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(MidiList);
+		JUCE_DECLARE_WEAK_REFERENCEABLE(MidiList);
 
 		// ============================================================================================================
 	};
 
-	class ScriptUnorderedStack : public ConstScriptingObject
+	class ScriptUnorderedStack : public ConstScriptingObject,
+							     public AssignableObject
 	{
 	public:
 
@@ -179,7 +192,21 @@ namespace ScriptingObjects
 
 		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("UnorderedStack"); }
 
-		void rightClickCallback(const MouseEvent& e, Component *c) override;
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
+
+		void assign(const int index, var newValue) override { reportScriptError("Can't assign via index"); }
+		int getCachedIndex(const var &indexExpression) const override { return (int)indexExpression; }
+		var getAssignedValue(int index) const override { return var(data.begin()[jlimit(0, 128, index)]); }
+
+		int getNumChildElements() const override { return data.size(); }
+
+		String getDebugValue() const override { return "Used: " + String(size()); }
+
+		DebugInformationBase* getChildElement(int index) override
+		{
+			IndexedValue i(this, index);
+			return new LambdaValueInformation(i, i.getId(), {}, DebugInformation::Type::Constant, getLocation());
+		}
 
 		// ============================================================================================================
 
@@ -195,6 +222,14 @@ namespace ScriptingObjects
 		bool remove(float value)
 		{
 			auto ok = data.remove(value);
+			updateElementBuffer();
+			return ok;
+		}
+
+		/** Removes the element at the given number and fills the gap. */
+		bool removeElement(int index)
+		{
+			auto ok = data.removeElement(index);
 			updateElementBuffer();
 			return ok;
 		}
@@ -277,7 +312,7 @@ namespace ScriptingObjects
 
 		String getDebugValue() const override { return f.getFullPathName(); };
 
-		void rightClickCallback(const MouseEvent &, Component*) override
+		void doubleClickCallback(const MouseEvent &, Component*) override
 		{
 			f.revealToUser();
 		}
@@ -474,11 +509,13 @@ namespace ScriptingObjects
 		bool objectDeleted() const override { return complexObject == nullptr; }
 		bool objectExists() const override { return complexObject != nullptr; }
 
-		void rightClickCallback(const MouseEvent&, Component *) override {};
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
 		ScriptComplexDataReferenceBase(ProcessorWithScriptingContent* c, int dataIndex, snex::ExternalData::DataType type, ExternalDataHolder* otherHolder=nullptr);;
 
 		void setPosition(double newPosition);
+
+		float getCurrentDisplayIndexBase() const;
 
 		int getIndex() const { return index; }
 		ExternalDataHolder* getHolder() { return holder; }
@@ -512,6 +549,9 @@ namespace ScriptingObjects
 
 		/** Returns the current audio data as array of channels. */
 		var getContent();
+
+		/** Returns the current sample position (from 0 to numSamples). */
+		float getCurrentlyDisplayedIndex() const;
 
 		/** Sends an update message to all registered listeners. */
 		void update();
@@ -568,7 +608,7 @@ namespace ScriptingObjects
 
 		ScriptTableData(ProcessorWithScriptingContent* pwsc, int index, snex::ExternalDataHolder* externalHolder=nullptr);
 
-		void rightClickCallback(const MouseEvent& e, Component *c) override;
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
 		// ============================================================================================================
 
@@ -583,6 +623,9 @@ namespace ScriptingObjects
 
 		/** Returns the value of the table at the given input (0.0 ... 1.0). */
 		float getTableValueNormalised(double normalisedInput);
+
+		/** Returns the current ruler position (from 0 to 1). */
+		float getCurrentlyDisplayedIndex() const;
 
 		// ============================================================================================================
 
@@ -622,6 +665,9 @@ namespace ScriptingObjects
 		/** Sets the range. */
 		void setRange(double minValue, double maxValue, double stepSize);
 
+		/** Returns the currently displayed slider index. */
+		float getCurrentlyDisplayedIndex() const;
+
 		// ============================================================================================================
 
 	private:
@@ -632,7 +678,8 @@ namespace ScriptingObjects
 		struct Wrapper;
 	};
 
-	class ScriptingSamplerSound : public ConstScriptingObject
+	class ScriptingSamplerSound : public ConstScriptingObject,
+							      public AssignableObject
 	{
 	public:
 
@@ -645,10 +692,19 @@ namespace ScriptingObjects
 
 		String getDebugName() const override { return "Sample"; };
 		String getDebugValue() const override;
-		void rightClickCallback(const MouseEvent& e, Component *c) override;
+
+		int getNumChildElements() const override { return (int)ModulatorSamplerSound::Property::numProperties; }
+
+		DebugInformation* getChildElement(int index) override;
 
 		bool objectDeleted() const override { return sound == nullptr; }
 		bool objectExists() const override { return sound != nullptr; }
+
+		void assign(const int index, var newValue) override;
+
+		var getAssignedValue(int index) const override;
+
+		int getCachedIndex(const var &indexExpression) const override;
 
 		// ============================================================================================================
 
@@ -675,6 +731,9 @@ namespace ScriptingObjects
 
 		/** Writes the content of the audio data (array of buffers) into the audio file. This is undoable!. */
 		bool replaceAudioFile(var audioData);
+
+		/** Checks if the otherSample object refers to the same sample as this. */
+		bool refersToSameSample(var otherSample);
 
 		// ============================================================================================================
 
@@ -829,7 +888,7 @@ namespace ScriptingObjects
 		String getDebugDataType() const override { return getObjectName().toString(); }
 		void doubleClickCallback(const MouseEvent &e, Component* componentToNotify) override;
 
-		void rightClickCallback(const MouseEvent& e, Component* t) override;
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
 		// ============================================================================================================
 
@@ -957,7 +1016,7 @@ namespace ScriptingObjects
 		String getDebugValue() const override { return String(); }
 		void doubleClickCallback(const MouseEvent &, Component* ) override {};
 
-		void rightClickCallback(const MouseEvent& e, Component* t) override;
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
 		// ============================================================================================================ API Methods
 
@@ -1158,7 +1217,7 @@ namespace ScriptingObjects
 		String getDebugValue() const override { return String(synth.get() != nullptr ? dynamic_cast<ModulatorSynth*>(synth.get())->getNumActiveVoices() : 0) + String(" voices"); }
 		void doubleClickCallback(const MouseEvent &, Component* ) override {};
 
-		void rightClickCallback(const MouseEvent& e, Component* t) override;
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
 		// ============================================================================================================ API Methods
 
@@ -1250,7 +1309,7 @@ namespace ScriptingObjects
 		String getDebugValue() const override { return String(); }
 		void doubleClickCallback(const MouseEvent &, Component* ) override {};
 
-		void rightClickCallback(const MouseEvent& e, Component* t) override;
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
 		int getCachedIndex(const var &indexExpression) const override;
 		void assign(const int index, var newValue) override;
@@ -1349,11 +1408,20 @@ namespace ScriptingObjects
 		/** loads the file. You can use the wildcard {PROJECT_FOLDER} to get the audio file folder for the current project. */
 		void setFile(String fileName);
 
+		/** Returns the filename (including wildcard) for the currently loaded file. */
+		String getFilename(); 
+
+		/** Returns the samplerange in the form [start, end]. */
+		var getSampleStart();
+
 		/** Returns the length of the current sample selection in samples. */
 		int getSampleLength() const;
 
 		/** Sets the length of the current sample selection in samples. */
 		void setSampleRange(int startSample, int endSample);
+
+		/** Creates a ScriptAudioFile reference to the given index. */
+		var getAudioFile(int slotIndex);
 
 		// ============================================================================================================
 
@@ -1366,6 +1434,32 @@ namespace ScriptingObjects
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScriptingAudioSampleProcessor);
 
 		// ============================================================================================================
+	};
+
+	class ScriptSliderPackProcessor : public ConstScriptingObject
+	{
+	public:
+
+		ScriptSliderPackProcessor(ProcessorWithScriptingContent* p, ExternalDataHolder* h);
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("SliderPackProcessor"); };
+		bool objectDeleted() const override { return sp.get() == nullptr; }
+		bool objectExists() const override { return sp.get() != nullptr; }
+
+		// ============================================================================================================
+
+		/** Creates a data reference to the given index. */
+		var getSliderPack(int sliderPackIndex);
+
+		// ============================================================================================================
+
+	private:
+
+		struct Wrapper;
+
+		WeakReference<Processor> sp;
+
+		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScriptSliderPackProcessor);
 	};
 
 	class ScriptDisplayBufferSource : public ConstScriptingObject
@@ -1398,7 +1492,7 @@ namespace ScriptingObjects
 
 		// ============================================================================================================
 
-		ScriptingTableProcessor(ProcessorWithScriptingContent *p, LookupTableProcessor *tableProcessor);
+		ScriptingTableProcessor(ProcessorWithScriptingContent *p, ExternalDataHolder *tableProcessor);
 		~ScriptingTableProcessor() {};
 
 		Identifier getObjectName() const override {	RETURN_STATIC_IDENTIFIER("TableProcessor"); };
@@ -1425,6 +1519,9 @@ namespace ScriptingObjects
 		/** Exports the state as base64 encoded string. */
 		String exportAsBase64(int tableIndex) const;
 
+		/** Creates a ScriptTableData object for the given table. */
+		var getTable(int tableIndex);
+
 		// ============================================================================================================
 		
 		struct Wrapper;
@@ -1439,7 +1536,7 @@ namespace ScriptingObjects
 	};
 
 
-	class TimerObject : public DynamicScriptingObject,
+	class TimerObject : public ConstScriptingObject,
 					    public ControlledObject
 	{
 	public:
@@ -1458,7 +1555,10 @@ namespace ScriptingObjects
 		bool objectExists() const override { return false; }
 
 		void timerCallback();
-		void timerCallbackInternal(const var& callback, Result& r);
+
+		int getNumChildElements() const override { return 2; }
+
+		DebugInformationBase* getChildElement(int index) override;
 
 		// ============================================================================================================
 		
@@ -1471,11 +1571,22 @@ namespace ScriptingObjects
 		/** Sets the function that will be called periodically. */
 		void setTimerCallback(var callbackFunction);
 
-		struct Wrapper;
+		/** Checks if the timer is active. */
+		bool isTimerRunning() const;
+
+		/** Returns the duration from the last counter reset. */
+		var getMilliSecondsSinceCounterReset();
+
+		/** Resets the internal counter. */
+		void resetCounter();
 
 		// ============================================================================================================
 
 	private:
+
+		uint32 milliSecondCounter;
+
+		struct Wrapper;
 
 		struct InternalTimer : public Timer
 		{
@@ -1498,6 +1609,8 @@ namespace ScriptingObjects
 		};
 
 		InternalTimer it;
+
+		WeakCallbackHolder tc;
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TimerObject)
         JUCE_DECLARE_WEAK_REFERENCEABLE(TimerObject);
