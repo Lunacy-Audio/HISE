@@ -1265,13 +1265,13 @@ void ScriptCreatedComponentWrappers::TableWrapper::tableUpdated()
 {
 	ScriptingApi::Content::ScriptTable *st = dynamic_cast<ScriptingApi::Content::ScriptTable*>(getScriptComponent());
 
-	if (HiseJavascriptEngine::isJavascriptFunction(st->tableValueChangedFunction))
+	if (HiseJavascriptEngine::isJavascriptFunction(st->tableValueFunction))
 	{
 		if (auto jp = dynamic_cast<JavascriptProcessor*>(st->getScriptProcessor()))
 		{
 			var::NativeFunctionArgs args(st, nullptr, 0);
 			Result r = Result::ok();
-			auto text = jp->getScriptEngine()->callExternalFunction(st->tableValueChangedFunction, args, &r, true);
+			auto text = jp->getScriptEngine()->callExternalFunction(st->tableValueFunction, args, &r, true);
 		}
 	}
 }
