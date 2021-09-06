@@ -5055,6 +5055,29 @@ var ScriptingObjects::ScriptedLookAndFeel::callDefinedFunction(const Identifier&
 	return {};
 }
 
+Identifier ScriptingObjects::ScriptedLookAndFeel::Laf::getIdOfParentFloatingTile(Component& c)
+{
+	if (auto ft = c.findParentComponentOfClass<FloatingTile>())
+	{
+		return ft->getCurrentFloatingPanel()->getIdentifierForBaseClass();
+	}
+
+	return {};
+}
+
+bool ScriptingObjects::ScriptedLookAndFeel::Laf::addParentFloatingTile(Component& c, DynamicObject* obj)
+{
+	auto id = getIdOfParentFloatingTile(c);
+
+	if (id.isValid())
+	{
+		obj->setProperty("parentType", id.toString());
+		return true;
+	}
+
+	return false;
+}
+
 void ScriptingObjects::ScriptedLookAndFeel::Laf::drawAlertBox(Graphics& g_, AlertWindow& w, const Rectangle<int>& ta, TextLayout& tl)
 {
 	if (auto l = get())
