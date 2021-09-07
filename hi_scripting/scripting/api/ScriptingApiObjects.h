@@ -1300,6 +1300,13 @@ public:
 		/** Returns the length of the current sample selection in samples. */
 		int getSampleLength() const;
 
+		/** Returns the filename (including wildcard) for the currently loaded file. */
+        String getFilename(); 
+
+        /** Returns the samplerange in the form [start, end]. */
+        var getSampleStart();
+
+
 		/** Sets the length of the current sample selection in samples. */
 		void setSampleRange(int startSample, int endSample);
 
