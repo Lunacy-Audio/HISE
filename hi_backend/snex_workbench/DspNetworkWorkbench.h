@@ -149,7 +149,8 @@ struct DspNetworkProcessor : public ProcessorWithScriptingContent,
 			return;
 
 		SimpleReadWriteLock::ScopedReadLock sl(lock);
-		activeNetwork->prepareToPlay(sampleRate, samplesPerBlock);
+        activeNetwork->prepareToPlay(sampleRate, samplesPerBlock);
+        activeNetwork->setNumChannels(2);
 	}
 
 	void workbenchChanged(WorkbenchData::Ptr newWorkbench) override
@@ -193,7 +194,7 @@ struct DspNetworkProcessor : public ProcessorWithScriptingContent,
 			return;
 
 		if (auto p = activeNetwork->getRootNode()->getParameter(parameterIndex))
-			p->setValueAndStoreAsync(newValue);
+			p->setValue(newValue);
 	}
 
 	float getAttribute(int parameterIndex) const override
@@ -635,7 +636,7 @@ struct WorkbenchInfoComponent : public Component,
 		if (b == &signalButton)
 		{
 			auto rootTile = findParentComponentOfClass<FloatingTile>()->getRootFloatingTile();
-			using PanelType = snex::ui::SnexWorkbenchPanel<snex::ui::Graph>;
+			using PanelType = snex::ui::SnexWorkbenchPanel<snex::ui::TestGraph>;
 			auto on = signalButton.getToggleState();
 
 			rootTile->forEach<PanelType>([on](PanelType* pl)

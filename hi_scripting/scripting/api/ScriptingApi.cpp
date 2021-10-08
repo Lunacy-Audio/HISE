@@ -270,6 +270,7 @@ struct ScriptingApi::Message::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Message, store);
 	API_METHOD_WRAPPER_0(Message, makeArtificial);
 	API_METHOD_WRAPPER_0(Message, isArtificial);
+	API_VOID_METHOD_WRAPPER_1(Message, setAllNotesOffCallback);
 
 };
 
@@ -278,7 +279,8 @@ ScriptingApi::Message::Message(ProcessorWithScriptingContent *p) :
 ScriptingObject(p),
 ApiClass(0),
 messageHolder(nullptr),
-constMessageHolder(nullptr)
+constMessageHolder(nullptr),
+allNotesOffCallback(p, var(), 0)
 {
 	memset(artificialNoteOnIds, 0, sizeof(uint16) * 128);
 
@@ -311,6 +313,7 @@ constMessageHolder(nullptr)
 	ADD_API_METHOD_1(store);
 	ADD_API_METHOD_0(makeArtificial);
 	ADD_API_METHOD_0(isArtificial);
+	ADD_API_METHOD_1(setAllNotesOffCallback);
 }
 
 
@@ -738,8 +741,7 @@ int ScriptingApi::Message::makeArtificial()
 		if (copy.isNoteOn())
 		{
 			getScriptProcessor()->getMainController_()->getEventHandler().pushArtificialNoteOn(copy);
-			artificialNoteOnIds[copy.getNoteNumber()] = copy.getEventId();
-
+			pushArtificialNoteOn(copy);
 		}
 		else if (copy.isNoteOff())
 		{
@@ -772,6 +774,12 @@ bool ScriptingApi::Message::isArtificial() const
 	return false;
 }
 
+void ScriptingApi::Message::setAllNotesOffCallback(var onAllNotesOffCallback)
+{
+	allNotesOffCallback = WeakCallbackHolder(getScriptProcessor(), onAllNotesOffCallback, 0);
+	allNotesOffCallback.incRefCount();
+}
+
 void ScriptingApi::Message::setHiseEvent(HiseEvent &m)
 {
 	messageHolder = &m;
@@ -792,6 +800,12 @@ hise::HiseEvent& ScriptingApi::Message::getCurrentEventReference()
 	jassertfalse;
 	static HiseEvent unused;
 	return unused;
+}
+
+void ScriptingApi::Message::onAllNotesOff()
+{
+	if (allNotesOffCallback)
+		allNotesOffCallback.callSync(nullptr, 0, nullptr);
 }
 
 // ====================================================================================================== Engine functions
@@ -826,14 +840,14 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_1(Engine, getMidiNoteName);
 	API_METHOD_WRAPPER_1(Engine, getMidiNoteFromName);
 	API_METHOD_WRAPPER_1(Engine, getMacroName);
-	
-	API_VOID_METHOD_WRAPPER_1(Engine, setFrontendMacros)
+  API_VOID_METHOD_WRAPPER_1(Engine, setFrontendMacros)
 	API_VOID_METHOD_WRAPPER_2(Engine, setKeyColour);
+	API_VOID_METHOD_WRAPPER_3(Engine, showMessageBox);
 	API_VOID_METHOD_WRAPPER_2(Engine, showErrorMessage);
 	API_VOID_METHOD_WRAPPER_1(Engine, showMessage);
 	API_VOID_METHOD_WRAPPER_1(Engine, setLowestKeyToDisplay);
   API_VOID_METHOD_WRAPPER_1(Engine, openWebsite);
-	API_METHOD_WRAPPER_1(Engine, isEmailAddress);
+	API_METHOD_WRAPPER_0(Engine, createUserPresetHandler);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadNextUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadPreviousUserPreset);
 	API_VOID_METHOD_WRAPPER_1(Engine, loadUserPreset);
@@ -949,8 +963,8 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_1(showMessage);
 	ADD_API_METHOD_1(setLowestKeyToDisplay);
   ADD_API_METHOD_1(openWebsite);
-	ADD_API_METHOD_1(isEmailAddress);
-	ADD_API_METHOD_1(loadNextUserPreset);
+	ADD_API_METHOD_0(createUserPresetHandler);
+  ADD_API_METHOD_1(loadNextUserPreset);
 	ADD_API_METHOD_1(loadPreviousUserPreset);
 	ADD_API_METHOD_1(isUserPresetReadOnly);
 	ADD_API_METHOD_0(getExpansionList);
@@ -1020,6 +1034,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_2(getDspNetworkReference);
 	ADD_API_METHOD_0(createExpansionHandler);
 	ADD_API_METHOD_3(showYesNoWindow);
+	ADD_API_METHOD_3(showMessageBox);
 	ADD_API_METHOD_1(getSystemTime);
 }
 
@@ -1411,6 +1426,14 @@ var ScriptingApi::Engine::getSampleFilesFromDirectory(const String& relativePath
 	
 }
 
+void ScriptingApi::Engine::showMessageBox(String title, String markdownMessage, int type)
+{
+	MessageManager::callAsync([title, markdownMessage, type]()
+	{
+		PresetHandler::showMessageWindow(title, markdownMessage, (PresetHandler::IconType)type);
+	});
+}
+
 void ScriptingApi::Engine::showYesNoWindow(String title, String markdownMessage, var callback)
 {
 	//auto p = dynamic_cast<JavascriptProcessor*>(getScriptProcessor());
@@ -1421,30 +1444,8 @@ void ScriptingApi::Engine::showYesNoWindow(String title, String markdownMessage,
 		auto ok = PresetHandler::showYesNoWindow(title, markdownMessage);
 
 		std::array<var, 1> args = { var(ok) };
-
-		//Array<var> args = { var(ok) };
-
-
-
 		WeakCallbackHolder cb(p, callback, 1);
 		cb.call({ var(ok) });
-
-#if 0
-		dynamic_cast<ControlledObject*>(p)->getMainController()->getJavascriptThreadPool().addJob(JavascriptThreadPool::Task::HiPriorityCallbackExecution,
-			p, [ok, callback](JavascriptProcessor* p)
-		{
-			auto r = Result::ok();
-
-			var arg(ok);
-
-			p->getScriptEngine()->callExternalFunction(callback, var::NativeFunctionArgs({}, &arg, 1), &r);
-
-			if (!r.wasOk())
-				debugError(dynamic_cast<Processor*>(p), r.getErrorMessage());
-
-			return r;
-		});
-#endif
 	};
 
 	MessageManager::callAsync(f);
@@ -1500,6 +1501,11 @@ var ScriptingApi::Engine::createDspNetwork(String id)
 var ScriptingApi::Engine::createExpansionHandler()
 {
 	return var(new ScriptExpansionHandler(dynamic_cast<JavascriptProcessor*>(getScriptProcessor())));
+}
+
+var ScriptingApi::Engine::createUserPresetHandler()
+{
+	return var(new ScriptUserPresetHandler(getScriptProcessor()));
 }
 
 var ScriptingApi::Engine::getDspNetworkReference(String processorId, String id)
@@ -1588,12 +1594,6 @@ void ScriptingApi::Engine::openWebsite(String url)
     {
         reportScriptError("not a valid URL");
     }
-}
-
-bool ScriptingApi::Engine::isEmailAddress(String email)
-{
-	URL u("");
-	return u.isProbablyAnEmailAddress(email);
 }
 
 var ScriptingApi::Engine::getExpansionList()
@@ -3744,10 +3744,11 @@ struct ScriptingApi::Synth::Wrapper
 };
 
 
-ScriptingApi::Synth::Synth(ProcessorWithScriptingContent *p, ModulatorSynth *ownerSynth) :
+ScriptingApi::Synth::Synth(ProcessorWithScriptingContent *p, Message* messageObject_, ModulatorSynth *ownerSynth) :
 	ScriptingObject(p),
 	ApiClass(0),
 	moduleHandler(dynamic_cast<Processor*>(p), dynamic_cast<JavascriptProcessor*>(p)),
+	messageObject(messageObject_),
 	owner(ownerSynth),
 	numPressedKeys(0),
 	keyDown(0),
@@ -4031,6 +4032,9 @@ int ScriptingApi::Synth::addMessageFromHolder(var messageHolder)
 				if (e.isNoteOn())
 				{
 					parentMidiProcessor->getMainController()->getEventHandler().pushArtificialNoteOn(e);
+					if (messageObject != nullptr)
+						messageObject->pushArtificialNoteOn(e);
+
 					parentMidiProcessor->addHiseEventToBuffer(e);
 					return e.getEventId();
 				}
@@ -4683,6 +4687,10 @@ int ScriptingApi::Synth::internalAddNoteOn(int channel, int noteNumber, int velo
 						m.setArtificial();
 
 						parentMidiProcessor->getMainController()->getEventHandler().pushArtificialNoteOn(m);
+
+						if (messageObject != nullptr)
+							messageObject->pushArtificialNoteOn(m);
+
 						parentMidiProcessor->addHiseEventToBuffer(m);
 
 						return m.getEventId();
@@ -5709,6 +5717,7 @@ struct ScriptingApi::Server::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Server, setNumAllowedDownloads);
 	API_VOID_METHOD_WRAPPER_0(Server, cleanFinishedDownloads);
 	API_VOID_METHOD_WRAPPER_1(Server, setServerCallback);
+	API_METHOD_WRAPPER_1(Server, isEmailAddress);
 };
 
 ScriptingApi::Server::Server(JavascriptProcessor* jp_):
@@ -5737,6 +5746,7 @@ ScriptingApi::Server::Server(JavascriptProcessor* jp_):
 	ADD_API_METHOD_1(setNumAllowedDownloads);
 	ADD_API_METHOD_1(setServerCallback);
 	ADD_API_METHOD_0(cleanFinishedDownloads);
+	ADD_API_METHOD_1(isEmailAddress);
 }
 
 void ScriptingApi::Server::setBaseURL(String url)
@@ -5842,8 +5852,11 @@ void ScriptingApi::Server::setServerCallback(var callback)
 	serverCallback.incRefCount();
 }
 
-
-
+bool ScriptingApi::Server::isEmailAddress(String email)
+{
+	URL u("");
+	return u.isProbablyAnEmailAddress(email);
+}
 
 ScriptingApi::TransportHandler::Callback::Callback(TransportHandler* p, const var& f, bool sync, int numArgs_) :
 	callback(p->getScriptProcessor(), f, numArgs_),

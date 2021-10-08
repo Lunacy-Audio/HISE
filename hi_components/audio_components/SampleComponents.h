@@ -188,15 +188,6 @@ public:
 		JUCE_DECLARE_WEAK_REFERENCEABLE(Broadcaster)
 	};
 
-
-	enum ColourIds
-	{
-		bgColour = 1024,
-		fillColour,
-		lineColour,
-		numColourIds
-	};
-
 	WaveformComponent(Processor *p, int index = 0);
 
 	~WaveformComponent();
@@ -225,7 +216,10 @@ public:
 
 	void refresh() override;
 
-	Colour getColourForAnalyserBase(int colourId) override { return Colours::transparentBlack; }
+	Colour getColourForAnalyserBase(int colourId) override
+    {
+        return findColour(colourId);
+    }
 
 	void resized() override
 	{
@@ -289,6 +283,35 @@ private:
 
 };
 
+class SamplerSoundWaveform;
+
+struct SamplerDisplayWithTimeline : public Component
+{
+	static constexpr int TimelineHeight = 24;
+
+	enum class TimeDomain
+	{
+		Samples,
+		Milliseconds,
+		Seconds
+	};
+
+	struct Properties
+	{
+		double sampleLength;
+		double sampleRate;
+		TimeDomain currentDomain = TimeDomain::Seconds;
+	};
+
+	SamplerSoundWaveform* getWaveform();
+	const SamplerSoundWaveform* getWaveform() const;
+	void resized() override;
+	void mouseDown(const MouseEvent& e) override;
+	static String getText(const Properties& p, float normalisedX);
+	void paint(Graphics& g) override;
+
+	Properties props;
+};
 
 /** A component that displays the waveform of a sample.
 *
@@ -298,7 +321,8 @@ private:
 *	It uses a timer to display the current playbar.
 */
 class SamplerSoundWaveform : public AudioDisplayComponent,
-	public Timer
+	public Timer,
+	public SettableTooltipClient
 {
 public:
 
@@ -340,12 +364,55 @@ public:
 	*/
 	void setSoundToDisplay(const ModulatorSamplerSound *s, int multiMicIndex = 0);
 
-	const ModulatorSamplerSound *getCurrentSound() const { return currentSound.get(); }
+	void mouseDown(const MouseEvent& e) override;
 
+	void mouseUp(const MouseEvent& e) override;
+
+	void mouseMove(const MouseEvent& e) override;
+
+	const ModulatorSamplerSound *getCurrentSound() const { return currentSound.get(); }
 
 	float getNormalizedPeak() override;
 
+	void refresh(NotificationType n)
+	{
+		getThumbnail()->setDisplayGain(getCurrentSampleGain(), n);
+	}
+
+	void setVerticalZoom(float zf)
+	{
+		if (zf != verticalZoomGain)
+		{
+			verticalZoomGain = zf;
+			refresh(sendNotificationSync);
+		}
+	}
+
+	void setClickArea(AreaTypes newArea)
+	{
+		if (newArea == currentClickArea)
+			currentClickArea = AreaTypes::numAreas;
+		else
+			currentClickArea = newArea;
+
+		setMouseCursor(currentClickArea == AreaTypes::numAreas ? MouseCursor::NormalCursor : MouseCursor::CrosshairCursor);
+	}
+
+	float getCurrentSampleGain() const;
+
+	SamplerDisplayWithTimeline::Properties timeProperties;
+
+	AreaTypes currentClickArea = AreaTypes::numAreas;
+
+    bool zeroCrossing = true;
+    
 private:
+
+	AudioDisplayComponent::AreaTypes getAreaForModifiers(const MouseEvent& e) const;
+
+	Identifier getSampleIdToChange(AreaTypes a, const MouseEvent& e) const;
+
+	float verticalZoomGain = 1.0f;
 
 	const ModulatorSampler *sampler;
 	ReferenceCountedObjectPtr<ModulatorSamplerSound> currentSound;
@@ -353,10 +420,13 @@ private:
 	int numSamplesInCurrentSample;
 
 
+	int previewStart = -1;
 	double sampleStartPosition;
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SamplerSoundWaveform)
 };
+
+
 
 
 }

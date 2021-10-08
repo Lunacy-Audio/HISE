@@ -301,13 +301,14 @@ SamplerSoundWaveform::SamplerSoundWaveform(const ModulatorSampler *ownerSampler)
 	areas[PlayArea]->addAndMakeVisible(areas[SampleStartArea]);
 	areas[PlayArea]->addAndMakeVisible(areas[LoopArea]);
 	areas[PlayArea]->addAndMakeVisible(areas[LoopCrossfadeArea]);
-
-	areas[PlayArea]->setAreaEnabled(true);
-
+	areas[PlayArea]->setAreaEnabled(false);
+	
 	areas[SampleStartArea]->leftEdge->setVisible(false);
 	areas[LoopCrossfadeArea]->rightEdge->setVisible(false);
 
 	setOpaque(true);
+
+	setMouseCursor(MouseCursor::CrosshairCursor);
 
 #ifdef JUCE_DEBUG
 
@@ -319,7 +320,12 @@ SamplerSoundWaveform::SamplerSoundWaveform(const ModulatorSampler *ownerSampler)
 
 #endif
 
-
+    getThumbnail()->setBufferedToImage(false);
+	getThumbnail()->setDrawHorizontalLines(true);
+	getThumbnail()->setDisplayMode(HiseAudioThumbnail::DisplayMode::DownsampledCurve);
+	getThumbnail()->setColour(AudioDisplayComponent::ColourIds::bgColour, Colours::transparentBlack);
+	getThumbnail()->setColour(AudioDisplayComponent::ColourIds::fillColour, Colours::transparentBlack);
+	getThumbnail()->setColour(AudioDisplayComponent::ColourIds::outlineColour, Colours::white.withAlpha(0.7f));
 };
 
 SamplerSoundWaveform::~SamplerSoundWaveform()
@@ -331,11 +337,11 @@ SamplerSoundWaveform::~SamplerSoundWaveform()
 
 void SamplerSoundWaveform::timerCallback()
 {
-	if (sampler->getLastStartedVoice() != nullptr)
-	{
-		ModulatorSamplerSound *s = dynamic_cast<ModulatorSamplerVoice*>(sampler->getLastStartedVoice())->getCurrentlyPlayingSamplerSound();
+	auto previewActive = (previewStart != -1);
 
-		if (s == currentSound.get())
+	if (sampler->getLastStartedVoice() != nullptr || previewActive)
+	{
+		if (previewActive || dynamic_cast<ModulatorSamplerVoice*>(sampler->getLastStartedVoice())->getCurrentlyPlayingSamplerSound() == currentSound.get())
 		{
 			sampleStartPosition = sampler->getSamplerDisplayValues().currentSampleStartPos;
 			setPlaybackPosition(sampler->getSamplerDisplayValues().currentSamplePos);
@@ -444,14 +450,19 @@ void SamplerSoundWaveform::paint(Graphics &g)
 	auto bgColour = findColour(AudioDisplayComponent::ColourIds::bgColour);
 	g.fillAll(bgColour);
 
-	AudioDisplayComponent::paint(g);
-
 	if (getTotalSampleAmount() == 0) return;
 
 	if (areas[SampleStartArea]->getSampleRange().getLength() != 0)
 	{
 		drawSampleStartBar(g);
 	};
+
+	if (previewStart != -1)
+	{
+		auto pos = roundToInt((double)previewStart / (double)getTotalSampleAmount() * (double)getWidth());
+		g.setColour(Colours::white.withAlpha(0.5f));
+		g.drawVerticalLine(pos, 0.0f, (float)getHeight());
+	}
 
 	if (!onInterface && currentSound.get() != nullptr)
 	{
@@ -479,6 +490,9 @@ void SamplerSoundWaveform::resized()
 
 void SamplerSoundWaveform::setSoundToDisplay(const ModulatorSamplerSound *s, int multiMicIndex/*=0*/)
 {
+	timeProperties.sampleLength = 0;
+	timeProperties.sampleRate = 0.0;
+
 	if (s != nullptr && !s->isMissing() && !s->isPurged())
 	{
 		currentSound = const_cast<ModulatorSamplerSound*>(s);
@@ -511,7 +525,11 @@ void SamplerSoundWaveform::setSoundToDisplay(const ModulatorSamplerSound *s, int
 				numSamplesInCurrentSample = currentSound->getReferenceToSound()->getSampleLength();
 			}
 
+			refresh(dontSendNotification);
 			preview->setReader(afr.release(), numSamplesInCurrentSample);
+
+			timeProperties.sampleLength = (double)currentSound->getReferenceToSound(0)->getLengthInSamples();
+			timeProperties.sampleRate = (double)currentSound->getReferenceToSound(0)->getSampleRate();
 
 			updateRanges();
 		}
@@ -533,6 +551,103 @@ void SamplerSoundWaveform::setSoundToDisplay(const ModulatorSamplerSound *s, int
 
 
 
+void SamplerSoundWaveform::mouseDown(const MouseEvent& e)
+{
+	if (e.mods.isAltDown())
+	{
+		auto mc = currentSound->getMainController();
+
+		auto numSamples = getTotalSampleAmount();
+
+		auto posNorm = (double)e.getPosition().getX() / (double)getWidth();
+
+		auto start = roundToInt((double)numSamples * posNorm);
+		start = getThumbnail()->getNextZero(start);
+
+		AudioSampleBuffer b = getThumbnail()->getBufferCopy({ start, numSamples });
+
+		b.applyGainRamp(0, 1024, 0.0f, 1.0f);
+
+		auto s = const_cast<ModulatorSampler*>(sampler);
+
+		previewStart = start;
+
+		start -= (int)currentSound->getSampleProperty(SampleIds::SampleStart);
+
+		mc->setBufferToPlay(b, [start, s, numSamples](int pos)
+		{
+			s->getSamplerDisplayValues().currentSampleStartPos = start;
+			s->getSamplerDisplayValues().currentSamplePos = (double)(start + pos) / (double)numSamples;
+		});
+
+		return;
+	}
+
+    auto a =getAreaForModifiers(e);
+    auto propId = getSampleIdToChange(a, e);
+    
+    if(propId.isValid())
+    {
+        auto n = (double)e.getPosition().getX() / (double)getWidth();
+        
+        auto value = roundToInt(timeProperties.sampleLength * n);
+        
+        if(propId == SampleIds::SampleStartMod)
+            value -= (int)currentSound->getSampleProperty(SampleIds::SampleStart);
+        
+        if(zeroCrossing)
+        {
+            value = getThumbnail()->getNextZero(value);
+        }
+        
+        auto r = currentSound->getPropertyRange(propId);
+        
+        value = jlimit(r.getStart(), r.getEnd(), value);
+        
+        currentSound->setSampleProperty(propId, value, true);
+        return;
+    }
+    
+	
+}
+
+void SamplerSoundWaveform::mouseUp(const MouseEvent& e)
+{
+	previewStart = -1;
+
+	if (currentSound != nullptr)
+		currentSound->getMainController()->stopBufferToPlay();
+}
+
+void SamplerSoundWaveform::mouseMove(const MouseEvent& e)
+{
+	if (currentSound != nullptr)
+	{
+		auto n = (double)e.getPosition().getX() / (double)getWidth();
+
+		auto timeString = SamplerDisplayWithTimeline::getText(timeProperties, n);
+
+		if(e.mods.isAltDown())
+			setTooltip("Click to preview from " + timeString);
+
+		auto a = getAreaForModifiers(e);
+		auto propId = getSampleIdToChange(a, e);
+
+		if (propId.isValid())
+		{
+			String tt;
+
+			tt << "Set ";
+			tt << propId;
+			tt << " to " << timeString;
+
+			setTooltip(tt);
+		}
+		else
+			setTooltip(timeString);
+	}
+}
+
 float SamplerSoundWaveform::getNormalizedPeak()
 {
 	const ModulatorSamplerSound *s = getCurrentSound();
@@ -542,6 +657,144 @@ float SamplerSoundWaveform::getNormalizedPeak()
 		return s->getNormalizedPeak();
 	}
 	else return 1.0f;
+}
+
+float SamplerSoundWaveform::getCurrentSampleGain() const
+{
+	float gain = 1.0f;
+
+	if (auto s = getCurrentSound())
+	{
+		if (s->isNormalizedEnabled())
+		{
+			gain = s->getNormalizedPeak();
+		}
+
+		auto vol = (double)s->getSampleProperty(SampleIds::Volume);
+
+		gain *= Decibels::decibelsToGain(vol);
+	}
+
+	return gain * verticalZoomGain;
+}
+
+hise::AudioDisplayComponent::AreaTypes SamplerSoundWaveform::getAreaForModifiers(const MouseEvent& e) const
+{
+	return currentClickArea;
+}
+
+juce::Identifier SamplerSoundWaveform::getSampleIdToChange(AreaTypes a, const MouseEvent& e) const
+{
+	if (auto area = areas[a])
+	{
+        auto ae = e.getEventRelativeTo(area);
+        bool isEnd = e.mods.isRightButtonDown() || a == AudioDisplayComponent::SampleStartArea;
+
+		switch (a)
+		{
+		case AudioDisplayComponent::AreaTypes::PlayArea: return (isEnd ? SampleIds::SampleEnd : SampleIds::SampleStart);
+		case AudioDisplayComponent::AreaTypes::SampleStartArea: return SampleIds::SampleStartMod;
+        case AudioDisplayComponent::AreaTypes::LoopArea: return (isEnd ? SampleIds::LoopEnd : SampleIds::LoopStart);
+		default: return {};
+		}
+	}
+
+	return {};
+}
+
+hise::SamplerSoundWaveform* SamplerDisplayWithTimeline::getWaveform()
+{
+	return dynamic_cast<SamplerSoundWaveform*>(getChildComponent(0));
+}
+
+const hise::SamplerSoundWaveform* SamplerDisplayWithTimeline::getWaveform() const
+{
+	return dynamic_cast<SamplerSoundWaveform*>(getChildComponent(0));
+}
+
+void SamplerDisplayWithTimeline::resized()
+{
+	auto b = getLocalBounds();
+	b.removeFromTop(TimelineHeight);
+	getWaveform()->setBounds(b);
+}
+
+void SamplerDisplayWithTimeline::mouseDown(const MouseEvent& e)
+{
+	PopupLookAndFeel plaf;
+	PopupMenu m;
+	m.setLookAndFeel(&plaf);
+
+	m.addItem(1, "Samples", true, props.currentDomain == TimeDomain::Samples);
+	m.addItem(2, "Milliseconds", true, props.currentDomain == TimeDomain::Milliseconds);
+	m.addItem(3, "Seconds", true, props.currentDomain == TimeDomain::Seconds);
+
+	if (auto r = m.show())
+	{
+		props.currentDomain = (TimeDomain)(r - 1);
+		getWaveform()->timeProperties.currentDomain = props.currentDomain;
+		repaint();
+	}
+}
+
+String SamplerDisplayWithTimeline::getText(const Properties& p, float normalisedX)
+{
+	if (p.sampleRate > 0.0)
+	{
+		auto sampleValue = roundToInt(normalisedX * p.sampleLength);
+
+		if (p.currentDomain == TimeDomain::Samples)
+			return String(roundToInt(sampleValue));
+
+		auto msValue = sampleValue / jmax(1.0, p.sampleRate) * 1000.0;
+
+		if (p.currentDomain == TimeDomain::Milliseconds)
+			return String(roundToInt(msValue)) + " ms";
+
+		String sec;
+		sec << Time((int64)msValue).formatted("%M:%S:");
+
+		auto ms = String(roundToInt(msValue) % 1000);
+
+		while (ms.length() < 3)
+			ms = "0" + ms;
+
+		sec << ms;
+		return sec;
+	}
+
+	return {};
+}
+
+void SamplerDisplayWithTimeline::paint(Graphics& g)
+{
+	auto visibleArea = findParentComponentOfClass<Viewport>()->getViewArea();
+
+	auto b = getLocalBounds().removeFromTop(TimelineHeight);
+
+	g.setFont(GLOBAL_FONT());
+
+	int delta = 200;
+
+	if (auto s = getWaveform()->getCurrentSound())
+	{
+		props.sampleLength = s->getReferenceToSound(0)->getLengthInSamples();
+		props.sampleRate = s->getReferenceToSound(0)->getSampleRate();
+	}
+
+	for (int i = 0; i < getWidth(); i += delta)
+	{
+		auto textArea = b.removeFromLeft(delta).toFloat();
+
+		g.setColour(Colours::white.withAlpha(0.1f));
+		g.drawVerticalLine(i, 3.0f, (float)TimelineHeight);
+
+		g.setColour(Colours::white.withAlpha(0.4f));
+
+		auto normalisedX = (float)i / (float)getWidth();
+
+		g.drawText(getText(props, normalisedX), textArea.reduced(5.0f, 0.0f), Justification::centredLeft);
+	}
 }
 
 }

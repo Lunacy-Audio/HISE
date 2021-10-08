@@ -46,7 +46,7 @@ public:
 		public ButtonListener,
 		public TextEditor::Listener
 	{
-		MyFunkyFilenameComponent(FileNameValuePropertyComponent& p) :
+		MyFunkyFilenameComponent(FileNameValuePropertyComponent& p, File::TypesOfFileToFind fileType) :
 			parent(p),
 			browseButton("Browse")
 		{
@@ -64,12 +64,25 @@ public:
 
 		void buttonClicked(Button*) override
 		{
-			FileChooser fileChooser("Select Folder");
-
-			if (fileChooser.browseForDirectory())
+			if (fileType == File::findDirectories)
 			{
-				parent.v = fileChooser.getResult().getFullPathName();
-				parent.refresh();
+				FileChooser fileChooser("Select Folder");
+
+				if (fileChooser.browseForDirectory())
+				{
+					parent.v = fileChooser.getResult().getFullPathName();
+					parent.refresh();
+				}
+			}
+			else
+			{
+				FileChooser fileChooser("Select Folder");
+
+				if (fileChooser.browseForFileToOpen())
+				{
+					parent.v = fileChooser.getResult().getFullPathName();
+					parent.refresh();
+				}
 			}
 		}
 
@@ -99,6 +112,7 @@ public:
 			editor.setBounds(area);
 		}
 
+		File::TypesOfFileToFind fileType;
 		FileNameValuePropertyComponent& parent;
 
 		TextEditor editor;
@@ -107,9 +121,9 @@ public:
 		AlertWindowLookAndFeel alaf;
 	};
 
-	FileNameValuePropertyComponent(const String& name, File initialFile, Value v_) :
+	FileNameValuePropertyComponent(const String& name, File initialFile, File::TypesOfFileToFind ft, Value v_) :
 		PropertyComponent(name),
-		fc(*this),
+		fc(*this, ft),
 		v(v_)
 	{
 		addAndMakeVisible(fc);
@@ -155,21 +169,17 @@ public:
      
 		virtual bool shouldClosePath() const { return true; }
 
-		virtual void drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float lineThickness) = 0;
-		virtual void drawTablePoint(Graphics& g, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged) = 0;
-		virtual void drawTableRuler(Graphics& g, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition) = 0;
+		virtual void drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float lineThickness);
+		virtual void drawTablePoint(Graphics& g, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged);
+		virtual void drawTableRuler(Graphics& g, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition);
 
 		virtual void drawTableValueLabel(Graphics& g, TableEditor& te, Font f, const String& text, Rectangle<int> textBox);
 	};
-
+    
 	struct HiseTableLookAndFeel : public LookAndFeel_V3,
 		public LookAndFeelMethods
 	{
         virtual ~HiseTableLookAndFeel() {};
-        
-		void drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float lineThickness) override;
-		void drawTablePoint(Graphics& g, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged) override;
-		void drawTableRuler(Graphics& g, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition) override;
 	};
 
 	struct FlatTableLookAndFeel : public LookAndFeel_V3,

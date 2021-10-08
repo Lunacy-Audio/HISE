@@ -79,6 +79,30 @@ public:
 
 #endif
 
+	/** This class will set a flag in the MainController to embed all
+	    external resources (that are usually saved in dedicated files) into the preset.
+		This is being used when exporting a HiseSnippet to ensure that it contains all
+		relevant external data (DspNetwork, SNEX code files, external scripts. 
+
+		You can query this flag with MainController::shouldEmbedAllResources.
+	*/
+	struct ScopedEmbedAllResources: public ControlledObject
+	{
+		ScopedEmbedAllResources(MainController* mc):
+			ControlledObject(mc)
+		{
+			prevState = mc->embedAllResources;
+			mc->embedAllResources = true;
+		}
+
+		~ScopedEmbedAllResources()
+		{
+			getMainController()->embedAllResources = prevState;
+		}
+
+		bool prevState = false;
+	};
+
 	/** Contains all methods related to sample management. */
 	class SampleManager
 	{
@@ -636,7 +660,7 @@ public:
 		{
 		public:
 
-			virtual ~Listener() { masterReference.clear(); };
+			virtual ~Listener() {};
 
 			/** Called on the message thread whenever the new preset was loaded. */
 			virtual void presetChanged(const File& newPreset) = 0;
@@ -644,10 +668,17 @@ public:
 			/** Called whenever the number of presets changed. */
 			virtual void presetListUpdated() = 0;
 
+			/** This will be called synchronously just before the new preset is about to be loaded. 
+
+				You can use this method to actually modify the value tree that is being loaded
+				so you can implement eg. backward-compatibility migration routines. If you do so,
+				make sure to create a deep copy of the valuetree, then return the modified one.
+			*/
+			virtual ValueTree prePresetLoad(const ValueTree& dataToLoad, const File& fileToLoad) { return dataToLoad; };
+
 		private:
 
-			friend class WeakReference<Listener>;
-			WeakReference<Listener>::Master masterReference;
+			JUCE_DECLARE_WEAK_REFERENCEABLE(Listener);
 		};
 
 		UserPresetHandler(MainController* mc_);;
@@ -1036,6 +1067,8 @@ public:
 
 		void requestQuit();
 
+		bool hasRequestedQuit() const;
+
 		String getOperationName(int operationType) override;
 
 		void enableAudioThreadGuard(bool shouldBeEnabled)
@@ -1348,11 +1381,15 @@ public:
 
 	void stopBufferToPlay();
 
-	void setBufferToPlay(const AudioSampleBuffer& buffer);
+	void setBufferToPlay(const AudioSampleBuffer& buffer, const std::function<void(int)>& previewFunction = {});
+
+	int getPreviewBufferPosition() const;
 
 	void setKeyboardCoulour(int keyNumber, Colour colour);
 
 	CustomKeyboardState &getKeyboardState();
+
+	bool shouldEmbedAllResources() const { return embedAllResources; }
 
 	void setLowestKeyToDisplay(int lowestKeyToDisplay);
 
@@ -1471,6 +1508,8 @@ public:
     
 	LambdaBroadcaster<float> &getFontSizeChangeBroadcaster() { return codeFontChangeNotificator; };
     
+	
+
     /** This sets the global pitch factor. */
     void setGlobalPitchFactor(double pitchFactorInSemiTones)
     {
@@ -1587,6 +1626,7 @@ protected:
 			masterEventBuffer.addEvent(HiseEvent(HiseEvent::Type::AllNotesOff, 0, 0, 1));
 
 			keyboardState.allNotesOff(0);
+			keyboardState.reset();
 
 			allNotesOffFlag = false;
 		}
@@ -1642,6 +1682,7 @@ private:
 	Array<WeakReference<ControlledObject>> registeredObjects;
 
 	int maxEventTimestamp = 0;
+	bool embedAllResources = false;
 
 	PooledUIUpdater globalUIUpdater;
 
@@ -1725,7 +1766,7 @@ private:
 	ScopedPointer<SampleManager> sampleManager;
 	ExpansionHandler expansionHandler;
 	
-
+	std::function<void(int)> previewFunction;
 	MacroManager macroManager;
 
 	KillStateHandler killStateHandler;

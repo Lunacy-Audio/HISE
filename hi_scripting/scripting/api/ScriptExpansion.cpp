@@ -33,6 +33,164 @@
 namespace hise {
 using namespace juce;
 
+struct ScriptUserPresetHandler::Wrapper
+{
+	API_VOID_METHOD_WRAPPER_1(ScriptUserPresetHandler, setPreCallback);
+	API_VOID_METHOD_WRAPPER_1(ScriptUserPresetHandler, setPostCallback);
+	API_VOID_METHOD_WRAPPER_1(ScriptUserPresetHandler, setEnableUserPresetPreprocessing);
+	API_METHOD_WRAPPER_1(ScriptUserPresetHandler, isOldVersion);
+};
+
+ScriptUserPresetHandler::ScriptUserPresetHandler(ProcessorWithScriptingContent* pwsc) :
+	ConstScriptingObject(pwsc, 0),
+	ControlledObject(pwsc->getMainController_()),
+	preCallback(pwsc, var(), 1),
+	postCallback(pwsc, var(), 1)
+{
+	getMainController()->getUserPresetHandler().addListener(this);
+
+	ADD_API_METHOD_1(isOldVersion);
+	ADD_API_METHOD_1(setPostCallback);
+	ADD_API_METHOD_1(setPreCallback);
+	ADD_API_METHOD_1(setEnableUserPresetPreprocessing);
+}
+
+
+
+ScriptUserPresetHandler::~ScriptUserPresetHandler()
+{
+	getMainController()->getUserPresetHandler().removeListener(this);
+}
+
+void ScriptUserPresetHandler::setPreCallback(var presetCallback)
+{
+	preCallback = WeakCallbackHolder(getScriptProcessor(), presetCallback, 1);
+	preCallback.setThisObject(this);
+	preCallback.incRefCount();
+}
+
+void ScriptUserPresetHandler::setPostCallback(var presetPostCallback)
+{
+	postCallback = WeakCallbackHolder(getScriptProcessor(), presetPostCallback, 1);
+	postCallback.setThisObject(this);
+	postCallback.incRefCount();
+}
+
+void ScriptUserPresetHandler::setEnableUserPresetPreprocessing(bool processBeforeLoading)
+{
+	enablePreprocessing = processBeforeLoading;
+}
+
+bool ScriptUserPresetHandler::isOldVersion(const String& version)
+{
+#if USE_BACKEND
+	auto thisVersion = dynamic_cast<GlobalSettingManager*>(getProcessor()->getMainController())->getSettingsObject().getSetting(HiseSettings::Project::Version);
+#else
+	auto thisVersion = FrontendHandler::getVersionString();
+#endif
+
+	SemanticVersionChecker svs(version, thisVersion);
+
+	return svs.isUpdate();
+}
+
+var ScriptUserPresetHandler::convertToJson(const ValueTree& d)
+{
+	DynamicObject::Ptr p = new DynamicObject();
+
+	{
+		auto dataTree = d.getChildWithName("Content");
+		
+		Array<var> dataArray;
+
+		p->setProperty("version", d["Version"]);
+
+		for (const auto& c : dataTree)
+		{
+			DynamicObject::Ptr cd = new DynamicObject();
+
+			auto value = c["value"];
+
+			if (value.toString().startsWith("[") ||
+				value.toString().startsWith("{"))
+			{
+				value = JSON::parse(value.toString());
+			}
+
+			cd->setProperty("id", c["id"].toString());
+			cd->setProperty("type", c["type"].toString());
+			cd->setProperty("value", value);
+
+			dataArray.add(var(cd));
+		}
+
+		p->setProperty("content", var(dataArray));
+	}
+
+	return var(p);
+}
+
+juce::ValueTree ScriptUserPresetHandler::applyJSON(const ValueTree& original, DynamicObject::Ptr obj)
+{
+	if (obj == nullptr)
+		return original;
+
+	auto copy = original.createCopy();
+
+	auto dataTree = copy.getChildWithName("Content");
+	dataTree.removeAllChildren(nullptr);
+
+	if (auto dataArray = obj->getProperty("content").getArray())
+	{
+		for (const auto& p : *dataArray)
+		{
+			auto id = p.getProperty("id", "");;
+			auto type = p.getProperty("type", "");
+			auto value = p.getProperty("value", 0.0);
+
+			if (value.isArray() || value.isObject())
+				value = JSON::toString(value);
+
+			ValueTree c("Control");
+			c.setProperty("type", type, nullptr);
+			c.setProperty("id", id.toString(), nullptr);
+			c.setProperty("value", value, nullptr);
+			dataTree.addChild(c, -1, nullptr);
+		}
+	}
+
+	return copy;
+}
+
+juce::ValueTree ScriptUserPresetHandler::prePresetLoad(const ValueTree& dataToLoad, const File& fileToLoad)
+{
+	currentlyLoadedFile = fileToLoad;
+
+	if (preCallback)
+	{
+		var args;
+
+		if (enablePreprocessing)
+			args = convertToJson(dataToLoad);
+
+		auto r = preCallback.callSync(&args, 1, nullptr);
+
+		if (enablePreprocessing)
+			return applyJSON(dataToLoad, args.getDynamicObject());
+	}
+
+	return dataToLoad;
+}
+
+void ScriptUserPresetHandler::presetChanged(const File& newPreset)
+{
+	if (postCallback)
+	{
+		var f(new ScriptingObjects::ScriptFile(getScriptProcessor(), newPreset));
+		postCallback.call(&f, 1);
+	}
+}
+
 struct ScriptExpansionHandler::Wrapper
 {
 	API_VOID_METHOD_WRAPPER_1(ScriptExpansionHandler, setErrorFunction);
@@ -439,6 +597,7 @@ struct ScriptExpansionReference::Wrapper
 	API_METHOD_WRAPPER_0(ScriptExpansionReference, getSampleFolder);
 	API_METHOD_WRAPPER_1(ScriptExpansionReference, setSampleFolder);
 	API_METHOD_WRAPPER_0(ScriptExpansionReference, rebuildUserPresets);
+	API_VOID_METHOD_WRAPPER_0(ScriptExpansionReference, unloadExpansion);
 	API_VOID_METHOD_WRAPPER_1(ScriptExpansionReference, setAllowDuplicateSamples);
 };
 
@@ -461,6 +620,7 @@ ScriptExpansionReference::ScriptExpansionReference(ProcessorWithScriptingContent
 	ADD_API_METHOD_0(getSampleFolder);
 	ADD_API_METHOD_0(rebuildUserPresets);
 	ADD_API_METHOD_1(setAllowDuplicateSamples);
+	ADD_API_METHOD_0(unloadExpansion);
 }
 
 juce::BlowFish* ScriptExpansionReference::createBlowfish()
@@ -710,6 +870,12 @@ void ScriptExpansionReference::setAllowDuplicateSamples(bool shouldAllowDuplicat
 {
 	if (exp != nullptr)
 		exp->pool->getSamplePool()->setAllowDuplicateSamples(shouldAllowDuplicates);
+}
+
+void ScriptExpansionReference::unloadExpansion()
+{
+	if (exp != nullptr)
+		exp->getMainController()->getExpansionHandler().unloadExpansion(exp);
 }
 
 ScriptEncryptedExpansion::ScriptEncryptedExpansion(MainController* mc, const File& f) :
@@ -1348,6 +1514,16 @@ juce::Result FullInstrumentExpansion::initialise()
 
 		jassert(allData.isValid() && allData.getType() == ExpansionIds::FullData);
 
+		auto networkData = allData.getChildWithName("Networks");
+
+		if (networkData.isValid())
+		{
+			MemoryBlock nmb;
+			nmb.fromBase64Encoding(networkData[ExpansionIds::Data].toString());
+			zstd::ZDefaultCompressor comp;
+			comp.expand(nmb, networks);
+		}
+
 		data = new Data(getRootFolder(), allData.getChildWithName(ExpansionIds::ExpansionInfo).createCopy(), getMainController());
 
 		auto iconData = allData.getChildWithName(ExpansionIds::HeaderData).getChildWithName(ExpansionIds::Icon)[ExpansionIds::Data].toString();
@@ -1466,6 +1642,13 @@ Result FullInstrumentExpansion::encodeExpansion()
 	auto& h = getMainController()->getExpansionHandler();
 	auto key = h.getEncryptionKey();
 
+	auto printStats = [&h](const String& name, int number)
+	{
+		String m;
+		m << String(number) << " " + name << ((number != 1) ? "s" : "") << " found.";
+		h.setErrorMessage(m, false);
+	};
+
 	if (key.isEmpty())
 	{
 		return returnFail("The encryption key has not been set");
@@ -1488,10 +1671,13 @@ Result FullInstrumentExpansion::encodeExpansion()
 
 			zstd::ZDefaultCompressor d;
 			MemoryBlock fontData;
-			d.compress(getMainController()->exportCustomFontsAsValueTree(), fontData);
+			auto fTree = getMainController()->exportCustomFontsAsValueTree();
+			d.compress(fTree, fontData);
 			fonts.setProperty(ExpansionIds::Data, fontData.toBase64Encoding(), nullptr);
 
 			hd.addChild(fonts, -1, nullptr);
+
+			printStats("font", fTree.getNumChildren());
 		}
 
 		PoolReference icon(getMainController(), String(isProjectExport ? "{PROJECT_FOLDER}" : getWildcard()) + "Icon.png", FileHandlerBase::Images);
@@ -1535,6 +1721,24 @@ Result FullInstrumentExpansion::encodeExpansion()
 
 	allData.addChild(scripts, -1, nullptr);
 
+	printStats("script", scripts.getNumChildren());
+	
+
+#if USE_BACKEND
+	{
+		h.setErrorMessage("Embedding networks", false);
+		auto allNetworks = BackendDllManager::exportAllNetworks(getMainController(), true);
+		zstd::ZDefaultCompressor d;
+		MemoryBlock networkData;
+		d.compress(networks, networkData);
+		ValueTree b64n("Networks");
+		b64n.setProperty(ExpansionIds::Data, networkData.toBase64Encoding(), nullptr);
+		allData.addChild(b64n, -1, nullptr);
+
+		printStats("network", networks.getNumChildren());
+	}
+#endif
+
 	h.setErrorMessage("Embedding currently loaded project", false);
 
 	{
@@ -1553,27 +1757,6 @@ Result FullInstrumentExpansion::encodeExpansion()
 			return true;
 		});
 
-#if 0
-		if (isProjectExport)
-		{
-			auto wc = getWildcard();
-			ScriptingApi::Content::Helpers::callRecursive(mTree, [scripts, wc](ValueTree& v)
-			{
-				// Replace any project folder wildcard reference with the expansion
-				for (int i = 0; i < v.getNumProperties(); i++)
-				{
-					auto id = v.getPropertyName(i);
-
-					auto value = v[id];
-
-					if (value.isString() && value.toString().contains("{PROJECT_FOLDER}"))
-						v.setProperty(id, value.toString().replace("{PROJECT_FOLDER}", wc), nullptr);
-				}
-
-				return true;
-			});
-		}
-#endif
 
 		zstd::ZCompressor<hise::PresetDictionaryProvider> comp;
 		MemoryBlock mb;
@@ -1678,7 +1861,7 @@ void ExpansionEncodingWindow::run()
 			{
 				if (auto e = h.getExpansion(i))
 				{
-					showStatusMessage("Encoding " + e->getProperty(ExpansionIds::Name));
+					//showStatusMessage("Encoding " + e->getProperty(ExpansionIds::Name));
 					setProgress((double)i / (double)h.getNumExpansions());
 
 					encodeResult = e->encodeExpansion();
@@ -1711,7 +1894,7 @@ void ExpansionEncodingWindow::threadFinished()
 	if (projectExport)
 	{
 		auto& h = GET_PROJECT_HANDLER(getMainController()->getMainSynthChain());
-		Expansion::Helpers::getExpansionInfoFile(h.getWorkDirectory(), Expansion::Intermediate).revealToUser();
+		//Expansion::Helpers::getExpansionInfoFile(h.getWorkDirectory(), Expansion::Intermediate).revealToUser();
 		return;
 	}
 

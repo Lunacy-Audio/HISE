@@ -264,21 +264,6 @@ public:
 
 	void updateInterface() override
 	{
-		currentRRGroupLabel->setText(String(sampler->getCurrentRRGroup()), dontSendNotification);
-
-		auto& x = sampler->getSamplerDisplayValues();
-
-		if (followRRGroup)
-		{
-			setCurrentRRGroup(x.currentGroup);
-		}
-		else
-		{
-			map->map->soloGroup(getCurrentRRGroup());
-		}
-		
-		setPressedKeys(x.currentNotes);
-
 		updateSoundData();
 	}
 
@@ -525,15 +510,6 @@ public:
 		mapIsHovered = false;
 		repaint();
 	}
-	void setPressedKeys(const uint8 *pressedKeyData)
-	{
-		map->map->setPressedKeys(pressedKeyData);
-
-		if (popoutCopy != nullptr)
-		{
-			popoutCopy->map->map->setPressedKeys(pressedKeyData);
-		}
-	}
 
 	bool isInDragArea(Point<int> testPoint)
 	{
@@ -551,16 +527,6 @@ public:
 	void updateSoundData()
 	{
 		map->map->updateSoundData();
-
-		groupDisplay->clearOptions();
-
-		groupDisplay->addOption("All Groups");
-		for(int i = 0; i < sampler->getAttribute(ModulatorSampler::RRGroupAmount); i++)
-		{
-			groupDisplay->addOption("Group " + String(i + 1));
-		}
-
-
 	}
 
 	SamplerSoundMap *getMapComponent()
@@ -591,20 +557,6 @@ public:
 	ApplicationCommandManager *getCommandManager();
 
 	bool keyPressed(const KeyPress& key) override;
-
-	int getCurrentRRGroup() const
-	{
-		int index = groupDisplay->getCurrentIndex();
-
-		if (index == 0) index = -1; // display all values;
-
-		return index;
-	}
-
-	void setCurrentRRGroup(int newGroupIndex)
-	{
-		groupDisplay->setItemIndex(newGroupIndex, sendNotification);
-	}
 
 	void fillPopupMenu(PopupMenu &p)
 	{
@@ -661,32 +613,7 @@ public:
 		p.addCommandItem(a, DeleteDuplicateSamples);
 	}
 
-	void mouseDown(const MouseEvent &e) override
-	{
-		if (e.eventComponent == currentRRGroupLabel)
-		{
-			toggleFollowRRGroup();
-			return;
-		}
-
-		getCommandManager()->setFirstCommandTarget(this);
-		getCommandManager()->commandStatusChanged();
-
-		if(e.mods.isRightButtonDown())
-		{
-			PopupMenu p;
-
-			ScopedPointer<PopupLookAndFeel> laf = new PopupLookAndFeel();
-
-			p.setLookAndFeel(laf);
-
-			getCommandManager()->commandStatusChanged();
-
-			fillPopupMenu(p);
-
-			p.show();
-		}
-	};
+	void mouseDown(const MouseEvent &e) override;;
 
 	void enablePopoutMode(SampleMapEditor *parent)
 	{
@@ -704,8 +631,6 @@ public:
 			parentCopy->popoutCopy = nullptr;
 		}
 	}
-
-	void toggleFollowRRGroup();
 
 	void toggleVerticalSize();
 
@@ -771,8 +696,6 @@ private:
 
 	Factory f;
 
-	bool followRRGroup = false;
-
     //[/UserVariables]
 
     //==============================================================================
@@ -782,13 +705,10 @@ private:
     ScopedPointer<ValueSettingComponent> lowVelocitySetter;
     ScopedPointer<ValueSettingComponent> highVelocitySetter;
     ScopedPointer<ValueSettingComponent> rrGroupSetter;
-    ScopedPointer<Label> displayGroupLabel;
-    ScopedPointer<PopupLabel> groupDisplay;
-	ScopedPointer<Label> currentRRGroupLabel;
     ScopedPointer<Viewport> viewport;
     ScopedPointer<Toolbar> toolbar;
 
-	
+	ScopedPointer<Component> newRRDisplay;
 
     //==============================================================================
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SampleMapEditor)

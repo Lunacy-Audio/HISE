@@ -39,6 +39,69 @@
 
 namespace hise { using namespace juce;
 
+class ScriptUserPresetHandler : public ConstScriptingObject,
+								public ControlledObject,
+								public MainController::UserPresetHandler::Listener
+{
+public:
+
+	ScriptUserPresetHandler(ProcessorWithScriptingContent* pwsc);
+
+	~ScriptUserPresetHandler();
+
+	Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("UserPresetHandler"); }
+
+	int getNumChildElements() const override
+	{
+		return 2;
+	}
+
+	DebugInformationBase* getChildElement(int index) override
+	{
+		if (index == 0)
+			return preCallback.createDebugObject("preCallback");
+		if (index == 1)
+			return postCallback.createDebugObject("postCallback");
+	}
+
+	// =================================================================================== API Methods
+
+	/** Sets a callback that will be executed synchronously before the preset was loaded*/
+	void setPreCallback(var presetPreCallback);
+
+	/** Sets a callback that will be executed after the preset has been loaded. */
+	void setPostCallback(var presetPostCallback);
+
+	/** Enables a preprocessing of every user preset that is being loaded. */
+	void setEnableUserPresetPreprocessing(bool processBeforeLoading);
+
+	/** Checks if the given version string is a older version than the current project version number. */
+	bool isOldVersion(const String& version);
+
+	// ===============================================================================================
+
+	static var convertToJson(const ValueTree& d);
+
+	static ValueTree applyJSON(const ValueTree& original, DynamicObject::Ptr obj);
+
+	ValueTree prePresetLoad(const ValueTree& dataToLoad, const File& fileToLoad) override;
+
+	void presetChanged(const File& newPreset) override;
+
+	void presetListUpdated() override
+	{
+
+	}
+
+private:
+
+	bool enablePreprocessing = false;
+	WeakCallbackHolder preCallback;
+	WeakCallbackHolder postCallback;
+	File currentlyLoadedFile;
+	struct Wrapper;
+};
+
 
 class ScriptExpansionHandler : public ConstScriptingObject,
 							   public ControlledObject,
@@ -299,10 +362,17 @@ public:
 
 	Result encodeExpansion() override;
 
+	ValueTree getEmbeddedNetwork(const String& id) override
+	{
+		return networks.getChildWithProperty("ID", id);
+	}
+
 	bool fullyLoaded = false;
 	ValueTree presetToLoad;
 	bool isProjectExport = false;
 	String currentKey;
+
+	ValueTree networks;
 };
 
 
@@ -368,6 +438,9 @@ public:
 
 	/** Sets whether the samples are allowed to be duplicated for this expansion. Set this to false if you operate on the same samples differently. */
 	void setAllowDuplicateSamples(bool shouldAllowDuplicates);
+
+	/** Unloads this expansion so it will not show up in the list of expansions until the next restart. */
+	void unloadExpansion();
 
 private:
 

@@ -488,6 +488,8 @@ struct TopLevelWindowWithOptionalOpenGL
 		Component* c;
 	};
 
+    bool isOpenGLEnabled() const { return contextHolder != nullptr; }
+    
 protected:
 
 	void detachOpenGl()
@@ -835,7 +837,7 @@ public:
 
 	void sendContentChangeMessage(NotificationType notify, int indexThatChanged)
 	{
-		sendMessageToListeners(EventType::ContentChange, var(indexThatChanged), notify);
+		sendMessageToListeners(EventType::ContentChange, var(indexThatChanged), notify, true);
 	}
 
 	void sendContentRedirectMessage()
@@ -1470,152 +1472,6 @@ struct SimpleReadWriteLock
 };
 
 
-template <typename ReturnType, typename... Ps> struct SafeLambdaBase
-{
-	ReturnType operator()(Ps...parameters)
-	{
-		return call(parameters...);
-	}
-
-	virtual ~SafeLambdaBase() {};
-
-	virtual ReturnType call(Ps... parameters) = 0;
-
-	virtual bool isValid() const = 0;
-};
-
-template <class T, typename ReturnType, typename...Ps> struct SafeLambda : public SafeLambdaBase<ReturnType, Ps...>
-{
-	using InternalLambda = std::function<ReturnType(T&, Ps...)>;
-
-	SafeLambda(T& obj, const InternalLambda& f_) :
-		item(&obj),
-		f(f_)
-	{
-
-	};
-
-	bool isValid() const final override { return item.get() != nullptr; };
-
-	ReturnType call(Ps... parameters) override
-	{
-		if (item != nullptr)
-			return f(*item, parameters...);
-
-		return ReturnType();
-	}
-
-private:
-
-	WeakReference<T> item;
-	InternalLambda f;
-};
-
-/** A listener class that can be used as member to implement a safe listener communication system.
-
-	You can specify the parameters that the callback will contain as template parameters.
-
-	This is most suitable for non-performance critical tasks that require the least amount of boilerplate
-	where you just want to implement a safe and simple listener system with a lean syntax.
-*/
-template <typename...Ps> struct LambdaBroadcaster final
-{
-	/** Creates a broadcaster. */
-	LambdaBroadcaster() :
-		updater(*this)
-	{};
-
-	/** This will cancel all pending callbacks. */
-	~LambdaBroadcaster()
-	{
-		updater.cancelPendingUpdate();
-
-		SimpleReadWriteLock::ScopedWriteLock sl(lock);
-		listeners.clear();
-	}
-
-	/** Use this method to add a listener to this class. You can use any object as obj. The second parameter
-		can be either a function pointer to a static function or a lambda with the signature
-
-		void callback(T& obj, Ps... parameters)
-
-		You don't need to bother about removing the listeners, they are automatically removed as soon before a
-		message is being sent out.
-
-		It will also fire the callback once with the last value so that the object will be initialised correctly.
-	*/
-	template <typename T, typename F> void addListener(T& obj, const F& f)
-	{
-		SimpleReadWriteLock::ScopedWriteLock sl(lock);
-		removeDanglingObjects();
-		listeners.add(new SafeLambda<T, void, Ps...>(obj, f));
-
-		std::apply(*listeners.getLast(), lastValue);
-	}
-
-	/** Sends a message to all registered listeners. Be aware that this call is not realtime safe as this class
-		is supposed to be used for non-audio related tasks.
-	*/
-	void sendMessage(NotificationType n, Ps... parameters)
-	{
-		lastValue = std::make_tuple(parameters...);
-
-		if (n != sendNotificationAsync)
-			sendInternal();
-		else
-			updater.triggerAsyncUpdate();
-	}
-
-private:
-
-	void removeDanglingObjects()
-	{
-		for (int i = 0; i < listeners.size(); i++)
-		{
-			if (!listeners[i]->isValid())
-			{
-				SimpleReadWriteLock::ScopedWriteLock sl(lock);
-				listeners.remove(i--);
-			}
-		}
-	}
-
-	std::tuple<Ps...> lastValue;
-
-	void sendInternal()
-	{
-		removeDanglingObjects();
-
-		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(lock))
-		{
-			for (auto i : listeners)
-			{
-				if (i->isValid())
-					std::apply(*i, lastValue);
-			}
-		}
-		else
-			updater.triggerAsyncUpdate();
-	}
-
-	struct Updater : public AsyncUpdater
-	{
-		Updater(LambdaBroadcaster& p) :
-			parent(p)
-		{};
-
-		void handleAsyncUpdate() override
-		{
-			parent.sendInternal();
-		};
-
-		LambdaBroadcaster& parent;
-	} updater;
-
-	hise::SimpleReadWriteLock lock;
-	OwnedArray<SafeLambdaBase<void, Ps...>> listeners;
-};
-
 /** This is a non allocating alternative to the AsyncUpdater.
 *	@ingroup event_handling
 *
@@ -1691,6 +1547,259 @@ protected:
 
 	static int instanceCount;
 };
+
+template <typename ReturnType, typename... Ps> struct SafeLambdaBase
+{
+	ReturnType operator()(Ps...parameters)
+	{
+		return call(parameters...);
+	}
+
+	virtual ~SafeLambdaBase() {};
+
+	virtual ReturnType call(Ps... parameters) = 0;
+
+	virtual bool isValid() const = 0;
+
+	virtual bool matches(void* other) const = 0;
+};
+
+template <class T, typename ReturnType, typename...Ps> struct SafeLambda : public SafeLambdaBase<ReturnType, Ps...>
+{
+	using InternalLambda = std::function<ReturnType(T&, Ps...)>;
+
+	SafeLambda(T& obj, const InternalLambda& f_) :
+		item(&obj),
+		f(f_)
+	{
+
+	};
+
+	bool isValid() const final override { return item.get() != nullptr; };
+
+	bool matches(void* obj) const final override { return static_cast<void*>(item.get()) == obj; };
+
+	ReturnType call(Ps... parameters) override
+	{
+		if (item != nullptr)
+			return f(*item, parameters...);
+
+		return ReturnType();
+	}
+
+private:
+
+	WeakReference<T> item;
+	InternalLambda f;
+};
+
+/** A listener class that can be used as member to implement a safe listener communication system.
+
+	You can specify the parameters that the callback will contain as template parameters.
+
+	This is most suitable for non-performance critical tasks that require the least amount of boilerplate
+	where you just want to implement a safe and simple listener system with a lean syntax.
+*/
+template <typename...Ps> struct LambdaBroadcaster final
+{
+	/** Creates a broadcaster. */
+	LambdaBroadcaster() :
+		updater(*this)
+	{
+	};
+
+	/** This will cancel all pending callbacks. */
+	~LambdaBroadcaster()
+	{
+		updater.cancelPendingUpdate();
+		lockfreeUpdater = nullptr;
+
+		SimpleReadWriteLock::ScopedWriteLock sl(lock);
+		listeners.clear();
+	}
+
+	/** Use this method to add a listener to this class. You can use any object as obj. The second parameter
+		can be either a function pointer to a static function or a lambda with the signature
+
+		void callback(T& obj, Ps... parameters)
+
+		You don't need to bother about removing the listeners, they are automatically removed as soon before a
+		message is being sent out.
+
+		It will also fire the callback once with the last value so that the object will be initialised correctly.
+	*/
+	template <typename T, typename F> void addListener(T& obj, const F& f)
+	{
+		SimpleReadWriteLock::ScopedWriteLock sl(lock);
+		removeDanglingObjects();
+		listeners.add(new SafeLambda<T, void, Ps...>(obj, f));
+
+		std::apply(*listeners.getLast(), lastValue);
+	}
+
+	/** Removes all callbacks for the given object. 
+	
+		You don't need to call this method unless you explicitely want to stop listening 
+		for a certain object as the broadcaster class will clean up dangling objects automatically. 
+	*/
+	template <typename T> bool removeListener(T& obj)
+	{
+		bool found = false;
+
+		for (int i = 0; i < listeners.size(); i++)
+		{
+			if (listeners[i]->matches(&obj))
+			{
+				listeners.remove(i--);
+				found = true;
+			}
+		}
+
+		removeDanglingObjects();
+
+		return true;
+	}
+
+	void enableLockFreeUpdate(PooledUIUpdater* updater)
+	{
+		if (updater != nullptr)
+			lockfreeUpdater = new LockFreeUpdater(*this, updater);
+	}
+
+	/** Sends a message to all registered listeners. Be aware that this call is not realtime safe as this class
+		is supposed to be used for non-audio related tasks.
+	*/
+	void sendMessage(NotificationType n, Ps... parameters)
+	{
+		lastValue = std::make_tuple(parameters...);
+
+		if (valueQueue != nullptr)
+			valueQueue.get()->push(lastValue);
+
+		if (n != sendNotificationAsync)
+			sendInternal();
+		else
+		{
+			if (lockfreeUpdater != nullptr)
+				lockfreeUpdater->triggerAsyncUpdate();
+			else
+				updater.triggerAsyncUpdate();
+		}
+	}
+
+	/** By default, the lambda broadcaster will be called only with the last element whic
+	    might result in skipped notifications if there are multiple calls to sendMessage in between. 
+		
+		Use this method to enable a lockfree queue that will ensure that all values that have been send
+		with sendMessage will result in a notification to all listeners. 
+	*/
+	void setEnableQueue(bool shouldUseQueue, int numElements=512)
+	{
+		if (shouldUseQueue)
+			valueQueue = new LockfreeQueue<std::tuple<Ps...>>(numElements);
+		else
+			valueQueue = nullptr;
+	}
+
+private:
+
+	void removeDanglingObjects()
+	{
+		for (int i = 0; i < listeners.size(); i++)
+		{
+			if (!listeners[i]->isValid())
+			{
+				SimpleReadWriteLock::ScopedWriteLock sl(lock);
+				listeners.remove(i--);
+			}
+		}
+	}
+
+	std::tuple<Ps...> lastValue;
+
+	void sendInternal()
+	{
+		removeDanglingObjects();
+
+		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(lock))
+		{
+			if (valueQueue != nullptr)
+			{
+				valueQueue.get()->callForEveryElementInQueue([&](std::tuple<Ps...>& v)
+				{
+					for (auto i : listeners)
+					{
+						if (i->isValid())
+							std::apply(*i, v);
+					}
+
+					return true;
+				});
+			}
+			else
+			{
+				for (auto i : listeners)
+				{
+					if (i->isValid())
+						std::apply(*i, lastValue);
+				}
+			}
+		}
+		else
+			updater.triggerAsyncUpdate();
+	}
+
+	struct Updater : public AsyncUpdater
+	{
+		Updater(LambdaBroadcaster& p) :
+			parent(p)
+		{};
+
+		void handleAsyncUpdate() override
+		{
+			parent.sendInternal();
+		};
+
+		LambdaBroadcaster& parent;
+	} updater;
+
+	struct LockFreeUpdater : public PooledUIUpdater::SimpleTimer
+	{
+		LockFreeUpdater(LambdaBroadcaster& p, PooledUIUpdater* updater) :
+			SimpleTimer(updater),
+			parent(p)
+		{
+			start();
+		};
+
+		void timerCallback() override
+		{
+			if (dirty.load())
+			{
+				// set it before since one of the callbacks could send a message again
+				dirty.store(false);
+				parent.sendInternal();
+			}
+		}
+
+		void triggerAsyncUpdate()
+		{
+			dirty.store(true);
+		}
+
+		LambdaBroadcaster& parent;
+
+		std::atomic<bool> dirty = { false };
+	};
+
+	ScopedPointer<LockFreeUpdater> lockfreeUpdater;
+
+	ScopedPointer<hise::LockfreeQueue<std::tuple<Ps...>>> valueQueue;
+
+	hise::SimpleReadWriteLock lock;
+	OwnedArray<SafeLambdaBase<void, Ps...>> listeners;
+};
+
 
 
 struct ComplexDataUIBase : public ReferenceCountedObject
@@ -1953,6 +2062,68 @@ private:
 	static DeviceType currentDevice;
 };
 
+struct ScrollbarFader : public Timer,
+                        public ScrollBar::Listener
+{
+    ScrollbarFader() = default;
+
+    ~ScrollbarFader()
+    {
+        for(auto sb: scrollbars)
+        {
+            if(sb != nullptr)
+                sb->removeListener(this);
+        }
+    }
+    
+    struct Laf : public LookAndFeel_V4
+    {
+        void drawScrollbar(Graphics& g, ScrollBar&, int x, int y, int width, int height, bool isScrollbarVertical, int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown);
+
+        void drawStretchableLayoutResizerBar (Graphics& g, int w, int h, bool /*isVerticalBar*/,
+                                                              bool isMouseOver, bool isMouseDragging)
+        {
+            float alpha = 0.0f;
+            
+            if(isMouseOver)
+                alpha += 0.3f;
+            
+            if(isMouseDragging)
+                alpha += 0.3f;
+            
+            g.setColour(Colour(SIGNAL_COLOUR).withAlpha(alpha));
+            
+            Rectangle<float> area(0.0f, 0.0f, (float)w, (float)h);
+            
+            area = area.reduced(1.0f);
+            g.fillRoundedRectangle(area, jmin(area.getWidth() / 2.0f, area.getHeight() / 2.0f));
+        }
+        
+        Colour bg = Colours::transparentBlack;
+    } slaf;
+    
+    void timerCallback() override;
+
+    void startFadeOut();
+
+    void scrollBarMoved(ScrollBar* sb, double ) override
+    {
+        sb->setAlpha(1.0f);
+        startFadeOut();
+    }
+    
+    bool fadeOut = false;
+
+    void addScrollBarToAnimate(ScrollBar& b)
+    {
+        b.addListener(this);
+        b.setLookAndFeel(&slaf);
+        scrollbars.add({&b});
+    }
+    
+    Array<Component::SafePointer<ScrollBar>> scrollbars;
+};
+
 
 #if JUCE_DEBUG
 #define GUI_UPDATER_FRAME_RATE 150
@@ -2172,6 +2343,188 @@ public:
 
 };
 
+struct FFTHelpers
+{
+    enum WindowType
+    {
+        Rectangle,
+		Triangle,
+        Hamming,
+        Hann,
+        BlackmanHarris,
+		Kaiser,
+        FlatTop,
+        numWindowType
+    };
+    
+    static Array<WindowType> getAvailableWindowTypes()
+    {
+        return { Rectangle, Triangle, Hamming, Hann, BlackmanHarris, Kaiser, FlatTop };
+    }
 
+    static String getWindowType(WindowType w)
+    {
+        switch (w)
+        {
+        case Rectangle: return "Rectangle";
+        case Hamming: return "Hamming";
+        case Hann: return "Hann";
+        case BlackmanHarris: return "Blackman Harris";
+        case Triangle: return "Triangle";
+        case FlatTop: return "FlatTop";
+		case Kaiser: return "Kaiser";
+        default: return {};
+        }
+    }
+
+    static void applyWindow(WindowType t, AudioSampleBuffer& b);
+    
+    static void toFreqSpectrum(const AudioSampleBuffer& inp, AudioSampleBuffer& out)
+    {
+        auto input = inp.getReadPointer(0);
+        auto output = out.getWritePointer(0);
+        
+        jassert(inp.getNumSamples() == out.getNumSamples() * 2);
+
+        auto numOriginalSamples = out.getNumSamples();
+
+        for (int i = 0; i < numOriginalSamples; i++)
+        {
+            output[i] = input[i*2] * input[i*2] + input[i*2+1] * input[i*2+1];
+            output[i] = sqrt(output[i]);
+        }
+    }
+
+    static void scaleFrequencyOutput(AudioSampleBuffer& b, bool convertToDb)
+    {
+        auto data = b.getWritePointer(0);
+        auto numOriginalSamples = b.getNumSamples();
+
+        if (numOriginalSamples == 0)
+            return;
+
+        auto factor = 2.f / (float)numOriginalSamples;
+
+        FloatVectorOperations::multiply(data, factor, numOriginalSamples);
+
+        if (convertToDb)
+        {
+            for (int i = 0; i < numOriginalSamples; i++)
+                data[i] = Decibels::gainToDecibels(data[i]);
+        }
+    }
+};
+
+struct Spectrum2D
+{
+	struct LookupTable
+	{
+		enum class ColourScheme
+		{
+			blackWhite,
+			rainbow,
+			violetToOrange,
+			hiseColours,
+			numColourSchemes
+		};
+
+		static StringArray getColourSchemes() { return { "BlackWhite", "Rainbow", "VioletOrange", "HiseColours" }; }
+
+		void setColourScheme(ColourScheme cs);
+
+		static constexpr int LookupTableSize = 512;
+
+		PixelARGB getColouredPixel(float normalisedInput);
+
+		LookupTable();
+
+		ColourGradient grad;
+		ColourScheme colourScheme;
+		juce::PixelARGB data[LookupTableSize];
+	};
+
+	struct Parameters: public ReferenceCountedObject
+	{
+		using Ptr = ReferenceCountedObjectPtr<Parameters>;
+
+		void setFromBuffer(const AudioSampleBuffer& originalSource)
+		{
+			auto numSamplesToCheck = (double)originalSource.getNumSamples();
+			numSamplesToCheck = std::pow(numSamplesToCheck, JUCE_LIVE_CONSTANT_OFF(0.54));
+
+            auto bestOrder = 11;
+
+			set("FFTSize", bestOrder, dontSendNotification);
+
+			notifier.sendMessage(sendNotificationSync, "All", -1);
+		}
+
+		struct Editor : public Component,
+					    public ComboBox::Listener
+		{
+			static constexpr int RowHeight = 32;
+
+			Editor(Parameters* p);
+
+			void addEditor(const Identifier& id);
+
+			void comboBoxChanged(ComboBox* comboBoxThatHasChanged) override;
+
+			void paint(Graphics& g) override;
+
+			void resized() override;
+
+			OwnedArray<ComboBox> editors;
+			OwnedArray<Label> labels;
+
+			ScopedPointer<LookAndFeel> claf;
+
+			Parameters::Ptr param;
+		};
+
+		void set(const Identifier& id, int value, NotificationType n);
+
+		int get(const Identifier& id) const;
+
+		LambdaBroadcaster<Identifier, int> notifier;
+
+        int minDb = 110;
+		int order;
+		int oversamplingFactor = 4;
+		int Spectrum2DSize;
+		FFTHelpers::WindowType currentWindowType = FFTHelpers::WindowType::BlackmanHarris;
+
+		SharedResourcePointer<LookupTable> lut;
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(Parameters);
+	};
+
+    struct Holder
+    {
+        virtual ~Holder() {};
+        virtual float getXPosition(float input) const = 0;
+        virtual float getYPosition(float input) const = 0;
+        
+    private:
+        
+        JUCE_DECLARE_WEAK_REFERENCEABLE(Holder);
+    };
+    
+    Spectrum2D(Holder* h, const AudioSampleBuffer& s):
+      holder(h),
+      originalSource(s),
+	  parameters(new Parameters())
+    {
+		parameters->setFromBuffer(s);
+    };
+    
+	Parameters::Ptr parameters;
+    WeakReference<Holder> holder;
+    const AudioSampleBuffer& originalSource;
+    
+    Image createSpectrumImage(AudioSampleBuffer& lastBuffer);
+    
+    AudioSampleBuffer createSpectrumBuffer();
+};
 
 }

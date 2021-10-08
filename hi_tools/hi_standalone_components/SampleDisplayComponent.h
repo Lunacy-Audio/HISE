@@ -50,9 +50,17 @@ class AudioDisplayComponent;
 
 
 class HiseAudioThumbnail: public Component,
-						  public AsyncUpdater
+						  public AsyncUpdater,
+                          public Spectrum2D::Holder
 {
 public:
+
+	enum class DisplayMode
+	{
+		SymmetricArea,
+		DownsampledCurve,
+		numDisplayModes
+	};
 
 	struct LookAndFeelMethods
 	{
@@ -107,10 +115,29 @@ public:
 
 	void setBuffer(var bufferL, var bufferR = var(), bool synchronously=false);
 
+	void fillAudioSampleBuffer(AudioSampleBuffer& b);
+
+	AudioSampleBuffer getBufferCopy(Range<int> sampleRange) const;
+
 	void paint(Graphics& g) override;
 
+    int getNextZero(int samplePos) const;
+    
 	void drawSection(Graphics &g, bool enabled);
 
+    float getXPosition(float input) const override
+    {
+        auto db = (float)spectrumParameters->minDb;
+        auto l = Decibels::gainToDecibels(input, -1.0f * db);
+        l = (l + db) / db;
+        return l * l;
+    }
+    
+    float getYPosition(float input) const override
+    {
+        return 1.0f - std::exp(std::log(input) * 0.2f);
+    }
+    
 	double getTotalLength() const
 	{
 		return lengthInSeconds;
@@ -122,6 +149,27 @@ public:
 	{
 		scaleVertically = shouldScale;
 	};
+
+	void setDisplayGain(float gainToApply, NotificationType notify=sendNotification)
+	{
+		if (gainToApply != 1.0f)
+			scaleVertically = false;
+
+		if (gainToApply != displayGain)
+		{
+			displayGain = gainToApply;
+
+			switch (notify)
+			{
+			case sendNotification:
+			case sendNotificationSync: rebuildPaths(true);
+			case sendNotificationAsync: rebuildPaths(false);
+			default: break;
+			}
+		}
+	}
+
+	Spectrum2D::Parameters::Ptr getSpectrumParameters() { return spectrumParameters; };
 
 	void setReader(AudioFormatReader* r, int64 actualNumSamples=-1);
 
@@ -138,6 +186,15 @@ public:
 			
 	}
 
+	void setDisplayMode(DisplayMode newDisplayMode)
+	{
+		if (newDisplayMode != displayMode)
+		{
+			displayMode = newDisplayMode;
+			rebuildPaths();
+		}
+	};
+
 	void setDrawHorizontalLines(bool shouldDrawHorizontalLines)
 	{
 		drawHorizontalLines = shouldDrawHorizontalLines;
@@ -149,9 +206,6 @@ public:
 		if (rebuildOnUpdate)
 		{
 			loadingThread.stopThread(-1);
-			
-			
-
 			loadingThread.startThread(5);
 				
 			repaint();
@@ -171,10 +225,29 @@ public:
 		rebuildOnResize = shouldRebuild;
 	}
 
+    void setSpectrumAndWaveformAlpha(float wAlpha, float sAlpha);
+    
 	void setRange(const int left, const int right);
 private:
 
+	DisplayMode displayMode = DisplayMode::SymmetricArea;
+	AudioSampleBuffer downsampledValues;
+
+    bool useRectList = false;
+    
+	void createCurvePathForCurrentView(bool isLeft, Rectangle<int> area);
+
+    float waveformAlpha = 1.0f;
+    float spectrumAlpha = 0.0f;
+    
+	float applyDisplayGain(float value)
+	{
+		return jlimit(-1.0f, 1.0f, value * displayGain);
+	}
+
 	double sampleRate = 44100.0;
+
+	float displayGain = 1.0f;
 
 	bool scaleVertically = false;
 	bool rebuildOnResize = true;
@@ -226,11 +299,11 @@ private:
 
 		void scalePathFromLevels(Path &lPath, RectangleList<float>& rects, Rectangle<float> bounds, const float* data, const int numSamples, bool scaleVertically);
 
-		void calculatePath(Path &p, float width, const float* l_, int numSamples, RectangleList<float>& rects);
+		void calculatePath(Path &p, float width, const float* l_, int numSamples, RectangleList<float>& rects, bool isLeft);
 
 	private:
 
-		
+        AudioSampleBuffer tempBuffer;
 
 		WeakReference<HiseAudioThumbnail> parent;
 
@@ -242,9 +315,15 @@ private:
 
 	LoadingThread loadingThread;
 
+	Spectrum2D::Parameters::Ptr spectrumParameters;
+
+	bool specDirty = true;
+
 	ScopedPointer<AudioFormatReader> currentReader;
 
 	ScopedPointer<ScrollBar> scrollBar;
+
+	AudioSampleBuffer ab;
 
 	var lBuffer;
 	var rBuffer;
@@ -260,6 +339,8 @@ private:
 	int rightBound = -1;
 
 	double lengthInSeconds = 0.0;
+    
+    Image spectrum;
 };
 
 /** An AudioDisplayComponent displays the content of audio data and has some areas that can be dragged and send a change message on Mouse up
@@ -383,6 +464,8 @@ public:
 			repaint();
 		};
 
+        bool isAreaEnabled() const { return areaEnabled; }
+        
 		/** Returns the x-coordinate of the given sample within its parent.
 		*
 		*	If a SampleArea is a child of another SampleArea, you can still get the absolute x value by passing 'true'.a
@@ -550,36 +633,7 @@ public:
 		list.remove(l);
 	}
 
-	void refreshSampleAreaBounds(SampleArea* areaToSkip=nullptr)
-	{
-		bool somethingVisible = getTotalSampleAmount() != 0;
-
-		for(int i=0; i < areas.size(); i++)
-		{
-			if(areas[i] == areaToSkip) continue;
-
-			areas[i]->setVisible(somethingVisible);
-
-			Range<int> sampleRange = areas[i]->getSampleRange();
-
-			const int x = areas[i]->getXForSample(sampleRange.getStart(), false);
-			const int right = areas[i]->getXForSample(sampleRange.getEnd(), false);
-
-			areas[i]->leftEdge->setTooltip(String(sampleRange.getStart()));
-			areas[i]->rightEdge->setTooltip(String(sampleRange.getEnd()));
-
-			if (i == 0)
-			{
-				preview->setRange(x, right);
-			}
-
-			areas[i]->setBounds(x,0,right-x, getHeight());
-		}
-
-		
-
-		repaint();
-	}
+	void refreshSampleAreaBounds(SampleArea* areaToSkip=nullptr);
 
 	/** Overwrite this method and update the ranges of all SampleAreas of the AudioDisplayComponent. 
 	*
@@ -606,7 +660,7 @@ public:
 		refreshSampleAreaBounds();
 	}
 
-	virtual void paint(Graphics &g) override;
+	virtual void paintOverChildren(Graphics &g) override;
 
 	HiseAudioThumbnail* getThumbnail()
 	{
