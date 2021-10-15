@@ -148,6 +148,7 @@ temporaryVoiceBuffer(DEFAULT_BUFFER_TYPE_IS_FLOAT, 2, 0)
 	parameterNames.add("Purged");
 	parameterNames.add("Reversed");
     parameterNames.add("UseStaticMatrix");
+	parameterNames.add("LowPassEnvelopeOrder");
 
 	editorStateIdentifiers.add("SampleStartChainShown");
 	editorStateIdentifiers.add("SettingsShown");
@@ -440,6 +441,7 @@ float ModulatorSampler::getAttribute(int parameterIndex) const
 	case Purged:			return purged ? 1.0f : 0.0f;
 	case Reversed:			return reversed ? 1.0f : 0.0f;
     case UseStaticMatrix:   return useStaticMatrix ? 1.0f : 0.0f;
+	case LowPassEnvelopeOrder: return (float)lowPassOrder * 6.0f;
 	default:				jassertfalse; return -1.0f;
 	}
 }
@@ -470,6 +472,11 @@ void ModulatorSampler::setInternalAttribute(int parameterIndex, float newValue)
 	case CrossfadeGroups:	crossfadeGroups = newValue > 0.5f; refreshCrossfadeTables(); break;
 	case Purged:			purgeAllSamples(newValue > 0.5f); break;
 	case UseStaticMatrix:   setUseStaticMatrix(newValue > 0.5f); break;
+	case LowPassEnvelopeOrder: 
+		lowPassOrder = roundToInt(newValue / 6);
+		if (envelopeFilter != nullptr)
+			envelopeFilter->setOrder(lowPassOrder);
+		break;
 	default:				jassertfalse; break;
 	}
 }
@@ -517,6 +524,9 @@ void ModulatorSampler::prepareToPlay(double newSampleRate, int samplesPerBlock)
 	if (samplesPerBlock > 0 && prevBlockSize != samplesPerBlock)
 	{
         refreshMemoryUsage();
+
+		if (envelopeFilter != nullptr)
+			setEnableEnvelopeFilter();
 	}
 }
 
@@ -593,6 +603,8 @@ void ModulatorSampler::deleteAllSounds()
 		static_cast<ModulatorSamplerVoice*>(getVoice(i))->resetVoice();
 	}
 
+
+
 	{
 		LockHelpers::SafeLock sl(getMainController(), LockHelpers::SampleLock);
 
@@ -608,6 +620,8 @@ void ModulatorSampler::deleteAllSounds()
 			if(getSampleMap() != nullptr)
 				getSampleMap()->getCurrentSamplePool()->clearUnreferencedMonoliths();
 		}
+
+		envelopeFilter = nullptr;
 	}
 	
 	refreshMemoryUsage();
@@ -796,8 +810,10 @@ bool ModulatorSampler::killAllVoicesAndCall(const ProcessorFunction& f, bool res
 
 void ModulatorSampler::setDisplayedGroup(int index)
 {
+#if USE_BACKEND
 	getSamplerDisplayValues().currentlyDisplayedGroup = index;
 	getSampleEditHandler()->groupBroadcaster.sendMessage(sendNotificationAsync, getCurrentRRGroup(), index);
+#endif
 }
 
 void ModulatorSampler::setSortByGroup(bool shouldSortByGroup)
@@ -825,6 +841,20 @@ bool ModulatorSampler::callAsyncIfJobsPending(const ProcessorFunction& f)
 	
 	f(this);
 	return true;
+}
+
+void ModulatorSampler::setEnableEnvelopeFilter()
+{
+	envelopeFilter = new CascadedEnvelopeLowPass(true);
+
+	if (getSampleRate() > 0)
+	{
+		PrepareSpecs ps;
+		ps.blockSize = getLargestBlockSize();
+		ps.sampleRate = getSampleRate();
+		ps.numChannels = 2;
+		envelopeFilter->prepare(ps);
+	}
 }
 
 void ModulatorSampler::AsyncPurger::timerCallback()
@@ -1026,7 +1056,9 @@ void ModulatorSampler::preHiseEventCallback(HiseEvent &m)
 		}
 		else
 		{
+#if USE_BACKEND
 			getSampleEditHandler()->noteBroadcaster.sendMessage(sendNotificationAsync, m.getNoteNumber(), 0);
+#endif
 
             samplerDisplayValues.currentNotes[m.getNoteNumber() + m.getTransposeAmount()] = 0;
 		}
@@ -1307,7 +1339,9 @@ void ModulatorSampler::setRRGroupAmount(int newGroupLimit)
 
 	ModulatorSynth::setVoiceLimit(realVoiceAmount * getNumActiveGroups());
 
+#if USE_BACKEND
 	getSampleEditHandler()->groupBroadcaster.sendMessage(sendNotificationAsync, getCurrentRRGroup(), getSamplerDisplayValues().currentlyDisplayedGroup);
+#endif
 }
 
 

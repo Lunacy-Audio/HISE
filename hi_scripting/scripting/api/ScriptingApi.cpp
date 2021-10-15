@@ -3012,9 +3012,8 @@ var ScriptingApi::Sampler::createListFromGUISelection()
 
 	{
 		MessageManagerLock mm;
-		const auto& selection = s->getSampleEditHandler()->getSelection();
 
-		for (auto sound : selection)
+		for (auto sound : *s->getSampleEditHandler())
 			newSelection.add(new ScriptingObjects::ScriptingSamplerSound(getScriptProcessor(), s, sound));
 	}
 

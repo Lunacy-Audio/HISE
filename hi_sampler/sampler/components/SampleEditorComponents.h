@@ -41,6 +41,8 @@ class SamplerSoundWaveform;
 class SamplerSoundMap;
 
 
+
+
 /** A base class for all sample editing components.
 *
 *	It offers a synchronous callback system for selecting sounds with recursive protection.
@@ -49,15 +51,9 @@ class SamplerSubEditor
 {
 public:
 
-    SamplerSubEditor(SampleEditHandler* handler_): 
-		internalChange(false),
-		handler(handler_)
-	{};
+	SamplerSubEditor(SampleEditHandler* handler_);;
     
     virtual ~SamplerSubEditor() {};
-
-	/** Call this whenever the selection changes and you want to update the other editors. */
-    void selectSounds(const SampleSelection &selection);
 
 	/** Overwrite this and call the method that updates the interface. */
 	virtual void updateInterface() = 0;
@@ -68,15 +64,20 @@ protected:
 	*
 	*	Make sure you update the interface to select the new sounds here. Calls to selectSounds are legal, as they do not trigger the callback again.
 	*/
-    virtual void soundsSelected(const SampleSelection &selectedSounds) = 0;
+	virtual void soundsSelected(int numSelected)
+	{
+		jassertfalse;
+	}
+
+	
 
 	SampleEditHandler* handler;
 
 private:
 
-	
-
     bool internalChange;
+
+	JUCE_DECLARE_WEAK_REFERENCEABLE(SamplerSubEditor);
 };
 
 
@@ -213,6 +214,8 @@ public:
 
 	Colour getColourForSound(bool wantsOutlineColour) const;
 
+    SamplerTools::Mode getModeForSample() const;
+    
 	bool samplePathContains(Point<int> localPoint) const;
 
     void drawSampleRectangle(Graphics &g, Rectangle<int> area);
@@ -221,9 +224,12 @@ public:
 
 	ModulatorSamplerSound *getSound() noexcept { return sound.get(); };
 
-	void setSelected(bool shouldBeSelected)
+	void setSelected(bool shouldBeSelected, bool isDragSelection=false)
 	{
-		selected = shouldBeSelected;
+		if (isDragSelection)
+			dragSelection = shouldBeSelected;
+		else
+			selected = shouldBeSelected;
 	}
 
 	bool isSelected() const { return selected; }
@@ -239,6 +245,11 @@ public:
 		bounds = Rectangle<int>(x, y, width, height);
 	}
 
+    void setToolMode(SamplerTools::Mode m)
+    {
+        toolMode = m;
+    }
+    
 	void setVisible(bool shouldBeVisible) { visible = shouldBeVisible; }
 	void setEnabled(bool shouldBeEnabled) { enabled = shouldBeEnabled; };
 
@@ -260,6 +271,7 @@ public:
 
 private:
 
+    SamplerTools::Mode toolMode = SamplerTools::Mode::Nothing;
 	bool isMainSelection = false;
 
 	friend class WeakReference < SampleComponent > ;
@@ -269,6 +281,7 @@ private:
 	Rectangle<int> bounds;
 
 	bool selected;
+	bool dragSelection = false;
 	bool enabled;
 	bool visible;
 	bool played = false;
@@ -287,12 +300,10 @@ private:
 *	@ingroup components
 */
 class SamplerSoundMap: public Component,
-					   public ChangeListener,
-					   public LassoSource<WeakReference<SampleComponent>>,
+					   public LassoSource<ModulatorSamplerSound::Ptr>,
 					   public SettableTooltipClient,
 					   public MainController::SampleManager::PreloadListener,
-					   public SampleMap::Listener,
-					   public Timer
+					   public SampleMap::Listener
 {
 public:
 	
@@ -318,25 +329,17 @@ public:
 	~SamplerSoundMap();;
 
 	
-	void timerCallback() override
-	{
-		return;
-	}
-
 	static void keyChanged(SamplerSoundMap& map, int noteNumber, int velocity);
 
 	void sampleMapWasChanged(PoolReference newSampleMap) override
 	{
-		if (newSampleMap != oldReference)
-		{
-			oldReference = newSampleMap;
+		oldReference = newSampleMap;
 
-			propertyUpdater = new valuetree::RecursivePropertyListener();
+		propertyUpdater = new valuetree::RecursivePropertyListener();
 
-			propertyUpdater->setCallback(ownerSampler->getSampleMap()->getValueTree(),
-				SampleIds::Helpers::getMapIds(), valuetree::AsyncMode::Asynchronously,
-				BIND_MEMBER_FUNCTION_2(SamplerSoundMap::updateSamplesFromValueTree));
-		}
+		propertyUpdater->setCallback(ownerSampler->getSampleMap()->getValueTree(),
+			SampleIds::Helpers::getMapIds(), valuetree::AsyncMode::Asynchronously,
+			BIND_MEMBER_FUNCTION_2(SamplerSoundMap::updateSamplesFromValueTree));
 
 		updateSampleComponents();
 	}
@@ -356,10 +359,20 @@ public:
 		}
 	}
 
+    static void updateToolMode(SamplerSoundMap& map, SamplerTools::Mode newMode)
+    {
+        for(auto s: map.sampleComponents)
+            s->setToolMode(newMode);
+        
+        map.repaint();
+    }
+    
 	void sampleAmountChanged() override
 	{
 		updateSampleComponents();
 	}
+
+	static void selectionChanged(SamplerSoundMap& map, int numSelected);
 
 	void samplePropertyWasChanged(ModulatorSamplerSound* s, const Identifier& id, const var& newValue) override;
 
@@ -371,15 +384,9 @@ public:
 	bool keyPressed(const KeyPress &k) override;
 
 	/** searches all sounds and selects the next neighbour. */
-	void selectNeighbourSample(Neighbour n);
+	void findLassoItemsInArea (Array<ModulatorSamplerSound::Ptr> &itemsFound, const Rectangle< int > &area) override;
 
-	void findLassoItemsInArea (Array<WeakReference<SampleComponent>> &itemsFound, const Rectangle< int > &area) override;
-
-	void refreshSelectedSoundsFromLasso();
-
-	SelectedItemSet<WeakReference<SampleComponent>> &getLassoSelection() override { return *selectedSounds; };
-
-	void changeListenerCallback(ChangeBroadcaster *b) override;
+	SelectedItemSet<ModulatorSamplerSound::Ptr> &getLassoSelection() override;;
 
 	static void setDisplayedSound(SamplerSoundMap& map, ModulatorSamplerSound::Ptr sound, int);
 
@@ -391,7 +398,6 @@ public:
 
 	void resized() override 
 	{ 
-		timerCallback();
 		updateSampleComponents(); 
 	};
 
@@ -404,27 +410,13 @@ public:
 	/** updates the position / size of all sounds. */
 	void updateSampleComponents();
 
-	bool isDragOperation(const MouseEvent& e);
-
 	void mouseDown(const MouseEvent &e) override;
 	void mouseUp(const MouseEvent &e) override;
 	void mouseExit(const MouseEvent &) override;
 	void mouseDrag(const MouseEvent &e) override;
 	void mouseMove(const MouseEvent &e) override;
 
-	/** draws a red dot on the map if a key is pressed.
-	*
-	*	@param pressedKeyData the array with the velocities (-1 if the key is not pressed). @see ModulatorSampler::SamplerDisplayValues
-	*/
-
 	
-
-	/** change the selection to the supplied list of sounds. */
-	void setSelectedIds(const SampleSelection& newSelectionList);
-
-	/** checks if the sound with the id is selected. */
-	bool isSelected(int id) { return selectedIds.contains(id); };
-
 	/** This hides all sounds that to not belong to the specified group index. If you want to display all sounds, pass -1. */
 	void soloGroup(int groupIndex);
 
@@ -464,32 +456,33 @@ private:
 	struct DragData
 	{
 		ModulatorSamplerSound *sound;
-		int root;
-		int lowKey;
-		int hiKey;
-		int loVel;
-		int hiVel;
+		StreamingHelpers::BasicMappingData data;
 	};
 
 	/** checks if the sampler contains new samples that are not displayed yet. */
 	bool newSamplesDetected();
 
-	SampleComponent* getSampleComponentAt(Point<int> point);
+	bool shouldDragSamples(const MouseEvent& e) const;
 
-	void checkEventForSampleDragging(const MouseEvent &e);
+	SampleComponent* getSampleComponentAt(Point<int> point) const;
+
+	void createDragData(const MouseEvent& e);
 
 	void endSampleDragging(bool copyDraggedSounds);
 	
 	ModulatorSampler *ownerSampler;
 	SampleEditHandler* handler;
 
+	SelectedItemSet<ModulatorSamplerSound::Ptr> dragSet;
+
 	Rectangle<int> dragArea;
 	Array<DragData> dragStartData;
-	bool sampleDraggingEnabled = false;
 	BigInteger draggedFileRootNotes;
-	int currentDragDeltaX;
-	int currentDragDeltaY;
+	int currentDragDeltaX = 0;
+	int currentDragDeltaY = 0;
 	int semiTonesPerNote;
+
+	bool hasDraggedSamples;
 
 	uint8 pressedKeys[128];
 	int notePosition;
@@ -497,18 +490,10 @@ private:
 	
 	DragLimiters currentDragLimiter;
 
-	Array<int> selectedIds;
 	OwnedArray<SampleComponent> sampleComponents;
 
-	Array<WeakReference<SampleComponent>> lassoSelectedComponents;
+	ScopedPointer<LassoComponent<ModulatorSamplerSound::Ptr>> sampleLasso;
 
-	ScopedPointer<SelectedItemSet<WeakReference<SampleComponent>>> selectedSounds;
-	ScopedPointer<LassoComponent<WeakReference<SampleComponent>>> sampleLasso;
-
-	Rectangle<int> currentLassoRectangle;
-
-	uint32 milliSecondsSinceLastLassoCheck;
-    
     Image currentSnapshot;
 
 	ScopedPointer<valuetree::RecursivePropertyListener> propertyUpdater;
@@ -569,7 +554,7 @@ public:
 
     void sortOrderChanged (int newSortColumnId, bool isForwards) override;
 
-	void soundsSelected(const SampleSelection &selectedSounds) override;
+	void soundsSelected(int numSelected) override;
     
     void resized() override;
 
@@ -582,6 +567,8 @@ public:
 	void refreshPropertyForRow(int index, const Identifier& id);
 
 private:
+
+	
 
 	friend class SamplerTable;
 
