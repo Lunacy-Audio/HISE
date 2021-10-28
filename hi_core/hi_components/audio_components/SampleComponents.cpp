@@ -53,6 +53,8 @@ WaveformComponent::WaveformComponent(Processor* p, int index_) :
 
 	if (p != nullptr)
 	{
+		p->addChangeListener(this);
+
 		if (auto b = dynamic_cast<Broadcaster*>(p))
 		{
 			b->addWaveformListener(this);
@@ -60,6 +62,8 @@ WaveformComponent::WaveformComponent(Processor* p, int index_) :
 		}
 		else
 			jassertfalse; // You have to subclass the processor...
+
+
 	}
 
 	setBufferedToImage(true);
@@ -67,28 +71,12 @@ WaveformComponent::WaveformComponent(Processor* p, int index_) :
 
 WaveformComponent::~WaveformComponent()
 {
-    setLookAndFeel(nullptr);
-    
 	if (processor.get() != nullptr)
 	{
 		dynamic_cast<Broadcaster*>(processor.get())->removeWaveformListener(this);
+		processor->removeChangeListener(this);
 	}
 
-}
-
-void WaveformComponent::setBypassed(bool shouldBeBypassed)
-{
-	if (bypassed != shouldBeBypassed)
-	{
-		bypassed = shouldBeBypassed;
-		rebuildPath();
-	}
-}
-
-void WaveformComponent::setUseFlatDesign(bool shouldUseFlatDesign)
-{
-	useFlatDesign = shouldUseFlatDesign;
-	repaint();
 }
 
 void WaveformComponent::paint(Graphics &g)
@@ -113,11 +101,6 @@ void WaveformComponent::paint(Graphics &g)
 	}
 }
 
-void WaveformComponent::resized()
-{
-	rebuildPath();
-}
-
 void WaveformComponent::refresh()
 {
 	if (rb != nullptr)
@@ -129,97 +112,19 @@ void WaveformComponent::refresh()
 	rebuildPath();
 }
 
-Colour WaveformComponent::getColourForAnalyserBase(int colourId)
-{
-	return findColour(colourId);
-}
-
 juce::Path WaveformComponent::WaveformFactory::createPath(const String& url) const
 {
 	Path p;
 
-	LOAD_EPATH_IF_URL("sine", WaveformIcons::sine);
-	LOAD_EPATH_IF_URL("triangle", WaveformIcons::triangle);
-	LOAD_EPATH_IF_URL("saw", WaveformIcons::saw);
-	LOAD_EPATH_IF_URL("square", WaveformIcons::square);
-	LOAD_EPATH_IF_URL("noise", WaveformIcons::noise);
+	LOAD_PATH_IF_URL("sine", WaveformIcons::sine);
+	LOAD_PATH_IF_URL("triangle", WaveformIcons::triangle);
+	LOAD_PATH_IF_URL("saw", WaveformIcons::saw);
+	LOAD_PATH_IF_URL("square", WaveformIcons::square);
+	LOAD_PATH_IF_URL("noise", WaveformIcons::noise);
 
 	return p;
 }
 
-WaveformComponent::Broadcaster::Updater::Updater(Broadcaster& p):
-	parent(p)
-{
-	startTimer(30);
-}
-
-void WaveformComponent::Broadcaster::Updater::timerCallback()
-{
-	if (changeFlag)
-	{
-		changeFlag = false;
-
-		parent.updateData();
-	}
-}
-
-void WaveformComponent::Broadcaster::Updater::onComplexDataEvent(ComplexDataUIUpdaterBase::EventType t, var data)
-{
-	if (t != ComplexDataUIUpdaterBase::EventType::DisplayIndex)
-		parent.triggerWaveformUpdate();
-}
-
-bool WaveformComponent::Broadcaster::BroadcasterPropertyObject::validateInt(const Identifier& id, int& v) const
-{
-	if (id == RingBufferIds::BufferLength)
-		return SimpleRingBuffer::toFixSize<128>(v);
-
-	if (id == RingBufferIds::NumChannels)
-		return SimpleRingBuffer::toFixSize<1>(v);
-                
-	return true;
-}
-
-Path WaveformComponent::Broadcaster::BroadcasterPropertyObject::createPath(Range<int> sampleRange,
-	Range<float> valueRange, Rectangle<float> targetBounds, double startValue) const
-{
-	const float* d[1] = { nullptr };
-	int numSamples = 0;
-	float nv;
-	br->getWaveformTableValues(0, d, numSamples, nv);
-
-	AudioSampleBuffer b((float**)d, 1, numSamples);
-				
-	Path p;
-	p.preallocateSpace(numSamples);
-	p.startNewSubPath(0.0f, 0.0f);
-	p.startNewSubPath(0.0f, -1.0f);
-	p.startNewSubPath(0.0f, -1.0f * startValue);
-
-	for (int i = 0; i < numSamples; i++)
-		p.lineTo((float)i, -1.0f * b.getSample(0, i));
-
-				
-
-	if(!p.getBounds().isEmpty() && !targetBounds.isEmpty())
-		p.scaleToFit(targetBounds.getX(), targetBounds.getY(), targetBounds.getWidth(), targetBounds.getHeight(), false);
-
-	return p;
-}
-
-void WaveformComponent::Broadcaster::BroadcasterPropertyObject::transformReadBuffer(AudioSampleBuffer& b)
-{
-	if (br != nullptr)
-	{
-		const float* d[1] = { nullptr };
-		int numSamples = 0;
-		float nv;
-		br->getWaveformTableValues(0, d, numSamples, nv);
-
-		if (numSamples == 128)
-			FloatVectorOperations::copy(b.getWritePointer(0), d[0], numSamples);
-	}
-}
 
 
 juce::Path WaveformComponent::getPathForBasicWaveform(WaveformType t)
@@ -313,14 +218,6 @@ void WaveformComponent::rebuildPath()
 	repaint();
 }
 
-WaveformComponent::Panel::Panel(FloatingTile* parent):
-	PanelWithProcessorConnection(parent)
-{
-	setDefaultPanelColour(FloatingTileContent::PanelColourId::bgColour, Colours::transparentBlack);
-	setDefaultPanelColour(FloatingTileContent::PanelColourId::itemColour1, Colours::white);
-	setDefaultPanelColour(FloatingTileContent::PanelColourId::itemColour2, Colours::white.withAlpha(0.5f));
-}
-
 juce::Identifier WaveformComponent::Panel::getProcessorTypeId() const
 {
 	return WavetableSynth::getClassType();
@@ -362,27 +259,7 @@ void WaveformComponent::Broadcaster::connectWaveformUpdaterToComplexUI(ComplexDa
 			rb->setPropertyObject(new BroadcasterPropertyObject(this));
 	}
 	else
-	{
 		d->getUpdater().removeEventListener(&updater);
-	}
-		
-}
-
-void WaveformComponent::Broadcaster::suspendStateChanged(bool shouldBeSuspended)
-{
-	updater.suspendTimer(shouldBeSuspended);
-}
-
-void WaveformComponent::Broadcaster::addWaveformListener(WaveformComponent* listener)
-{
-	listener->broadcaster = this;
-	listeners.addIfNotAlreadyThere(listener);
-}
-
-void WaveformComponent::Broadcaster::removeWaveformListener(WaveformComponent* listener)
-{
-	listener->broadcaster = nullptr;
-	listeners.removeAllInstancesOf(listener);
 }
 
 void WaveformComponent::Broadcaster::updateData()
@@ -407,41 +284,7 @@ void WaveformComponent::Broadcaster::updateData()
 
 }
 
-Colour SamplerTools::getToolColour(Mode m)
-{
-	switch(m)
-	{
-	case Mode::GainEnvelope:
-	case Mode::PitchEnvelope:
-	case Mode::FilterEnvelope:  return SamplerDisplayWithTimeline::getColourForEnvelope((Modulation::Mode)((int)m - (int)Mode::GainEnvelope));
-	case Mode::PlayArea:
-	case Mode::LoopArea:
-	case Mode::LoopCrossfadeArea:
-	case Mode::SampleStartArea: return AudioDisplayComponent::SampleArea::getAreaColour((AudioDisplayComponent::AreaTypes)((int)m - (int)Mode::PlayArea));
-	default: return Colours::white;
-	}
-}
-
-void SamplerTools::toggleMode(Mode newMode)
-{
-	if(currentMode == newMode)
-		currentMode = Mode::Nothing;
-	else
-		currentMode = newMode;
-        
-	broadcaster.sendMessage(sendNotificationSync, currentMode);
-}
-
-void SamplerTools::setMode(Mode newMode)
-{
-	if(currentMode != newMode)
-	{
-		currentMode = newMode;
-		broadcaster.sendMessage(sendNotificationSync, currentMode);
-	}
-}
-
-SamplerSoundWaveform::SamplerSoundWaveform(ModulatorSampler *ownerSampler) :
+SamplerSoundWaveform::SamplerSoundWaveform(const ModulatorSampler *ownerSampler) :
 	AudioDisplayComponent(),
 	sampler(ownerSampler),
 	sampleStartPosition(-1.0),
@@ -454,26 +297,21 @@ SamplerSoundWaveform::SamplerSoundWaveform(ModulatorSampler *ownerSampler) :
 
 	setColour(AudioDisplayComponent::ColourIds::bgColour, Colour(0xFF383838));
 
-    sampler->addDeleteListener(this);
-    
 	addAndMakeVisible(areas[PlayArea]);
 	areas[PlayArea]->addAndMakeVisible(areas[SampleStartArea]);
 	areas[PlayArea]->addAndMakeVisible(areas[LoopArea]);
 	areas[PlayArea]->addAndMakeVisible(areas[LoopCrossfadeArea]);
 	areas[PlayArea]->setAreaEnabled(false);
 	
-	
+	areas[SampleStartArea]->leftEdge->setVisible(false);
+	areas[LoopCrossfadeArea]->rightEdge->setVisible(false);
 
 	startTimer(30);
 };
 
 SamplerSoundWaveform::~SamplerSoundWaveform()
 {
-    if(sampler != nullptr)
-        sampler->removeDeleteListener(this);
-    
-    getThumbnail()->setLookAndFeel(nullptr);
-    slaf = nullptr;
+
 }
 
 struct SamplerLaf : public HiseAudioThumbnail::LookAndFeelMethods,
@@ -484,9 +322,9 @@ struct SamplerLaf : public HiseAudioThumbnail::LookAndFeelMethods,
 	{
 		Path p;
 
-		LOAD_EPATH_IF_URL("loop", SampleToolbarIcons::loopOn);
-		LOAD_EPATH_IF_URL("samplestart", ProcessorIcons::sampleStartIcon);
-		LOAD_EPATH_IF_URL("xfade", ProcessorIcons::groupFadeIcon);
+		LOAD_PATH_IF_URL("loop", SampleToolbarIcons::loopOn);
+		LOAD_PATH_IF_URL("samplestart", ProcessorIcons::sampleStartIcon);
+		LOAD_PATH_IF_URL("xfade", ProcessorIcons::groupFadeIcon);
 		return p;
 	}
 
@@ -586,9 +424,8 @@ struct SamplerLaf : public HiseAudioThumbnail::LookAndFeelMethods,
 void SamplerSoundWaveform::setIsSamplerWorkspacePreview()
 {
     inWorkspace = true;
-	onInterface = false;
     setOpaque(true);
-    setMouseCursor(MouseCursor::NormalCursor);
+    setMouseCursor(MouseCursor::DraggingHandCursor);
     getThumbnail()->setBufferedToImage(false);
     getThumbnail()->setDrawHorizontalLines(true);
     getThumbnail()->setDisplayMode(HiseAudioThumbnail::DisplayMode::DownsampledCurve);
@@ -613,11 +450,10 @@ void SamplerSoundWaveform::timerCallback()
 
 	if (sampler->getLastStartedVoice() != nullptr || previewActive)
 	{
-		if (currentSound != nullptr && (previewActive || dynamic_cast<ModulatorSamplerVoice*>(sampler->getLastStartedVoice())->getCurrentlyPlayingSamplerSound() == currentSound.get()))
+		if (previewActive || dynamic_cast<ModulatorSamplerVoice*>(sampler->getLastStartedVoice())->getCurrentlyPlayingSamplerSound() == currentSound.get())
 		{
 			auto dv = sampler->getSamplerDisplayValues();
-			auto reversed = currentSound->getReferenceToSound(0)->isReversed();
-			sampleStartPosition = reversed ? 1.0 - dv.currentSampleStartPos : dv.currentSampleStartPos;
+			sampleStartPosition = dv.currentSampleStartPos;
 
 			setPlaybackPosition(dv.currentSamplePos);
 		}
@@ -662,35 +498,11 @@ void SamplerSoundWaveform::updateRange(AreaTypes a, bool refreshBounds)
 		break;
 	case hise::AudioDisplayComponent::SampleStartArea:
 	{
-		
+		auto offset = (int)currentSound->getSampleProperty(SampleIds::SampleStart);
 
-		auto isReversed = currentSound->getReferenceToSound(0)->isReversed();
-
-		Range<int> displayArea;
-		Range<int> leftDragRange, rightDragRange;
-		
-		auto startMod = (int)currentSound->getSampleProperty(SampleIds::SampleStartMod);
-
-		if (isReversed)
-		{
-			auto offset = (int)currentSound->getSampleProperty(SampleIds::SampleEnd) - startMod;
-
-			displayArea = { offset, offset + startMod };
-
-			leftDragRange = { 0, offset + startMod };
-			rightDragRange = currentSound->getPropertyRange(SampleIds::SampleEnd);
-		}
-		else
-		{
-			auto offset = (int)currentSound->getSampleProperty(SampleIds::SampleStart);
-
-			displayArea = { offset, offset + startMod };
-			leftDragRange = currentSound->getPropertyRange(SampleIds::SampleStart);
-			rightDragRange = currentSound->getPropertyRange(SampleIds::SampleStartMod) + offset;
-		}
-		
-		area->setSampleRange(displayArea);
-		area->setAllowedPixelRanges(leftDragRange, rightDragRange);
+		area->setSampleRange(Range<int>(offset, offset + (int)currentSound->getSampleProperty(SampleIds::SampleStartMod)));
+		area->setAllowedPixelRanges(currentSound->getPropertyRange(SampleIds::SampleStart),
+			currentSound->getPropertyRange(SampleIds::SampleStartMod) + offset);
 		break;
 	}
 	case hise::AudioDisplayComponent::LoopArea:
@@ -705,24 +517,9 @@ void SamplerSoundWaveform::updateRange(AreaTypes a, bool refreshBounds)
 	}
 	case hise::AudioDisplayComponent::LoopCrossfadeArea:
 	{
-		int start = 0;
-		int end = 0;
+		const int64 start = (int64)currentSound->getSampleProperty(SampleIds::LoopStart) - (int64)currentSound->getSampleProperty(SampleIds::LoopXFade);
 
-		auto rev = currentSound->getReferenceToSound(0)->isReversed();
-		area->setReversed(rev);
-
-		if (rev)
-		{
-			start = (int)currentSound->getSampleProperty(SampleIds::LoopEnd);
-			end = (int)currentSound->getSampleProperty(SampleIds::LoopEnd) + (int)currentSound->getSampleProperty(SampleIds::LoopXFade);;
-		}
-		else
-		{
-			start = (int)currentSound->getSampleProperty(SampleIds::LoopStart) - (int)currentSound->getSampleProperty(SampleIds::LoopXFade);
-			end = currentSound->getSampleProperty(SampleIds::LoopStart);
-		}
-
-		area->setSampleRange(Range<int>(start, end));
+		area->setSampleRange(Range<int>((int)start, currentSound->getSampleProperty(SampleIds::LoopStart)));
 		break;
 	}
 	case hise::AudioDisplayComponent::numAreas:
@@ -752,7 +549,7 @@ void SamplerSoundWaveform::drawSampleStartBar(Graphics &g)
 		auto c = SampleArea::getAreaColour(AudioDisplayComponent::AreaTypes::SampleStartArea);
 		g.setColour(c);
 
-		const int x = areas[PlayArea]->getX() + areas[SampleStartArea]->getX() + (int)(sampleStartPosition * areas[SampleStartArea]->getWidth());
+        const int x = areas[PlayArea]->getX() + (int)(sampleStartPosition * areas[SampleStartArea]->getWidth());
 
 		g.drawVerticalLine(x, 1, (float)getBottom() - 1);
 
@@ -860,9 +657,7 @@ void SamplerSoundWaveform::resized()
 	if (onInterface)
 	{
 		for (auto a : areas)
-		{
-			a->setVisible(a->isAreaEnabled());
-		}
+			a->setVisible(false);
 	}
 }
 
@@ -874,25 +669,16 @@ void SamplerSoundWaveform::setSoundToDisplay(const ModulatorSamplerSound *s, int
 
 	currentSound = const_cast<ModulatorSamplerSound*>(s);
 
-	gammaListener.setCallback(sampler.get()->getSampleMap()->getValueTree(), { Identifier("CrossfadeGamma") }, valuetree::AsyncMode::Asynchronously, [this](Identifier, var newValue)
-		{
-			getSampleArea(AreaTypes::LoopCrossfadeArea)->setGamma((float)newValue);
-		});
-
 	if (s != nullptr && !s->isMissing() && !s->isPurged())
 	{
-		
-
-		auto reversed = s->getReferenceToSound(0)->isReversed();
-
-		areas[SampleStartArea]->leftEdge->setVisible(reversed);
-		areas[LoopCrossfadeArea]->rightEdge->setVisible(reversed);
-		areas[SampleStartArea]->rightEdge->setVisible(!reversed);
-		areas[LoopCrossfadeArea]->leftEdge->setVisible(!reversed);
-
 		if (auto afr = currentSound->createAudioReader(multiMicIndex))
 		{
 			numSamplesInCurrentSample = (int)afr->lengthInSamples;
+
+			if (onInterface && currentSound != nullptr)
+			{
+				numSamplesInCurrentSample = currentSound->getReferenceToSound()->getSampleLength();
+			}
 
 			refresh(dontSendNotification);
 			preview->setReader(afr, numSamplesInCurrentSample);
@@ -924,20 +710,23 @@ void SamplerSoundWaveform::setSoundToDisplay(const ModulatorSamplerSound *s, int
 
 void SamplerSoundWaveform::mouseDown(const MouseEvent& e)
 {
-	if (onInterface)
-		return;
-
 #if USE_BACKEND
 	if (e.mods.isAnyModifierKeyDown())
 	{
+		auto mc = currentSound->getMainController();
+
 		auto numSamples = getTotalSampleAmount();
+
 		auto posNorm = (double)e.getPosition().getX() / (double)getWidth();
+
 		auto start = roundToInt((double)numSamples * posNorm);
 		start = getThumbnail()->getNextZero(start);
 
 		AudioSampleBuffer full = getThumbnail()->getBufferCopy({ 0, numSamples });
 
-        auto s = sampler.get();
+		
+
+		auto s = const_cast<ModulatorSampler*>(sampler);
 
 		s->getSampleEditHandler()->setPreviewStart(start);
 		s->getSampleEditHandler()->togglePreview();
@@ -958,18 +747,14 @@ void SamplerSoundWaveform::mouseDown(const MouseEvent& e)
         {
             value = getThumbnail()->getNextZero(value);
         }
-        
-		if (currentSound == nullptr)
-			return;
 
-        if (propId == SampleIds::SampleStartMod)
-            value -= (int)currentSound->getSampleProperty(SampleIds::SampleStart);
+		if (propId == SampleIds::SampleStartMod)
+			value -= (int)currentSound->getSampleProperty(SampleIds::SampleStart);
         
         auto r = currentSound->getPropertyRange(propId);
-
-		if (!r.contains(value))
-			return;
-		
+        
+        value = jlimit(r.getStart(), r.getEnd(), value);
+        
         currentSound->setSampleProperty(propId, value, true);
         return;
     }
@@ -978,22 +763,14 @@ void SamplerSoundWaveform::mouseDown(const MouseEvent& e)
 
 void SamplerSoundWaveform::mouseUp(const MouseEvent& e)
 {
-	if (onInterface)
-		return;
-
 #if USE_BACKEND
 	if(e.mods.isAnyModifierKeyDown())
-		sampler->getSampleEditHandler()->togglePreview();
+		const_cast<ModulatorSampler*>(sampler)->getSampleEditHandler()->togglePreview();
 #endif
 }
 
 void SamplerSoundWaveform::mouseMove(const MouseEvent& e)
 {
-	if (onInterface)
-		return;
-
-	AudioDisplayComponent::mouseMove(e);
-
 	if (currentSound != nullptr)
 	{
 		auto n = (double)e.getPosition().getX() / (double)getWidth();
@@ -1065,7 +842,7 @@ void SamplerSoundWaveform::mouseMove(const MouseEvent& e)
 		{
 			xPos = -1;
 			setTooltip(timeString);
-			setMouseCursor(MouseCursor::NormalCursor);
+			setMouseCursor(MouseCursor::DraggingHandCursor);
 		}
 			
 	}
@@ -1090,37 +867,6 @@ float SamplerSoundWaveform::getNormalizedPeak()
 	else return 1.0f;
 }
 
-void SamplerSoundWaveform::refresh(NotificationType n)
-{
-	getThumbnail()->setDisplayGain(getCurrentSampleGain(), n);
-}
-
-void SamplerSoundWaveform::setVerticalZoom(float zf)
-{
-	if (zf != verticalZoomGain)
-	{
-		verticalZoomGain = zf;
-		refresh(sendNotificationSync);
-	}
-}
-
-void SamplerSoundWaveform::setClickArea(AreaTypes newArea, bool resetIfSame)
-{
-	if (newArea == currentClickArea && resetIfSame)
-		currentClickArea = AreaTypes::numAreas;
-	else
-		currentClickArea = newArea;
-
-	for (int i = 0; i < areas.size(); i++)
-	{
-		areas[i]->setAreaEnabled(currentClickArea == i);
-	}
-
-	auto isSomething = currentClickArea != AreaTypes::numAreas;
-
-	setMouseCursor(!isSomething ? MouseCursor::DraggingHandCursor : MouseCursor::CrosshairCursor);
-		
-}
 
 
 float SamplerSoundWaveform::getCurrentSampleGain() const
@@ -1258,6 +1004,8 @@ juce::Colour SamplerDisplayWithTimeline::getColourForEnvelope(Modulation::Mode m
 
 void SamplerDisplayWithTimeline::paint(Graphics& g)
 {
+	auto visibleArea = findParentComponentOfClass<Viewport>()->getViewArea();
+
 	auto b = getLocalBounds().removeFromTop(TimelineHeight);
 
 	g.setFont(GLOBAL_FONT());
@@ -1345,368 +1093,5 @@ void SamplerDisplayWithTimeline::setEnvelope(Modulation::Mode m, ModulatorSample
 		}
 	}
 }
-
-void WaterfallComponent::LookAndFeelMethods::drawWavetableBackground(Graphics& g, WaterfallComponent& wc, bool isEmpty)
-{
-	auto bgColour = wc.findColour(HiseColourScheme::ColourIds::ComponentBackgroundColour);
-	auto bounds = wc.getLocalBounds().toFloat();
-
-	g.fillAll(bgColour);
-
-	auto borderColour = wc.findColour(HiseColourScheme::ColourIds::ComponentOutlineColourId);
-	g.setColour(borderColour);
-	g.drawRect(bounds, 1.0f);
-
-	if (isEmpty)
-	{
-		g.setFont(GLOBAL_BOLD_FONT());
-		g.setColour(wc.findColour(HiseColourScheme::ColourIds::ComponentTextColourId).withMultipliedAlpha(0.1f));
-		g.drawText("No preview available", bounds, Justification::centred);
-		return;
-	}
-}
-
-void WaterfallComponent::LookAndFeelMethods::drawWavetablePath(Graphics& g, WaterfallComponent& wc, const Path& p, int tableIndex, bool isStereo, int currentTableIndex, int numTables)
-{
-	float thisAlpha = 1.0f - jlimit(0.0f, 1.0f, (float)hmath::abs(tableIndex - currentTableIndex) / (float)(numTables));
-
-	auto alpha = hmath::pow(0.988f, (float)tableIndex);
-
-	thisAlpha = jmax(0.08f, hmath::pow(thisAlpha, 8.0f)*0.5f);
-	thisAlpha *= alpha;
-
-	if (tableIndex == currentTableIndex)
-	{
-		thisAlpha = 1.0f;
-
-		if (isStereo)
-		{
-			g.setColour(wc.findColour(HiseColourScheme::ColourIds::ComponentTextColourId));
-			p.getBounds();
-
-			g.setFont(GLOBAL_BOLD_FONT());
-			auto pb = p.getBounds();
-
-			g.drawText("L    R", pb, Justification::centredTop);
-			g.drawVerticalLine(pb.getCentreX(), pb.getY(), pb.getBottom());
-		}
-
-	}
-
-	if (tableIndex != currentTableIndex && (tableIndex % 2) != 0)
-	{
-		return;
-	}
-
-	auto c = wc.findColour(HiseColourScheme::ColourIds::ComponentFillTopColourId).withMultipliedAlpha(thisAlpha);
-
-	g.setColour(c);
-
-	g.strokePath(p, PathStrokeType(tableIndex == currentTableIndex ? 2.0f : 1.0f));
-}
-
-WaterfallComponent::WaterfallComponent(MainController* mc, ReferenceCountedObjectPtr<WavetableSound> sound_) :
-	SimpleTimer(mc->getGlobalUIUpdater()),
-	ControlledObject(mc),
-	sound(sound_),
-	displacement(0.25f, 1.0f)
-{
-	start();
-	setOpaque(true);
-
-	setLookAndFeel(&defaultLaf);
-
-	setColour(HiseColourScheme::ColourIds::ComponentBackgroundColour, Colour(0xFF222222));
-	setColour(HiseColourScheme::ColourIds::ComponentFillTopColourId, Colours::white);
-	setColour(HiseColourScheme::ColourIds::ComponentOutlineColourId, Colours::white.withAlpha(0.05f));
-	setColour(HiseColourScheme::ColourIds::ComponentTextColourId, Colours::white.withAlpha(0.5f));
-}
-
-
-
-
-void WaterfallComponent::rebuildPaths()
-{
-	Array<Path> newPaths;
-
-	if (auto first = sound.get())
-	{
-		auto numTables = first->getWavetableAmount();
-		const auto realNumTables = numTables;
-
-		float tableStride = jmax(1.0f, (float)numTables / 64.0f);
-		numTables = jmin(numTables, 64);
-
-		auto size = first->getTableSize();
-
-		stereo = first->isStereo();
-
-		if (stereo)
-			size *= 2;
-
-		auto b = getLocalBounds().reduced(5).toFloat();
-
-		b.removeFromTop((float)numTables * displacement.getY());
-		b.removeFromRight((float)numTables * displacement.getX());
-
-		float maxGain = 0.0f;
-
-		for (int i = 0; i < numTables; i++)
-		{
-			maxGain = jmax(maxGain, first->getUnnormalizedGainValue(i));
-		}
-
-		HeapBlock<float> data;
-		data.calloc(size);
-
-		auto reversed = first->isReversed();
-
-		if (maxGain != 0.0f)
-		{
-			for (float pi = 0.0f; pi < realNumTables; pi += tableStride)
-			{
-				Path p;
-
-				auto thisBounds = b.translated((float)pi* displacement.getX() / (float)tableStride, -1.0f * displacement.getY() * pi / tableStride);
-
-				auto tableIndex = reversed ? (realNumTables - (int)pi - 1) : (int)pi;
-
-				auto l = first->getWaveTableData(0, tableIndex);
-				FloatVectorOperations::copy(data.get(), l, first->getTableSize());
-
-				if (stereo)
-				{
-					auto r = first->getWaveTableData(1, tableIndex);
-					FloatVectorOperations::copy(data.get() + first->getTableSize(), r, first->getTableSize());
-				}
-
-				p.startNewSubPath(thisBounds.getX(), thisBounds.getY());
-				p.startNewSubPath(thisBounds.getX(), thisBounds.getBottom());
-
-				p.startNewSubPath(thisBounds.getX(), thisBounds.getCentreY());
-
-				auto gain = first->getUnnormalizedGainValue(tableIndex);
-
-				if (gain == 0.0f)
-					continue;
-
-				//gain /= maxGain;
-
-				gain = 1.0f / gain;
-				//gain = hmath::pow(maxGain, 0.8f);
-
-				for (int i = 0; i < b.getWidth(); i += 2)
-				{
-					auto uptime = ((float)i / thisBounds.getWidth()) * (float)size;
-
-
-
-					int pos = (int)uptime;
-					pos = jlimit(0, size - 1, pos);
-
-					int nextPos = jlimit(0, size - 1, pos + 1);
-
-					auto alpha = uptime - (float)pos;
-
-					auto value = Interpolator::interpolateLinear(data[pos], data[nextPos], alpha);
-
-					jassert(hmath::abs(value) <= 1.0f);
-
-					p.lineTo(thisBounds.getX() + (float)i,
-						thisBounds.getY() + thisBounds.getHeight() * 0.5f * (1.0f - value * gain));
-				}
-
-				p.lineTo(thisBounds.getRight(), thisBounds.getCentreY());
-
-				newPaths.add(p);
-			}
-		}
-	}
-
-	std::swap(paths, newPaths);
-	repaint();
-}
-
-void WaterfallComponent::paint(Graphics& g)
-{
-	auto lafToUse = dynamic_cast<LookAndFeelMethods*>(&getLookAndFeel());
-
-	if (lafToUse == nullptr)
-		lafToUse = &defaultLaf;
-
-	lafToUse->drawWavetableBackground(g, *this, paths.isEmpty());
-
-	int idx = 0;
-
-	for (const auto& p : paths)
-	{
-		lafToUse->drawWavetablePath(g, *this, p, idx++, stereo, currentTableIndex, paths.size());
-	}
-}
-
-void WaterfallComponent::timerCallback()
-{
-	if (!displayDataFunction)
-		jassertfalse;
-
-	auto df = displayDataFunction();
-
-	float modValue = df.modValue;
-
-	auto thisIndex = roundToInt(modValue * (paths.size() - 1));
-
-	if (sound != df.sound)
-	{
-		sound = df.sound;
-		rebuildPaths();
-	}
-
-	if (currentTableIndex != thisIndex)
-	{
-		currentTableIndex = thisIndex;
-		repaint();
-	}
-}
-
-void WaterfallComponent::resized()
-{
-	rebuildPaths();
-}
-
-void WaterfallComponent::setPerspectiveDisplacement(const Point<float>& newDisplacement)
-{
-	if (displacement != newDisplacement)
-	{
-		displacement = newDisplacement;
-		repaint();
-	}
-}
-
-WaterfallComponent::Panel::Panel(FloatingTile* parent):
-	PanelWithProcessorConnection(parent)
-{
-	setDefaultPanelColour(FloatingTileContent::PanelColourId::bgColour, Colour(0xFF222222));
-	setDefaultPanelColour(FloatingTileContent::PanelColourId::itemColour1, Colours::white);
-	setDefaultPanelColour(FloatingTileContent::PanelColourId::itemColour2, Colours::white.withAlpha(0.05f));
-	setDefaultPanelColour(FloatingTileContent::PanelColourId::textColour, Colours::white.withAlpha(0.5f));
-}
-
-juce::Identifier WaterfallComponent::Panel::getProcessorTypeId() const
-{
-	return WavetableSynth::getClassType();
-}
-
-Component* WaterfallComponent::Panel::createContentComponent(int index)
-{
-	if (auto wt = dynamic_cast<WavetableSynth*>(getProcessor()))
-	{
-		if (auto sound = dynamic_cast<WavetableSound*>(wt->getSound(index)))
-		{
-			auto wc = new WaterfallComponent(getMainController(), sound);
-
-			auto currentIndex = index;
-			WeakReference<ModulatorSynth> safeThis(wt);
-
-			auto bgColour = findPanelColour(FloatingTileContent::PanelColourId::bgColour);
-
-			wc->setOpaque(bgColour.isOpaque());
-			wc->setColour(HiseColourScheme::ComponentBackgroundColour, bgColour);
-			wc->setColour(HiseColourScheme::ComponentFillTopColourId, findPanelColour(FloatingTileContent::PanelColourId::itemColour1));
-			wc->setColour(HiseColourScheme::ComponentOutlineColourId, findPanelColour(FloatingTileContent::PanelColourId::itemColour2));
-			wc->setColour(HiseColourScheme::ComponentTextColourId, findPanelColour(FloatingTileContent::PanelColourId::textColour));
-
-			wc->displayDataFunction = [safeThis, currentIndex]()
-			{
-				WaterfallComponent::DisplayData data;
-
-				if (safeThis != nullptr)
-				{
-					data.sound = dynamic_cast<WavetableSound*>(safeThis->getSound(currentIndex));
-					data.modValue = static_cast<WavetableSynth*>(safeThis.get())->getDisplayTableValue();
-				}
-
-				return data;
-			};
-
-			return wc;
-		}
-	}
-
-	return nullptr;
-}
-
-int WaterfallComponent::Panel::getNumDefaultableProperties() const
-{
-	return (int)SpecialPanelIds::numSpecialPanelIds;
-}
-
-juce::Identifier WaterfallComponent::Panel::getDefaultablePropertyId(int index) const
-{
-	if (isPositiveAndBelow(index, PanelWithProcessorConnection::SpecialPanelIds::numSpecialPanelIds))
-		return PanelWithProcessorConnection::getDefaultablePropertyId(index);
-
-	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::Displacement, "Displacement");
-
-	jassertfalse;
-	return {};
-}
-
-juce::var WaterfallComponent::Panel::getDefaultProperty(int index) const
-{
-	if (isPositiveAndBelow(index, PanelWithProcessorConnection::SpecialPanelIds::numSpecialPanelIds))
-		return PanelWithProcessorConnection::getDefaultProperty(index);
-
-	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::Displacement, Array<var>(var(0.25), var(1.0)));
-
-	jassertfalse;
-
-	return {};
-}
-
-void WaterfallComponent::Panel::fromDynamicObject(const var& object)
-{
-	PanelWithProcessorConnection::fromDynamicObject(object);
-
-	if (auto wc = getContent<WaterfallComponent>())
-	{
-		auto dp = getPropertyWithDefault(object, (int)SpecialPanelIds::Displacement);
-
-		auto displacement = ApiHelpers::getPointFromVar(dp, nullptr);
-
-		wc->setPerspectiveDisplacement(displacement);
-	}
-}
-
-juce::var WaterfallComponent::Panel::toDynamicObject() const
-{
-	auto obj = PanelWithProcessorConnection::toDynamicObject();
-
-	if (auto wc = getContent<WaterfallComponent>())
-	{
-		storePropertyInObject(obj, (int)SpecialPanelIds::Displacement, ApiHelpers::getVarFromPoint(wc->displacement));
-	}
-
-	return obj;
-}
-
-void WaterfallComponent::Panel::fillModuleList(StringArray& moduleList)
-{
-	moduleList = ProcessorHelpers::getAllIdsForType<WavetableSynth>(getMainController()->getMainSynthChain());
-}
-
-void WaterfallComponent::Panel::fillIndexList(StringArray& indexList)
-{
-	if (auto wt = dynamic_cast<WavetableSynth*>(getProcessor()))
-	{
-		for (int i = 0; i < wt->getNumSounds(); i++)
-		{
-			if (auto sound = dynamic_cast<WavetableSound*>(wt->getSound(i)))
-			{
-				indexList.add(MidiMessage::getMidiNoteName(sound->getRootNote(), true, true, true));
-			}
-		}
-	}
-}
-
 
 }

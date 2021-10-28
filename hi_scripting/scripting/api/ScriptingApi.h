@@ -159,6 +159,9 @@ public:
 		/** Checks if the event was created by a script earlier. */
 		bool isArtificial() const;
 
+		/** Sets a callback that will be performed when an all notes off message is received. */
+		void setAllNotesOffCallback(var onAllNotesOffCallback);
+
 		// ============================================================================================================
 
 		void setHiseEvent(HiseEvent &m);
@@ -168,7 +171,19 @@ public:
 
 		struct Wrapper;
 
+		void pushArtificialNoteOn(const HiseEvent& e)
+		{
+			jassert(e.isArtificial());
+			artificialNoteOnIds[e.getNoteNumber()] = e.getEventId();
+		}
+
+		void onAllNotesOff();
+
 	private:
+
+		WeakCallbackHolder allNotesOffCallback;
+
+		friend class Synth;
 
 		friend class JavascriptMidiProcessor;
 		friend class HardcodedScriptProcessor;
@@ -179,6 +194,7 @@ public:
 		uint16 artificialNoteOnIds[128];
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Message);
+		JUCE_DECLARE_WEAK_REFERENCEABLE(Message);
 	};
 
 	/** All scripting methods related to the main engine can be accessed here.
@@ -288,6 +304,9 @@ public:
 		/** Creates (and activates) the expansion handler. */
 		var createExpansionHandler();
 
+		/** Creates an user preset handler. */
+		var createUserPresetHandler();
+
 		/** Creates a reference to the DSP network of another script processor. */
 		var getDspNetworkReference(String processorId, String id);
 
@@ -315,14 +334,14 @@ public:
 		/** Shows a message with an overlay on the compiled plugin with an "OK" button in order to notify the user about important events. */
 		void showMessage(String message);
 
+		/** Shows a message box with an OK button and a icon defined by the type variable. */
+		void showMessageBox(String title, String markdownMessage, int type);
+
 		/** Returns the millisecond value for the supplied tempo (HINT: Use "TempoSync" mode from Slider!) */
 		double getMilliSecondsForTempo(int tempoIndex) const;;
 
     /** launches the given URL in the system's web browser. */
     void openWebsite(String url);
-
-		/** Checks if given email address is valid - not fool proof. */
-    bool isEmailAddress(String email);
 
 		/** Creates a list of all available expansions. */
 		var getExpansionList();
@@ -339,11 +358,11 @@ public:
 		/** Checks if the global MPE mode is enabled. */
 		bool isMpeEnabled() const;
 
-		/** Returns the currently loaded user preset (without extension). */
-		String getCurrentUserPresetName();
-
 		/** Returns the currently loaded user preset file */
 		var getCurrentUserPresetFile();
+
+		/** Returns the currently loaded user preset (without extension). */
+		String getCurrentUserPresetName();
 
 		/** Asks for a preset name (if presetName is empty) and saves the current user preset. */
 		void saveUserPreset(var presetName);
@@ -798,8 +817,8 @@ public:
 
 		// ============================================================================================================
 
-		Synth(ProcessorWithScriptingContent *p, ModulatorSynth *ownerSynth);
-		~Synth() { artificialNoteOns.clear(); }
+		Synth(ProcessorWithScriptingContent *p, Message* messageObject, ModulatorSynth *ownerSynth);
+		~Synth() {}
 
 		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Synth"); };
 
@@ -992,29 +1011,28 @@ public:
 
 		// ============================================================================================================
 
-		void clearNoteCounter()
-		{
-			keyDown.clear();
-			numPressedKeys.set(0);
-		}
-
-		void handleNoteCounter(const HiseEvent& e, bool inc) noexcept
+		void handleNoteCounter(const HiseEvent& e) noexcept
 		{
 			if (e.isArtificial())
 				return;
 
-			if (inc)
+			if (e.isNoteOn())
 			{
 				++numPressedKeys;
 				keyDown.setBit(e.getNoteNumber(), true);
 			}
-			else
+			else if (e.isNoteOff())
 			{
 				--numPressedKeys; 
 				if (numPressedKeys.get() < 0) 
 					numPressedKeys.set(0);
 
 				keyDown.setBit(e.getNoteNumber(), false);
+			}
+			else if (e.isAllNotesOff())
+			{
+				numPressedKeys = 0;
+				keyDown.clear();
 			}
 		}
 
@@ -1028,7 +1046,9 @@ public:
 
 		friend class ModuleHandler;
 
-		OwnedArray<Message> artificialNoteOns;
+		
+		WeakReference<Message> messageObject;
+
 		ModulatorSynth * const owner;
 		Atomic<int> numPressedKeys;
 		BigInteger keyDown;
@@ -1333,6 +1353,9 @@ public:
 		/** This function will be called whenever there is server activity. */
 		void setServerCallback(var callback);
 
+		/** Checks if given email address is valid - not fool proof. */
+    bool isEmailAddress(String email);
+		
 		void queueChanged(int numItems) override
 		{
 			if (serverCallback)
