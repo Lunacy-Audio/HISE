@@ -1874,10 +1874,7 @@ void JavascriptSynthesiser::prepareToPlay(double newSampleRate, int samplesPerBl
 }
 
 
-float JavascriptSynthesiser::getModValueAtVoiceStart(int modIndex) const
-{
-	return getModValueForNode(modIndex, currentVoiceStartSample);
-}
+
 
 void JavascriptSynthesiser::restoreFromValueTree(const ValueTree &v)
 {
