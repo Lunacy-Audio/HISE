@@ -549,7 +549,7 @@ void SamplerSoundWaveform::drawSampleStartBar(Graphics &g)
 		auto c = SampleArea::getAreaColour(AudioDisplayComponent::AreaTypes::SampleStartArea);
 		g.setColour(c);
 
-		// const int x = areas[PlayArea]->getX() + (int)(sampleStartPosition * areas[SampleStartArea]->getWidth());
+        const int x = areas[PlayArea]->getX() + (int)(sampleStartPosition * areas[SampleStartArea]->getWidth());
 
 		g.drawVerticalLine(x, 1, (float)getBottom() - 1);
 
