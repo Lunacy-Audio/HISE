@@ -146,10 +146,6 @@ public:
 	
 
 private:
-	// OpenGLRenderer overrides.
-    void newOpenGLContextCreated() override;
-    void renderOpenGL() override {}
-    void openGLContextClosing() override {}
 
     LookAndFeel_V3 globalLookAndFeel;
     

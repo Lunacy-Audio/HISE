@@ -147,18 +147,17 @@ void MidiControllerAutomationHandler::removeMidiControlledParameter(Processor *i
 		AudioThreadGuard audioGuard(&(mc->getKillStateHandler()));
 		LockHelpers::SafeLock sl(mc, LockHelpers::AudioLock);
 
-		for (int i = 0; i < 128; i++)
-		{
-			for (int j = 0; j < automationData[i].size(); j++)
-			{
-				auto& a = automationData[i][j];
-
-				if (a.processor == interfaceProcessor && a.attribute == attributeIndex)
-				{
-					automationData[i].remove(j--);
-				}
-			}
-		}
+        for (int i = 0; i < 128; i++)
+        {
+            for (auto& a : automationData[i])
+            {
+                if (a.processor == interfaceProcessor && a.attribute == attributeIndex)
+                {
+                    automationData[i].removeAllInstancesOf(a);
+                    break;
+                }
+            }
+        }
 	}
 
 	refreshAnyUsedState();

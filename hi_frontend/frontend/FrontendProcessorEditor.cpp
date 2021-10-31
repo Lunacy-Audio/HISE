@@ -37,11 +37,8 @@ AudioProcessorEditor(fp)
 {
 	usesOpenGl = dynamic_cast<GlobalSettingManager*>(fp)->useOpenGL;
 	
-	if(usesOpenGl) {
-        context.setRenderer(this);
-		context.attachTo(*this);
-        setEnableOpenGL(this);
-    }
+	if(usesOpenGl)
+		setEnableOpenGL(this);
 
 	fp->addScaleFactorListener(this);
 	fp->incActiveEditors();
@@ -271,22 +268,6 @@ void FrontendProcessorEditor::resized()
     deactiveOverlay->setBounds(0, 0, width, height);
 	loaderOverlay->setBounds(0, 0, width, height);
 	debugLoggerComponent->setBounds(0, height -90, width, 90);
-}
-
-void FrontendProcessorEditor::newOpenGLContextCreated()
-{
-    static const Identifier countId("openGLContextsCreated");
-    if (auto gObj = getMainController()->getGlobalVariableObject())
-    {
-        int count = gObj->getProperty(countId);
-        gObj->setProperty(countId, var(count + 1));
-    }
-    else
-    {
-        // the dynamic object is being created in the MainControllers' constructor
-        // so it should be available as long as the MainController is alive...
-        jassertfalse;
-    }
 }
 
 } // namespace hise

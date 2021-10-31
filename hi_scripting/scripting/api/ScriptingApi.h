@@ -358,11 +358,11 @@ public:
 		/** Checks if the global MPE mode is enabled. */
 		bool isMpeEnabled() const;
 
-		/** Returns the currently loaded user preset file */
-		var getCurrentUserPresetFile();
-
 		/** Returns the currently loaded user preset (without extension). */
 		String getCurrentUserPresetName();
+
+		/** Returns the currently loaded user preset file */
+		var getCurrentUserPresetFile();
 
 		/** Asks for a preset name (if presetName is empty) and saves the current user preset. */
 		void saveUserPreset(var presetName);
@@ -482,7 +482,7 @@ public:
 		DynamicObject *getPlayHead();
 
 		/** Checks if the given CC number is used for parameter automation and returns the index of the control. */
-		var isControllerUsedByAutomation(int controllerNumber);
+		int isControllerUsedByAutomation(int controllerNumber);
 
 		/** Creates a MIDI List object. */
     ScriptingObjects::MidiList *createMidiList();
