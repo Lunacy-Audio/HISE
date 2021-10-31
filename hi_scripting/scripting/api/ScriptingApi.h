@@ -485,7 +485,7 @@ public:
 		var isControllerUsedByAutomation(int controllerNumber);
 
 		/** Creates a MIDI List object. */
-    ScriptingObjects::MidiList *createMidiList();
+    	ScriptingObjects::MidiList *createMidiList();
 
 		/** Creates a unordered stack that can hold up to 128 float numbers. */
 		ScriptingObjects::ScriptUnorderedStack* createUnorderedStack();

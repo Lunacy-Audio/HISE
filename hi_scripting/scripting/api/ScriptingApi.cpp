@@ -3117,6 +3117,8 @@ void ScriptingApi::Engine::setUserPresetTagList(var listOfTags)
 
 		getProcessor()->getMainController()->getUserPresetHandler().getTagDataBase().setTagList(sa);
 	}
+
+
 }
 
 var ScriptingApi::Engine::getTagsFromPreset(var file)
@@ -3490,20 +3492,17 @@ void ScriptingApi::Engine::rebuildCachedPools()
 
 DynamicObject * ScriptingApi::Engine::getPlayHead() { return getProcessor()->getMainController()->getHostInfoObject(); }
 
-var ScriptingApi::Engine::isControllerUsedByAutomation(int controllerNumber)
+int ScriptingApi::Engine::isControllerUsedByAutomation(int controllerNumber)
 {
 	auto handler = getProcessor()->getMainController()->getMacroManager().getMidiControlAutomationHandler();
-	Array<var> controls;
 
 	for (int i = 0; i < handler->getNumActiveConnections(); i++)
 	{
-		if (handler->getDataFromIndex(i).ccNumber == controllerNumber) {
-			auto data = handler->getDataFromIndex(i);
-			controls.add(data.processor->getIdentifierForParameterIndex(data.attribute).toString());
-		}
+		if (handler->getDataFromIndex(i).ccNumber == controllerNumber)
+			return i;
 	}
 
-	return var(controls);
+	return -1;
 }
 
 ScriptingObjects::MidiList *ScriptingApi::Engine::createMidiList() { return new ScriptingObjects::MidiList(getScriptProcessor()); };

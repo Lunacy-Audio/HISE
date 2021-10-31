@@ -186,6 +186,50 @@ private:
     JUCE_DECLARE_WEAK_REFERENCEABLE(ValueTreeUpdateWatcher);
 };
 
+
+class ScriptComponentPropertyTypeSelector
+{
+public:
+
+	struct SliderRange
+	{
+		double min, max, interval;
+	};
+
+	enum SelectorTypes
+	{
+		ToggleSelector = 0,
+		ColourPickerSelector,
+		SliderSelector,
+		ChoiceSelector,
+		MultilineSelector,
+		TextSelector,
+		FileSelector,
+		CodeSelector,
+		numSelectorTypes
+	};
+
+	SelectorTypes getTypeForId(const Identifier &id) const;
+
+	void addToTypeSelector(SelectorTypes type, Identifier id, double min = 0.0, double max = 1.0, double interval = 0.01);
+
+	SliderRange getRangeForId(const Identifier &id) const
+	{
+		return sliderRanges[id.toString()];
+	}
+
+private:
+
+	Array<Identifier> toggleProperties;
+	Array<Identifier> sliderProperties;
+	Array<Identifier> colourProperties;
+	Array<Identifier> choiceProperties;
+	Array<Identifier> multilineProperties;
+	Array<Identifier> fileProperties;
+	Array<Identifier> codeProperties;
+	HashMap<String, SliderRange> sliderRanges;
+};
+
 /** This is the interface area that can be filled with buttons, knobs, etc.
 *	@ingroup scriptingApi
 *
@@ -308,6 +352,8 @@ public:
 			virtual ~ZLevelListener() {};
 
 			virtual void zLevelChanged(ZLevel newZLevel) = 0;
+
+			virtual void wantsToLoseFocus() {}
 
 			JUCE_DECLARE_WEAK_REFERENCEABLE(ZLevelListener);
 		};
@@ -531,8 +577,19 @@ public:
 		/** Changes the depth hierarchy (z-axis) of sibling components (Back, Default, Front or AlwaysOnTop). */
 		void setZLevel(String zLevel);
 
+		/** Adds a callback to react on key presses (when this component is focused). */
+		void setKeyPressCallback(var keyboardFunction);
+
+		/** Call this method in order to give away the focus for this component. */
+		void loseFocus();
+
 		// End of API Methods ============================================================================================
 
+		bool handleKeyPress(const KeyPress& k);
+
+		void handleFocusChange(bool isFocused);
+
+		bool wantsKeyboardFocus() const { return (bool)keyboardCallback; }
 
 		void addSubComponentListener(SubComponentListener* l)
 		{
@@ -685,7 +742,13 @@ public:
 		
 		bool removePropertyIfDefault = true;
 
+#if USE_BACKEND
+		juce::SharedResourcePointer<hise::ScriptComponentPropertyTypeSelector> selectorTypes;
+#endif
+
 	private:
+
+		WeakCallbackHolder keyboardCallback;
 
 		struct AsyncControlCallbackSender : private UpdateDispatcher::Listener
         {
@@ -813,15 +876,6 @@ public:
 
 		/** Pass a function that takes a double and returns a String in order to override the popup display text. */
 		void setValuePopupFunction(var newFunction);
-
-		void setTableValueChangedFunction(var newFunction);
-
-		/** Returns the number of graph points */
-		int getNumPoints();
-
-		double getPointX(int pointIndex);
-		double getPointY(int pointIndex);
-		double getPointCurve(int pointIndex);
 
 		/** Sets the value that is shown in the middle position. */
 		void setMidPoint(double valueForMidPoint);
@@ -1172,7 +1226,7 @@ public:
 
 		ComplexDataUIBase* getCachedDataObject() const { return cachedObjectReference.get(); };
 
-		void registerComplexDataObjectAtParent(int index = -1);
+		var registerComplexDataObjectAtParent(int index = -1);
 
 	protected:
 
@@ -1227,15 +1281,6 @@ public:
 		/** Pass a function that takes a double and returns a String in order to override the popup display text. */
 		void setTablePopupFunction(var newFunction);
 
-		void setTableValueChangedFunction(var newFunction);
-
-		/** Returns the number of graph points */
-		int getNumPoints();
-
-		double getPointX(int pointIndex);
-		double getPointY(int pointIndex);
-		double getPointCurve(int pointIndex);
-
 		void connectToOtherTable(String processorId, int index)
 		{
 			setScriptObjectProperty(ScriptingApi::Content::ScriptComponent::processorId, processorId, dontSendNotification);
@@ -1252,8 +1297,8 @@ public:
 		/** Connects it to a table data object (or UI element in the same interface). */
 		void referToData(var tableData);
 
-		/** Registers this table with the given index so you can use it from the outside. */
-		void registerAtParent(int index);
+		/** Registers this table (and returns a reference to the data) with the given index so you can use it from the outside. */
+		var registerAtParent(int index);
 
 		// ========================================================================================================
 
@@ -1261,7 +1306,6 @@ public:
 
 		var snapValues;
 		var tableValueFunction;
-		var tableValueChangedFunction;
 
 	private:
 
@@ -1330,6 +1374,9 @@ public:
 		/** Sets a non-uniform width per slider using an array in the form [0.0, ... a[i], ... 1.0]. */
 		void setWidthArray(var normalizedWidths);
         
+		/** Registers this sliderpack to the script processor to be acessible from the outside. */
+		var registerAtParent(int pIndex);
+
 		// ========================================================================================================
 
 		struct Wrapper;
@@ -1499,6 +1546,18 @@ public:
 			numProperties
 		};
 
+		enum class DebugWatchIndex
+		{
+			Data,
+			ChildPanels,
+			PaintRoutine,
+			TimerCallback,
+			MouseCallback,
+			PreloadCallback,
+			FileCallback,
+			NumDebugWatchIndexes
+		};
+
 		ScriptPanel(ProcessorWithScriptingContent *base, Content *parentContent, Identifier panelName, int x, int y, int width, int height);;
 		
 		ScriptPanel(ScriptPanel* parent);
@@ -1523,6 +1582,8 @@ public:
 
 		void preRecompileCallback() override
 		{
+			cachedList.clear();
+
 			ScriptComponent::preRecompileCallback();
 
 			timerRoutine.clear();
@@ -1537,6 +1598,14 @@ public:
 		void prepareCycleReferenceCheck() override;
 
 		void handleDefaultDeactivatedProperties() override;
+
+		int getNumChildElements() const override;
+
+		DebugInformationBase* getChildElement(int index) override;
+
+		DebugInformationBase::Ptr createChildElement(DebugWatchIndex index) const;
+
+		
 
 		// ======================================================================================================== API Methods
 
@@ -1786,7 +1855,7 @@ public:
 
 		var paintRoutine;
 
-		
+		void buildDebugListIfEmpty() const;
 
 		WeakCallbackHolder timerRoutine;
 		WeakCallbackHolder loadRoutine;
@@ -1804,7 +1873,7 @@ public:
 		WeakReference<ScriptPanel> parentPanel;
 		ReferenceCountedArray<ScriptPanel> childPanels;
 
-		
+		mutable DebugInformationBase::List cachedList;
 
 		bool isChildPanel = false;
 
@@ -1825,6 +1894,8 @@ public:
 			scrollbarThickness = ScriptComponent::numProperties,
 			autoHide,
 			useList,
+			viewPositionX,
+			viewPositionY,
 			Items,
 			FontName,
 			FontSize,
@@ -1853,10 +1924,11 @@ public:
 
 		Array<PropertyWithValue> getLinkProperties() const override;
 
+		LambdaBroadcaster<double, double> positionBroadcaster;
+
 	private:
 
 		StringArray currentItems;
-
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptedViewport);
 	};
@@ -1960,6 +2032,33 @@ public:
 	};
 
 
+	struct ScreenshotListener
+	{
+        virtual ~ScreenshotListener() {};
+        
+		virtual void makeScreenshot(const File& targetFile, Rectangle<float> area) = 0;
+
+		virtual void visualGuidesChanged() = 0;
+
+	private:
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(ScreenshotListener);
+	};
+
+	struct VisualGuide
+	{
+		enum class Type
+		{
+			HorizontalLine,
+			VerticalLine,
+			Rectangle
+		};
+
+		Rectangle<float> area;
+		Colour c;
+		Type t;
+	};
+
 	// ================================================================================================================
 
 	Content(ProcessorWithScriptingContent *p);;
@@ -2015,6 +2114,9 @@ public:
 	/** Returns the reference to the given component. */
 	var getComponent(var name);
 	
+	/** Returns the current tooltip. */
+	String getCurrentTooltip();
+
 	/** Returns an array of all components that match the given regex. */
     var getAllComponents(String regex);
 
@@ -2038,6 +2140,12 @@ public:
 
 	/** Sets the height of the content. */
 	void setWidth(int newWidth) noexcept;
+
+	/** Creates a screenshot of the area relative to the content's origin. */
+	void createScreenshot(var area, var directory, String name);
+
+	/** Creates either a line or rectangle with the given colour. */
+	void addVisualGuide(var guideData, var colour);
 
     /** Sets this script as main interface with the given size. */
     void makeFrontInterface(int width, int height);
@@ -2120,6 +2228,11 @@ public:
 	const ValueTree getContentProperties() const
 	{
 		return contentPropertyData;
+	}
+
+	void setScreenshotListener(ScreenshotListener* l)
+	{
+		screenshotListener = l;
 	}
 
 	var getValuePopupProperties() const { return valuePopupData; };
@@ -2271,6 +2384,8 @@ public:
     
 	void suspendPanelTimers(bool shouldBeSuspended);
 
+	Array<VisualGuide> guides;
+
 private:
 
 	struct AsyncRebuildMessageBroadcaster : public AsyncUpdater
@@ -2304,7 +2419,7 @@ private:
 		}
 	};
 
-	
+	WeakReference<ScreenshotListener> screenshotListener;
 
 	static void initNumberProperties();
 

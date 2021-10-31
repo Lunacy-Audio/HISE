@@ -37,12 +37,11 @@ namespace hise { using namespace juce;
 MidiControllerAutomationHandler::MidiControllerAutomationHandler(MainController *mc_) :
 anyUsed(false),
 mpeData(mc_),
-mc(mc_),
-ccName("MIDI CC")
+mc(mc_)
 {
 	tempBuffer.ensureSize(2048);
 
-	clear(sendNotification);
+	clear();
 }
 
 void MidiControllerAutomationHandler::addMidiControlledParameter(Processor *interfaceProcessor, int attributeIndex, NormalisableRange<double> parameterRange, int macroIndex)
@@ -79,23 +78,11 @@ void MidiControllerAutomationHandler::setUnlearndedMidiControlNumber(int ccNumbe
 {
 	jassert(isLearningActive());
 
-	if (!shouldAddControllerToPopup(ccNumber))
-	{
-		return;
-	}
-
 	ScopedLock sl(mc->getLock());
 
 	unlearnedData.ccNumber = ccNumber;
 
-	if (exclusiveMode)
-	{
-		automationData[ccNumber].clearQuick();
-		automationData[ccNumber].add(unlearnedData);
-	}
-	else
-		automationData[ccNumber].addIfNotAlreadyThere(unlearnedData);
-
+	automationData[ccNumber].addIfNotAlreadyThere(unlearnedData);
 	unlearnedData = AutomationData();
 
 	anyUsed = true;
@@ -123,7 +110,7 @@ int MidiControllerAutomationHandler::getMidiControllerNumber(Processor *interfac
 void MidiControllerAutomationHandler::refreshAnyUsedState()
 {
 	AudioThreadGuard::Suspender suspender;
-	LockHelpers::SafeLock sl(mc, LockHelpers::Type::AudioLock);
+	LockHelpers::SafeLock sl(mc, LockHelpers::AudioLock);
 
 	ignoreUnused(suspender);
 
@@ -142,7 +129,7 @@ void MidiControllerAutomationHandler::refreshAnyUsedState()
 	}
 }
 
-void MidiControllerAutomationHandler::clear(NotificationType notifyListeners)
+void MidiControllerAutomationHandler::clear()
 {
 	for (int i = 0; i < 128; i++)
 	{
@@ -152,29 +139,25 @@ void MidiControllerAutomationHandler::clear(NotificationType notifyListeners)
 	unlearnedData = AutomationData();
 
 	anyUsed = false;
-	
-	if (notifyListeners == sendNotification)
-		sendChangeMessage();
 }
 
 void MidiControllerAutomationHandler::removeMidiControlledParameter(Processor *interfaceProcessor, int attributeIndex, NotificationType notifyListeners)
 {
 	{
 		AudioThreadGuard audioGuard(&(mc->getKillStateHandler()));
-		LockHelpers::SafeLock sl(mc, LockHelpers::Type::AudioLock);
+		LockHelpers::SafeLock sl(mc, LockHelpers::AudioLock);
 
-		for (int i = 0; i < 128; i++)
-		{
-			for (int j = 0; j < automationData[i].size(); j++)
-			{
-				auto a = automationData[i][j];
-
-				if (a.processor == interfaceProcessor && a.attribute == attributeIndex)
-				{
-					automationData[i].remove(j--);
-				}
-			}
-		}
+        for (int i = 0; i < 128; i++)
+        {
+            for (auto& a : automationData[i])
+            {
+                if (a.processor == interfaceProcessor && a.attribute == attributeIndex)
+                {
+                    automationData[i].removeAllInstancesOf(a);
+                    break;
+                }
+            }
+        }
 	}
 
 	refreshAnyUsedState();
@@ -229,33 +212,14 @@ void MidiControllerAutomationHandler::AutomationData::restoreFromValueTree(const
 	// The parameter was stored correctly as ID
 	if (isParameterId && processor.get() != nullptr)
 	{
-		auto numCustomAutomationSlots = processor->getMainController()->getUserPresetHandler().getNumCustomAutomationData();
+		const Identifier pId(attributeString);
 
-		if (numCustomAutomationSlots != 0)
+		for (int j = 0; j < processor->getNumParameters(); j++)
 		{
-			for (int j = 0; j < numCustomAutomationSlots; j++)
+			if (processor->getIdentifierForParameterIndex(j) == pId)
 			{
-				if (auto ah = processor->getMainController()->getUserPresetHandler().getCustomAutomationData(j))
-				{
-					if (ah->id == attributeString)
-					{
-						attribute = j;
-						break;
-					}
-				}
-			}
-		}
-		else
-		{
-			const Identifier pId(attributeString);
-
-			for (int j = 0; j < processor->getNumParameters(); j++)
-			{
-				if (processor->getIdentifierForParameterIndex(j) == pId)
-				{
-					attribute = j;
-					break;
-				}
+				attribute = j;
+				break;
 			}
 		}
 	}
@@ -311,16 +275,7 @@ juce::ValueTree MidiControllerAutomationHandler::AutomationData::exportAsValueTr
 	cc.setProperty("FullEnd", fullRange.end, nullptr);
 	cc.setProperty("Skew", parameterRange.skew, nullptr);
 	cc.setProperty("Interval", parameterRange.interval, nullptr);
-
-	if (auto ap = processor->getMainController()->getUserPresetHandler().getCustomAutomationData(attribute))
-	{
-		cc.setProperty("Attribute", ap->id, nullptr);
-	}
-	else
-	{
-		cc.setProperty("Attribute", processor->getIdentifierForParameterIndex(attribute).toString(), nullptr);
-	}
-
+	cc.setProperty("Attribute", processor->getIdentifierForParameterIndex(attribute).toString(), nullptr);
 	cc.setProperty("Inverted", inverted, nullptr);
 
 	return cc;
@@ -366,7 +321,7 @@ struct MidiControllerAutomationHandler::MPEData::Data: public Processor::DeleteL
 			{
 				c->removeDeleteListener(this);
 				c->setBypassed(true);
-				c->sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom);
+				c->sendChangeMessage();
 			}
 			else
 				jassertfalse;
@@ -440,7 +395,7 @@ void MidiControllerAutomationHandler::MPEData::restoreFromValueTree(const ValueT
         return SafeFunctionCall::OK;
 	};
 
-	getMainController()->getKillStateHandler().killVoicesAndCall(getMainController()->getMainSynthChain(), f, MainController::KillStateHandler::TargetThread::SampleLoadingThread);
+	getMainController()->getKillStateHandler().killVoicesAndCall(getMainController()->getMainSynthChain(), f, MainController::KillStateHandler::SampleLoadingThread);
 
 	asyncRestorer.restore(v);
 }
@@ -664,9 +619,6 @@ bool MidiControllerAutomationHandler::MPEData::contains(MPEModulator* mod) const
 
 ValueTree MidiControllerAutomationHandler::exportAsValueTree() const
 {
-	if (unloadedData.isValid())
-		return unloadedData;
-
 	ValueTree v("MidiAutomation");
 
 	for (int i = 0; i < 128; i++)
@@ -688,7 +640,7 @@ void MidiControllerAutomationHandler::restoreFromValueTree(const ValueTree &v)
 {
 	if (v.getType() != Identifier("MidiAutomation")) return;
 
-	clear(sendNotification);
+	clear();
 
 	for (int i = 0; i < v.getNumChildren(); i++)
 	{
@@ -706,157 +658,10 @@ void MidiControllerAutomationHandler::restoreFromValueTree(const ValueTree &v)
 		aArray.addIfNotAlreadyThere(a);
 	}
 
-    if(mc->getUserPresetHandler().isInternalPresetLoad())
-        sendSynchronousChangeMessage();
-    else
-        sendChangeMessage();
+	sendChangeMessage();
 
 	refreshAnyUsedState();
 }
-
-Identifier MidiControllerAutomationHandler::getUserPresetStateId() const
-{ return UserPresetIds::MidiAutomation; }
-
-void MidiControllerAutomationHandler::resetUserPresetState()
-{ clear(sendNotification); }
-
-MidiControllerAutomationHandler::MPEData::Listener::~Listener()
-{}
-
-void MidiControllerAutomationHandler::MPEData::Listener::mpeModulatorAmountChanged()
-{}
-
-Identifier MidiControllerAutomationHandler::MPEData::getUserPresetStateId() const
-{ return UserPresetIds::MPEData; }
-
-void MidiControllerAutomationHandler::MPEData::resetUserPresetState()
-{ reset(); }
-
-bool MidiControllerAutomationHandler::MPEData::isMpeEnabled() const
-{ return mpeEnabled; }
-
-void MidiControllerAutomationHandler::MPEData::addListener(Listener* l)
-{
-	listeners.addIfNotAlreadyThere(l);
-
-	// Fire this once to setup the correct state
-	l->mpeModeChanged(mpeEnabled);
-}
-
-void MidiControllerAutomationHandler::MPEData::removeListener(Listener* l)
-{
-	listeners.removeAllInstancesOf(l);
-}
-
-void MidiControllerAutomationHandler::MPEData::sendAmountChangeMessage()
-{
-	ScopedLock sl(listeners.getLock());
-
-	for (auto l : listeners)
-	{
-		if (l)
-			l->mpeModulatorAmountChanged();
-	}
-}
-
-MidiControllerAutomationHandler::MPEData::AsyncRestorer::AsyncRestorer(MPEData& parent_):
-	parent(parent_)
-{}
-
-void MidiControllerAutomationHandler::MPEData::AsyncRestorer::restore(const ValueTree& v)
-{
-	data = v;
-	dirty = true;
-	startTimer(50);
-}
-
-MidiControllerAutomationHandler::AutomationData::~AutomationData()
-{ clear(); }
-
-MidiControllerAutomationHandler::MPEData& MidiControllerAutomationHandler::getMPEData()
-{ return mpeData; }
-
-const MidiControllerAutomationHandler::MPEData& MidiControllerAutomationHandler::getMPEData() const
-{ return mpeData; }
-
-void MidiControllerAutomationHandler::setUnloadedData(const ValueTree& v)
-{
-	unloadedData = v;
-}
-
-void MidiControllerAutomationHandler::loadUnloadedData()
-{
-	if(unloadedData.isValid())
-		restoreFromValueTree(unloadedData);
-
-	unloadedData = {};
-}
-
-void MidiControllerAutomationHandler::setControllerPopupNumbers(BigInteger controllerNumberToShow)
-{
-	controllerNumbersInPopup = controllerNumberToShow;
-}
-
-bool MidiControllerAutomationHandler::hasSelectedControllerPopupNumbers() const
-{
-	return !controllerNumbersInPopup.isZero();
-}
-
-bool MidiControllerAutomationHandler::shouldAddControllerToPopup(int controllerValue) const
-{
-	if (!hasSelectedControllerPopupNumbers())
-		return true;
-
-	return controllerNumbersInPopup[controllerValue];
-}
-
-bool MidiControllerAutomationHandler::isMappable(int controllerValue) const
-{
-	if (isPositiveAndBelow(controllerValue, 128))
-	{
-		if (!exclusiveMode)
-			return shouldAddControllerToPopup(controllerValue);
-		else
-			return shouldAddControllerToPopup(controllerValue) && automationData[controllerValue].isEmpty();
-	}
-		
-	return false;
-}
-
-void MidiControllerAutomationHandler::setExclusiveMode(bool shouldBeExclusive)
-{
-	exclusiveMode = shouldBeExclusive;
-}
-
-void MidiControllerAutomationHandler::setConsumeAutomatedControllers(bool shouldConsume)
-{
-	consumeEvents = shouldConsume;
-}
-
-void MidiControllerAutomationHandler::setControllerPopupNames(const StringArray& newControllerNames)
-{
-	controllerNames = newControllerNames;
-}
-
-String MidiControllerAutomationHandler::getControllerName(int controllerIndex)
-{
-	if (isPositiveAndBelow(controllerIndex, controllerNames.size()))
-	{
-		return controllerNames[controllerIndex];
-	}
-	else
-	{
-		String s;
-		s << "CC#" << controllerIndex;
-		return s;
-	}
-}
-
-void MidiControllerAutomationHandler::setCCName(const String& newCCName)
-{ ccName = newCCName; }
-
-String MidiControllerAutomationHandler::getCCName() const
-{ return ccName; }
 
 void MidiControllerAutomationHandler::handleParameterData(MidiBuffer &b)
 {
@@ -885,9 +690,36 @@ void MidiControllerAutomationHandler::handleParameterData(MidiBuffer &b)
 				setUnlearndedMidiControlNumber(number, sendNotification);
 			}
 
-			HiseEvent he(m);
+			for (auto& a : automationData[number])
+			{
+				if (a.used && a.processor.get() != nullptr)
+				{
+					jassert(a.processor.get() != nullptr);
 
-			consumed = handleControllerMessage(he);
+					auto normalizedValue = (double)m.getControllerValue() / 127.0;
+
+					if (a.inverted) normalizedValue = 1.0 - normalizedValue;
+
+					const double value = a.parameterRange.convertFrom0to1(normalizedValue);
+
+					const float snappedValue = (float)a.parameterRange.snapToLegalValue(value);
+
+					if (a.macroIndex != -1)
+					{
+						a.processor->getMainController()->getMacroManager().getMacroChain()->setMacroControl(a.macroIndex, (float)m.getControllerValue(), sendNotification);
+					}
+					else
+					{
+						if (a.lastValue != snappedValue)
+						{
+							a.processor->setAttribute(a.attribute, snappedValue, sendNotification);
+							a.lastValue = snappedValue;
+						}
+					}
+
+					consumed = true;
+				}
+			}
 		}
 
 		if (!consumed) tempBuffer.addEvent(m, samplePos);
@@ -897,60 +729,6 @@ void MidiControllerAutomationHandler::handleParameterData(MidiBuffer &b)
 	b.addEvents(tempBuffer, 0, -1, 0);
 }
 
-
-bool MidiControllerAutomationHandler::handleControllerMessage(const HiseEvent& e)
-{
-	auto number = e.getControllerNumber();
-
-    bool thisConsumed = false;
-    
-	for (auto& a : automationData[number])
-	{
-		if (a.used && a.processor.get() != nullptr)
-		{
-			jassert(a.processor.get() != nullptr);
-
-			// MIDI events should not be propagated as plugin parameter changes
-			ScopedValueSetter<bool> setter(a.processor->getMainController()->getPluginParameterUpdateState(), false);
-			
-			auto normalizedValue = (double)e.getControllerValue() / 127.0;
-
-			if (a.inverted) normalizedValue = 1.0 - normalizedValue;
-
-			const double value = a.parameterRange.convertFrom0to1(normalizedValue);
-
-			const float snappedValue = (float)a.parameterRange.snapToLegalValue(value);
-
-			if (a.macroIndex != -1)
-			{
-				a.processor->getMainController()->getMacroManager().getMacroChain()->setMacroControl(a.macroIndex, (float)e.getControllerValue(), sendNotification);
-			}
-			else
-			{
-				if (a.lastValue != snappedValue)
-				{
-					auto& uph = a.processor->getMainController()->getUserPresetHandler();
-
-					if (uph.isUsingCustomDataModel())
-					{
-						if (auto ad = uph.getCustomAutomationData(a.attribute))
-							ad->call(snappedValue, dispatch::DispatchType::sendNotificationSync);
-					}
-					else
-					{
-						a.processor->setAttribute(a.attribute, snappedValue, sendNotificationAsync);
-					}
-
-					a.lastValue = snappedValue;
-				}
-			}
-
-            thisConsumed |= consumeEvents;
-		}
-	}
-
-	return thisConsumed;
-}
 
 hise::MidiControllerAutomationHandler::AutomationData MidiControllerAutomationHandler::getDataFromIndex(int index) const
 {
@@ -1312,15 +1090,31 @@ bool CircularAudioSampleBuffer::readMidiEvents(MidiBuffer& destination, int offs
 
 void DelayedRenderer::processWrapped(AudioSampleBuffer& buffer, MidiBuffer& midiMessages)
 {
-	// So FL Studio seems to violate the convention of not exceeding the buffer size set
-	// in the prepareToPlay() callback
-	auto maxBlockSize = jmin(mc->getMaximumBlockSize(), mc->getOriginalBufferSize());
-	
-	if (buffer.getNumSamples() > maxBlockSize)
+	if (shouldDelayRendering())
 	{
-		// We'll recursively call this method with a smaller buffer to stay within the
-		// buffer size limits...
+	
+		circularInputBuffer.writeSamples(buffer, 0, buffer.getNumSamples());
 
+		INSTRUMENT_ONLY(circularInputBuffer.writeMidiEvents(midiMessages, 0, buffer.getNumSamples()));
+		INSTRUMENT_ONLY(buffer.clear());
+
+		while (circularInputBuffer.getNumAvailableSamples() >= fullBlockSize)
+		{
+			delayedMidiBuffer.clear();
+
+			circularInputBuffer.readSamples(processBuffer, 0, fullBlockSize);
+
+			INSTRUMENT_ONLY(circularInputBuffer.readMidiEvents(delayedMidiBuffer, 0, fullBlockSize));
+			
+			mc->processBlockCommon(processBuffer, delayedMidiBuffer);
+
+			circularOutputBuffer.writeSamples(processBuffer, 0, fullBlockSize);
+		}
+
+		circularOutputBuffer.readSamples(buffer, 0, buffer.getNumSamples());
+	}
+	else if (buffer.getNumSamples() > HISE_MAX_PROCESSING_BLOCKSIZE)
+	{
 		int numChannels = buffer.getNumChannels();
 		int numToDo = buffer.getNumSamples();
 
@@ -1332,39 +1126,25 @@ void DelayedRenderer::processWrapped(AudioSampleBuffer& buffer, MidiBuffer& midi
 
 		while (numToDo > 0)
 		{
-            mc->setSampleOffsetWithinProcessBuffer(start);
-            
-			auto numThisTime = jmin(numToDo, maxBlockSize);
+			auto numThisTime = jmin(numToDo, HISE_MAX_PROCESSING_BLOCKSIZE);
+
+			jassert(numThisTime % HISE_EVENT_RASTER == 0);
 
 			AudioSampleBuffer chunk(ptrs, numChannels, numThisTime);
 			
-            auto thisOffset = start;
-            
 			delayedMidiBuffer.clear();
-			delayedMidiBuffer.addEvents(midiMessages, thisOffset, numThisTime, -thisOffset);
+			delayedMidiBuffer.addEvents(midiMessages, start, numThisTime, -start);
 			
-#if HISE_MIDIFX_PLUGIN
-            midiMessages.clear(thisOffset, numThisTime);
-#endif
-
-            
 			start += numThisTime;
 			numToDo -= numThisTime;
 
 			for (int i = 0; i < numChannels; i++)
 				ptrs[i] += numThisTime;
 
-			processWrapped(chunk, delayedMidiBuffer);
-            
-#if HISE_MIDIFX_PLUGIN
-            midiMessages.addEvents(delayedMidiBuffer, 0, numThisTime, thisOffset);
-#endif
+			mc->processBlockCommon(chunk, delayedMidiBuffer);
 		}
-        
-        mc->setSampleOffsetWithinProcessBuffer(0);
-
-		return;
 	}
+
 	else if (buffer.getNumSamples() % HISE_EVENT_RASTER != 0 || numLeftOvers != 0)
 	{
 #if FRONTEND_IS_PLUGIN
@@ -1372,62 +1152,20 @@ void DelayedRenderer::processWrapped(AudioSampleBuffer& buffer, MidiBuffer& midi
 		buffer.clear();
 #else
 
+		DBG(buffer.getNumSamples());
+
 		int numSamplesToCalculate = buffer.getNumSamples() - numLeftOvers;
 
-		if (numSamplesToCalculate <= 0)
-		{
-			if (!midiMessages.isEmpty())
-			{
-				// We need to save the messages for the next block so that
-				// they don't get dropped (FL Studio yay...)
-				lastBlockSizeForShortBuffer = buffer.getNumSamples();
-				MidiBuffer::Iterator it(midiMessages);
-
-				MidiMessage m;
-				int pos;
-
-				while (it.getNextEvent(m, pos))
-					shortBuffer.addEvent(m, pos);
-			}
-
-			// we need to calculate less samples than we have already available, so we can just return
-			// the samples and skip the process for this buffer
-			int numToCopy = buffer.getNumSamples();
-
-			for (int c = 0; c < buffer.getNumChannels(); c++)
-			{
-				leftOverChannels[c] = leftOverData + c * HISE_EVENT_RASTER;
-
-				for (int i = 0; i < numLeftOvers; i++)
-				{
-					if (i < numToCopy)
-					{
-						// Copy the sample to the buffer
-						buffer.setSample(c, i, leftOverChannels[c][i]);
-					}
-					else
-					{
-						// shift the sample data in the left over buffer to the left by numCopy samples
-						leftOverChannels[c][i - numToCopy] = leftOverChannels[c][i];
-					}
-				}
-			}
-
-			numLeftOvers -= numToCopy;
-			return;
-		}
-		
 		// use a temp buffer and pad to the event raster size...
 		auto oddSampleAmount = numSamplesToCalculate % HISE_EVENT_RASTER;
 		auto thisLeftOver = (HISE_EVENT_RASTER - oddSampleAmount) % HISE_EVENT_RASTER;
 
 		int paddedBufferSize = (numSamplesToCalculate + thisLeftOver);
+
 		int numToCopy = jmin(paddedBufferSize, buffer.getNumSamples());
 
 		auto data = (float*)alloca(sizeof(float) * buffer.getNumChannels() * paddedBufferSize);
 
-        FloatVectorOperations::clear(data, buffer.getNumChannels() * paddedBufferSize);
-        
 		float* ptrs[HISE_NUM_PLUGIN_CHANNELS];
 
 		for (int i = 0; i < buffer.getNumChannels(); i++)
@@ -1444,35 +1182,7 @@ void DelayedRenderer::processWrapped(AudioSampleBuffer& buffer, MidiBuffer& midi
 
 		if (paddedBufferSize > 0)
 		{
-			auto lastTimestamp = (int)midiMessages.getLastEventTime();
-
-            ignoreUnused(lastTimestamp);
-			jassert(lastTimestamp < buffer.getNumSamples());
-
 			AudioSampleBuffer tempBuffer(ptrs, buffer.getNumChannels(), paddedBufferSize);
-
-			if (lastTimestamp > numSamplesToCalculate || !shortBuffer.isEmpty())
-			{
-				MidiBuffer::Iterator it(midiMessages);
-
-				delayedMidiBuffer.clear();
-
-				MidiMessage m;
-				int pos;
-
-				for (auto& e : shortBuffer)
-					delayedMidiBuffer.addEvent(e.toMidiMesage(), e.getTimeStamp());
-
-				while (it.getNextEvent(m, pos))
-				{
-					delayedMidiBuffer.addEvent(m, jmin(pos + lastBlockSizeForShortBuffer, numSamplesToCalculate));
-				}
-
-				delayedMidiBuffer.swapWith(midiMessages);
-
-				shortBuffer.clear();
-				lastBlockSizeForShortBuffer = 0;
-			}
 
 			mc->setMaxEventTimestamp(numSamplesToCalculate);
 			mc->processBlockCommon(tempBuffer, midiMessages);
@@ -1502,267 +1212,44 @@ void DelayedRenderer::processWrapped(AudioSampleBuffer& buffer, MidiBuffer& midi
 
 void DelayedRenderer::prepareToPlayWrapped(double sampleRate, int samplesPerBlock)
 {
-	illegalBufferSize = !(samplesPerBlock % HISE_EVENT_RASTER == 0);
+	if (shouldDelayRendering())
+	{
+		if (samplesPerBlock > lastBlockSize)
+		{
+			lastBlockSize = samplesPerBlock;
 
-#if HISE_COMPLAIN_ABOUT_ILLEGAL_BUFFER_SIZE
-	if (illegalBufferSize)
-		mc->sendOverlayMessage(OverlayMessageBroadcaster::IllegalBufferSize);
+#if FRONTEND_IS_PLUGIN
+			fullBlockSize = samplesPerBlock;
+#else
+			fullBlockSize = jmin<int>(256, samplesPerBlock);
 #endif
 
-    if(samplesPerBlock % HISE_EVENT_RASTER != 0)
-        samplesPerBlock += HISE_EVENT_RASTER - (samplesPerBlock % HISE_EVENT_RASTER);
+			circularInputBuffer = CircularAudioSampleBuffer(2, 3 * samplesPerBlock);
 
-	mc->prepareToPlay(sampleRate, jmin(samplesPerBlock, mc->getMaximumBlockSize()));
-}
 
-AudioRendererBase::AudioRendererBase(MainController* mc):
-	Thread("AudioExportThread"),
-	ControlledObject(mc)
-{}
 
-AudioRendererBase::~AudioRendererBase()
-{
-	stopThread(1000);
-	cleanup();
-}
+			circularOutputBuffer = CircularAudioSampleBuffer(2, 3 * samplesPerBlock);
 
-void AudioRendererBase::initAfterFillingEventBuffer()
-{
-	if (!eventBuffers.isEmpty() && !eventBuffers.getLast()->isEmpty())
-	{
-		if ((bufferSize = getMainController()->getMainSynthChain()->getLargestBlockSize()) != 0)
-		{
-			auto numSamplesTill80Ms = getMainController()->getMainSynthChain()->getSampleRate() * 0.08;
+			circularOutputBuffer.setReadDelta(fullBlockSize);
 
-			auto numBuffersTill80Ms = roundToInt(numSamplesTill80Ms / (double)bufferSize);
+			processBuffer.setSize(2, fullBlockSize);
 
-			thisNumThrowAway = jmax(NumThrowAwayBuffers, numBuffersTill80Ms);
+			delayedMidiBuffer.ensureSize(1024);
 
-			auto& lb = *eventBuffers.getLast();
-			numSamplesToRender = (int)lb.getEvent(lb.getNumUsed() - 1).getTimeStamp();
+			dynamic_cast<AudioProcessor*>(mc)->setLatencySamples(fullBlockSize);
 
-			// we'll trim it later
-			numActualSamples = numSamplesToRender;
 
-			auto leftOver = numSamplesToRender % bufferSize;
-
-			if (leftOver != 0)
-			{
-				// pad to blocksize
-				numSamplesToRender += (bufferSize - leftOver);
-			}
-
-			numChannelsToRender = getMainController()->getMainSynthChain()->getMatrix().getNumSourceChannels();
-
-			for(auto events: eventBuffers)
-			{
-				events->subtractFromTimeStamps(-bufferSize * thisNumThrowAway);
-				events->alignEventsToRaster<HISE_EVENT_RASTER>(numSamplesToRender);
-			}
-			
-			for (int i = 0; i < numChannelsToRender; i++)
-				channels.add(new VariantBuffer(numSamplesToRender));
-
-			Thread::startThread(8);
 		}
-	}
-}
-
-void AudioRendererBase::cleanup()
-{
-	getMainController()->getKillStateHandler().setCurrentExportThread(nullptr);
-	channels.clear();
-	memset(splitData, 0, sizeof(float*) * NUM_MAX_CHANNELS);
-	eventBuffers.clear();
-}
-
-void AudioRendererBase::run()
-{
-	if (!renderAudio())
-	{
-		cleanup();
-		return;
-	}
-		
-	callUpdateCallback(true, 1.0);
-	cleanup();
-}
-
-bool AudioRendererBase::renderAudio()
-{
-	// Stop all clocks...
-	getMainController()->getMasterClock().changeState(0, true, false);
-	getMainController()->getMasterClock().changeState(0, false, false);
         
-	SuspendHelpers::ScopedTicket st(getMainController());
-
-	callUpdateCallback(false, 0.0);
-		
-	while (getMainController()->getKillStateHandler().isAudioRunning())
-	{
-		if (threadShouldExit())
-			return false;
-
-		Thread::wait(400);
+        if(!(mc->getMainSynthChain()->getLargestBlockSize() == fullBlockSize && sampleRate == mc->getMainSynthChain()->getSampleRate()))
+            mc->prepareToPlay(sampleRate, fullBlockSize);
 	}
-
-	jassert(!getMainController()->getKillStateHandler().isAudioRunning());
-
-	getMainController()->getKillStateHandler().setCurrentExportThread(getCurrentThreadId());
-	
-	dynamic_cast<AudioProcessor*>(getMainController())->setNonRealtime(true);
-	getMainController()->getSampleManager().handleNonRealtimeState();
-
-	if(sendArtificialTransportMessages)
-		getMainController()->sendArtificialTransportMessage(true);
-
+	else
 	{
-		LockHelpers::SafeLock sl(getMainController(), LockHelpers::Type::AudioLock);
-
-		int numTodo = numSamplesToRender;
-		int pos = 0;
-
-		int numThrowAway = thisNumThrowAway;
-
-		AudioSampleBuffer nirvana(numChannelsToRender, bufferSize);
-
-		auto startTime = Time::getMillisecondCounter();
-
-		while (numTodo > 0)
-		{
-			if (threadShouldExit())
-				return false;
-
-			int numThisTime = jmin<int>(bufferSize, numTodo);
-
-			AudioSampleBuffer ab = getChunk(pos, numThisTime);
-			HiseEventBuffer thisBuffer;
-
-			for(auto events: eventBuffers)
-				events->moveEventsBelow(thisBuffer, pos + numThisTime);
-
-			thisBuffer.subtractFromTimeStamps(pos);
-
-			MidiBuffer mb;
-
-			for (const auto& e : thisBuffer)
-				mb.addEvent(e.toMidiMesage(), e.getTimeStamp());
-
-			auto& bufferToUse = numThrowAway > 0 ? nirvana : ab;
-
-			// call this directly to avoid messing with the logic that copes with
-			// weird buffer lenghts (this is not multithread-safe like the internal audio rendering)...
-			getMainController()->processBlockCommon(bufferToUse, mb);
-			
-			if (numThrowAway > 0)
-			{
-				--numThrowAway;
-
-				for(auto events: eventBuffers)
-					events->subtractFromTimeStamps(numThisTime);
-			}
-			else
-			{
-				pos += numThisTime;
-				numTodo -= numThisTime;
-			}
-
-			auto now = Time::getMillisecondCounter();
-
-			if (!skipCallbacks || (now - startTime > 90))
-			{
-				auto p = (double)numTodo / (double)numSamplesToRender;
-				callUpdateCallback(false, 1.0 - p);
-				startTime = now;
-				Thread::wait(skipCallbacks ? 60 : 5);
-			}
-		}
-
-		MidiBuffer emptyBuffer;
-
-		for (int i = 0; i < 50; i++)
-		{
-			dynamic_cast<AudioProcessor*>(getMainController())->processBlock(nirvana, emptyBuffer);
-		}
-	}
-
-	for (int i = 0; i < numChannelsToRender; i++)
-	{
-		VariantBuffer* b = channels[i].get();
-		b->size = numActualSamples;
-	}
-
-	if(sendArtificialTransportMessages)
-		getMainController()->sendArtificialTransportMessage(false);
-
-	getMainController()->getKillStateHandler().setCurrentExportThread(nullptr);
-	dynamic_cast<AudioProcessor*>(getMainController())->setNonRealtime(false);
-	getMainController()->getSampleManager().handleNonRealtimeState();
-	return true;
-}
-
-AudioSampleBuffer AudioRendererBase::getChunk(int startSample, int numSamples)
-{
-	for (int i = 0; i < numChannelsToRender; i++)
-		splitData[i] = channels[i]->buffer.getWritePointer(0, startSample);
-
-	jassert(isPositiveAndBelow(startSample + numSamples, numSamplesToRender + 1));
-
-	return AudioSampleBuffer(splitData, numChannelsToRender, numSamples);
-}
-
-
-OverlayMessageBroadcaster::Listener::~Listener()
-{
-	masterReference.clear();
-}
-
-OverlayMessageBroadcaster::OverlayMessageBroadcaster():
-	internalUpdater(this)
-{
-
-}
-
-OverlayMessageBroadcaster::~OverlayMessageBroadcaster()
-{}
-
-void OverlayMessageBroadcaster::addOverlayListener(Listener* listener)
-{
-	listeners.addIfNotAlreadyThere(listener);
-}
-
-void OverlayMessageBroadcaster::removeOverlayListener(Listener* listener)
-{
-	listeners.removeAllInstancesOf(listener);
-}
-
-bool OverlayMessageBroadcaster::isUsingDefaultOverlay() const
-{ return useDefaultOverlay; }
-
-void OverlayMessageBroadcaster::setUseDefaultOverlay(bool shouldUseOverlay)
-{
-	useDefaultOverlay = shouldUseOverlay;
-}
-
-OverlayMessageBroadcaster::InternalAsyncUpdater::InternalAsyncUpdater(OverlayMessageBroadcaster* parent_): parent(parent_)
-{}
-
-void OverlayMessageBroadcaster::InternalAsyncUpdater::handleAsyncUpdate()
-{
-	ScopedLock sl(parent->listeners.getLock());
-
-	for (int i = 0; i < parent->listeners.size(); i++)
-	{
-		if (parent->listeners[i].get() != nullptr)
-		{
-			parent->listeners[i]->overlayMessageSent(parent->currentState, parent->customMessage);
-		}
-		else
-		{
-			parent->listeners.remove(i--);
-		}
+		mc->prepareToPlay(sampleRate, jmin(samplesPerBlock, HISE_MAX_PROCESSING_BLOCKSIZE));
 	}
 }
+
 
 void OverlayMessageBroadcaster::sendOverlayMessage(int newState, const String& newCustomMessage/*=String()*/)
 {
@@ -1771,99 +1258,17 @@ void OverlayMessageBroadcaster::sendOverlayMessage(int newState, const String& n
 
 #if USE_BACKEND
 
-	
+	ignoreUnused(newState);
 
 	// Just print it on the console
 	Logger::getCurrentLogger()->writeToLog("!" + newCustomMessage);
-#endif
+#else
 
 	currentState = newState;
 	customMessage = newCustomMessage;
 
 	internalUpdater.triggerAsyncUpdate();
-}
-
-String OverlayMessageBroadcaster::getOverlayTextMessage(State s) const
-{
-	switch (s)
-	{
-	case AppDataDirectoryNotFound:
-		return "The application directory is not found. (The installation seems to be broken. Please reinstall this software.)";
-		break;
-	case IllegalBufferSize:
-	{
-		String s;
-		s << "The audio buffer size should be a multiple of " << String(HISE_EVENT_RASTER) << ". Please adjust your audio settings";
-		return s;
-	}
-	case SamplesNotFound:
-		return "The sample directory could not be located. \nClick below to choose the sample folder.";
-		break;
-	case SamplesNotInstalled:
-#if HISE_SAMPLE_DIALOG_SHOW_INSTALL_BUTTON && HISE_SAMPLE_DIALOG_SHOW_LOCATE_BUTTON
-		return "Please click below to install the samples from the downloaded archive or point to the location where you've already installed the samples.";
-#elif HISE_SAMPLE_DIALOG_SHOW_INSTALL_BUTTON
-		return "Please click below to install the samples from the downloaded archive.";
-#elif HISE_SAMPLE_DIALOG_SHOW_LOCATE_BUTTON
-		return "Please click below to point to the location where you've already installed the samples.";
-#else
-		return "This should never show :)";
-		jassertfalse;
 #endif
-
-		break;
-	case LicenseNotFound:
-	{
-#if USE_COPY_PROTECTION
-#if HISE_ALLOW_OFFLINE_ACTIVATION
-		return "This computer is not registered.\nClick below to authenticate this machine using either online authorization or by loading a license key.";
-#else
-		return "This computer is not registered.";
-#endif
-#else
-		return "";
-#endif
-	}
-	case ProductNotMatching:
-		return "The license key is invalid (wrong plugin name / version).\nClick below to locate the correct license key for this plugin / version";
-		break;
-	case MachineNumbersNotMatching:
-		return "The machine ID is invalid / not matching.\nThis might be caused by a major OS / or system hardware update which change the identification of this computer.\nIn order to solve the issue, just repeat the activation process again to register this system with the new specifications.";
-		break;
-	case UserNameNotMatching:
-		return "The user name is invalid.\nThis means usually a corrupt or rogued license key file. Please contact support to get a new license key.";
-		break;
-	case EmailNotMatching:
-		return "The email name is invalid.\nThis means usually a corrupt or rogued license key file. Please contact support to get a new license key.";
-		break;
-	case LicenseInvalid:
-	{
-#if USE_COPY_PROTECTION && !USE_SCRIPT_COPY_PROTECTION
-		auto ul = &dynamic_cast<const FrontendProcessor*>(this)->unlocker;
-		return ul->getProductErrorMessage();
-#else
-		return "";
-#endif
-	}
-	case LicenseExpired:
-	{
-#if USE_COPY_PROTECTION
-		return "The license key is expired. Press OK to reauthenticate (you'll need to be online for this)";
-#else
-		return "";
-#endif
-	}
-	case State::CustomErrorMessage:
-	case State::CriticalCustomErrorMessage:
-	case State::CustomInformation:
-	case State::numReasons:
-		jassertfalse;
-		break;
-	default:
-		break;
-	}
-
-	return String();
 }
 
 ScopedSoftBypassDisabler::ScopedSoftBypassDisabler(MainController* mc) :

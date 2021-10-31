@@ -40,9 +40,13 @@
 
 
 
-
-#define ADD_TO_TYPE_SELECTOR(x) (ScriptComponentPropertyTypeSelector::addToTypeSelector(ScriptComponentPropertyTypeSelector::x, propertyIds.getLast()))
-#define ADD_AS_SLIDER_TYPE(min, max, interval) (ScriptComponentPropertyTypeSelector::addToTypeSelector(ScriptComponentPropertyTypeSelector::SliderSelector, propertyIds.getLast(), min, max, interval))
+#if USE_BACKEND
+#define ADD_TO_TYPE_SELECTOR(x) (selectorTypes->addToTypeSelector(ScriptComponentPropertyTypeSelector::x, propertyIds.getLast()))
+#define ADD_AS_SLIDER_TYPE(min, max, interval) (selectorTypes->addToTypeSelector(ScriptComponentPropertyTypeSelector::SliderSelector, propertyIds.getLast(), min, max, interval))
+#else
+#define ADD_TO_TYPE_SELECTOR(x)
+#define ADD_AS_SLIDER_TYPE(min, max, interval)
+#endif
 
 
 
@@ -123,6 +127,8 @@ struct ScriptingApi::Content::ScriptComponent::Wrapper
     API_METHOD_WRAPPER_0(ScriptComponent, getGlobalPositionY);
 	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setControlCallback);
 	API_METHOD_WRAPPER_0(ScriptComponent, getAllProperties);
+	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setKeyPressCallback);
+	API_VOID_METHOD_WRAPPER_0(ScriptComponent, loseFocus);
 	API_VOID_METHOD_WRAPPER_1(ScriptComponent, setZLevel);
 };
 
@@ -133,6 +139,7 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	ConstScriptingObject(base, numConstants),
 	UpdateDispatcher::Listener(base->getScriptingContent()->getUpdateDispatcher()),
 	name(name_),
+	keyboardCallback(base, {}, 1),
 	parent(base->getScriptingContent()),
 	controlSender(this, base),
 	propertyTree(name_.isValid() ? parent->getValueTreeForComponent(name) : ValueTree("Component")),
@@ -142,7 +149,7 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	customControlCallback(var())
 {
 
-
+	
 
 	jassert(propertyTree.isValid());
 
@@ -222,6 +229,8 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	ADD_API_METHOD_1(setControlCallback);
 	ADD_API_METHOD_0(getAllProperties);
 	ADD_API_METHOD_1(setZLevel);
+	ADD_API_METHOD_1(setKeyPressCallback);
+	ADD_API_METHOD_0(loseFocus);
 
 	//setName(name_.toString());
 
@@ -1104,6 +1113,72 @@ var ScriptingApi::Content::ScriptComponent::getLocalBounds(float reduceAmount)
 	return var(b);
 }
 
+void ScriptingApi::Content::ScriptComponent::setKeyPressCallback(var keyboardFunction)
+{
+	keyboardCallback = WeakCallbackHolder(getScriptProcessor(), keyboardFunction, 1);
+	keyboardCallback.incRefCount();
+	keyboardCallback.setThisObject(this);
+}
+
+bool ScriptingApi::Content::ScriptComponent::handleKeyPress(const KeyPress& k)
+{
+	if (keyboardCallback)
+	{
+		DynamicObject::Ptr obj = new DynamicObject();
+		obj->setProperty("isFocusChange", false);
+
+		auto c = k.getTextCharacter();
+
+		auto printable = CharacterFunctions::isPrintable(c);
+		
+		obj->setProperty("character", printable ? String::charToString(c) : "");
+		obj->setProperty("specialKey", !printable);
+		obj->setProperty("keyCode", k.getKeyCode());
+		obj->setProperty("description", k.getTextDescription());
+		obj->setProperty("shift", k.getModifiers().isShiftDown());
+		obj->setProperty("cmd", k.getModifiers().isCommandDown() || k.getModifiers().isCtrlDown());
+		obj->setProperty("alt", k.getModifiers().isAltDown());
+
+		var args(obj);
+		var rv;
+
+		auto ok = keyboardCallback.callSync(&args, 1, &rv);
+
+		if (ok.wasOk())
+			return (bool)rv;
+		else
+			reportScriptError(ok.getErrorMessage());
+	}
+
+	return false;
+}
+
+void ScriptingApi::Content::ScriptComponent::handleFocusChange(bool isFocused)
+{
+	if (keyboardCallback)
+	{
+		DynamicObject::Ptr obj = new DynamicObject();
+		obj->setProperty("isFocusChange", true);
+		obj->setProperty("hasFocus", isFocused);
+		
+		var args(obj);
+		
+		auto ok = keyboardCallback.callSync(&args, 1);
+
+		if (!ok.wasOk())
+			reportScriptError(ok.getErrorMessage());
+	}
+}
+
+void ScriptingApi::Content::ScriptComponent::loseFocus()
+{
+	for (auto l : zLevelListeners)
+	{
+		if (l != nullptr)
+			l->wantsToLoseFocus();
+	}
+}
+
 struct ScriptingApi::Content::ScriptSlider::Wrapper
 {
 	API_VOID_METHOD_WRAPPER_1(ScriptSlider, setValuePopupFunction);
@@ -1896,8 +1971,8 @@ void ScriptingApi::Content::ScriptComboBox::setScriptObjectPropertyWithChangeMes
 	{
 		jassert(isCorrectlyInitialised(Items));
 
-		setScriptObjectProperty(Items, newValue);
-		setScriptObjectProperty(max, getItemList().size());
+		setScriptObjectProperty(Items, newValue, sendNotification);
+		setScriptObjectProperty(max, getItemList().size(), sendNotification);
 	}
 
 
@@ -2010,8 +2085,6 @@ juce::ValueTree ScriptingApi::Content::ComplexDataScriptComponent::exportAsValue
 {
 	ValueTree v = ScriptComponent::exportAsValueTree();
 
-	jassert(cachedObjectReference != nullptr);
-
 	if (cachedObjectReference != nullptr)
 		v.setProperty("data", cachedObjectReference->toBase64String(), nullptr);
 
@@ -2036,15 +2109,26 @@ void ScriptingApi::Content::ComplexDataScriptComponent::handleDefaultDeactivated
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(pluginParameterName));
 }
 
-void ScriptingApi::Content::ComplexDataScriptComponent::registerComplexDataObjectAtParent(int index /*= -1*/)
+var ScriptingApi::Content::ComplexDataScriptComponent::registerComplexDataObjectAtParent(int index /*= -1*/)
 {
 	if (auto d = dynamic_cast<ProcessorWithDynamicExternalData*>(getScriptProcessor()))
 	{
 		otherHolder = d;
 		d->registerExternalObject(type, index, ownedObject);
+
 		setScriptObjectProperty(getIndexPropertyId(), index, sendNotification);
 		updateCachedObjectReference();
+
+		switch (type)
+		{
+		case ExternalData::DataType::Table: return new ScriptingObjects::ScriptTableData(getScriptProcessor(), index);
+		case ExternalData::DataType::SliderPack: return new ScriptingObjects::ScriptSliderPackData(getScriptProcessor(), index);
+		case ExternalData::DataType::AudioFile: return new ScriptingObjects::ScriptAudioFile(getScriptProcessor(), index);
+		default: jassertfalse; return var();
+		}
 	}
+
+	return var();
 }
 
 void ScriptingApi::Content::ScriptAudioWaveform::handleDefaultDeactivatedProperties()
@@ -2072,14 +2156,9 @@ struct ScriptingApi::Content::ScriptTable::Wrapper
 {
 	API_METHOD_WRAPPER_1(ScriptTable, getTableValue);
 	API_VOID_METHOD_WRAPPER_1(ScriptTable, setTablePopupFunction);
-	API_VOID_METHOD_WRAPPER_1(ScriptTable, setTableValueChangedFunction);
-	API_VOID_METHOD_WRAPPER_0(ScriptTable, getNumPoints);
-	API_VOID_METHOD_WRAPPER_1(ScriptTable, getPointX);
-	API_VOID_METHOD_WRAPPER_1(ScriptTable, getPointY);
-	API_VOID_METHOD_WRAPPER_1(ScriptTable, getPointCurve);
 	API_VOID_METHOD_WRAPPER_2(ScriptTable, connectToOtherTable);
 	API_VOID_METHOD_WRAPPER_1(ScriptTable, setSnapValues);
-	API_VOID_METHOD_WRAPPER_1(ScriptTable, registerAtParent);
+	API_METHOD_WRAPPER_1(ScriptTable, registerAtParent);
 	API_VOID_METHOD_WRAPPER_1(ScriptTable, referToData);
 };
 
@@ -2108,11 +2187,6 @@ ComplexDataScriptComponent(base, name, snex::ExternalData::DataType::Table)
 	ADD_API_METHOD_1(setSnapValues);
 	ADD_API_METHOD_1(referToData);
 	ADD_API_METHOD_1(setTablePopupFunction);
-	ADD_API_METHOD_1(setTableValueChangedFunction);
-	ADD_API_METHOD_0(getNumPoints);
-	ADD_API_METHOD_1(getPointX);
-	ADD_API_METHOD_1(getPointY);
-	ADD_API_METHOD_1(getPointCurve);
 	ADD_API_METHOD_1(registerAtParent);
 }
 
@@ -2172,65 +2246,14 @@ void ScriptingApi::Content::ScriptTable::setTablePopupFunction(var newFunction)
 	getPropertyValueTree().sendPropertyChangeMessage(getIdFor(parameterId));
 }
 
-void ScriptingApi::Content::ScriptTable::setTableValueChangedFunction(var newFunction)
-{
-	tableValueChangedFunction = newFunction;
-	getPropertyValueTree().sendPropertyChangeMessage(getIdFor(parameterId));
-}
-
-int ScriptingApi::Content::ScriptTable::getNumPoints()
-{
-	if (auto t = getCachedTable())
-	{
-		return t->getNumGraphPoints();
-	}
-	return 0;
-}
-
-double ScriptingApi::Content::ScriptTable::getPointX(int pointIndex)
-{
-	if (auto t = getCachedTable())
-	{
-		if (pointIndex < t->getNumGraphPoints()) {
-			Table::GraphPoint graphPoint = t->getGraphPoint(pointIndex);
-			return graphPoint.x;
-		}
-	}
-	return 0.0;
-}
-
-double ScriptingApi::Content::ScriptTable::getPointY(int pointIndex)
-{
-	if (auto t = getCachedTable())
-	{
-		if (pointIndex < t->getNumGraphPoints()) {
-			Table::GraphPoint graphPoint = t->getGraphPoint(pointIndex);
-			return graphPoint.y;
-		}
-	}
-	return 0.0;
-}
-
-double ScriptingApi::Content::ScriptTable::getPointCurve(int pointIndex)
-{
-	if (auto t = getCachedTable())
-	{
-		if (pointIndex < t->getNumGraphPoints()) {
-			Table::GraphPoint graphPoint = t->getGraphPoint(pointIndex);
-			return graphPoint.curve;
-		}
-	}
-	return 0.0;
-}
-
 void ScriptingApi::Content::ScriptTable::referToData(var tableData)
 {
 	referToDataBase(tableData);
 }
 
-void ScriptingApi::Content::ScriptTable::registerAtParent(int index)
+var ScriptingApi::Content::ScriptTable::registerAtParent(int index)
 {
-	registerComplexDataObjectAtParent(index);
+	return registerComplexDataObjectAtParent(index);
 }
 
 struct ScriptingApi::Content::ScriptSliderPack::Wrapper
@@ -2241,6 +2264,7 @@ struct ScriptingApi::Content::ScriptSliderPack::Wrapper
 	API_METHOD_WRAPPER_0(ScriptSliderPack, getNumSliders);
 	API_VOID_METHOD_WRAPPER_1(ScriptSliderPack, referToData);
     API_VOID_METHOD_WRAPPER_1(ScriptSliderPack, setWidthArray);
+	API_METHOD_WRAPPER_1(ScriptSliderPack, registerAtParent);
 };
 
 ScriptingApi::Content::ScriptSliderPack::ScriptSliderPack(ProcessorWithScriptingContent *base, Content* /*parentContent*/, Identifier name_, int x, int y, int , int ) :
@@ -2290,6 +2314,7 @@ ComplexDataScriptComponent(base, name_, snex::ExternalData::DataType::SliderPack
 	ADD_API_METHOD_0(getNumSliders);
 	ADD_API_METHOD_1(referToData);
     ADD_API_METHOD_1(setWidthArray);
+	ADD_API_METHOD_1(registerAtParent);
 }
 
 ScriptingApi::Content::ScriptSliderPack::~ScriptSliderPack()
@@ -2451,6 +2476,11 @@ void ScriptingApi::Content::ScriptSliderPack::setWidthArray(var normalizedWidths
         widthArray = *ar;
         sendChangeMessage();
     }
+}
+
+var ScriptingApi::Content::ScriptSliderPack::registerAtParent(int pIndex)
+{
+	return registerComplexDataObjectAtParent(pIndex);
 }
 
 ScriptingApi::Content::ScriptAudioWaveform::ScriptAudioWaveform(ProcessorWithScriptingContent *base, Content* /*parentContent*/, Identifier waveformName, int x, int y, int, int) :
@@ -3496,6 +3526,80 @@ void ScriptingApi::Content::ScriptPanel::removeAnimationListener(AnimationListen
 }
 
 
+hise::DebugInformationBase::Ptr ScriptingApi::Content::ScriptPanel::createChildElement(DebugWatchIndex i) const
+{
+	var v;
+	String id = "%PARENT%.";
+
+	switch (i)
+	{
+	case DebugWatchIndex::Data:					
+		v = getConstantValue(0); 
+
+		if (auto obj = v.getDynamicObject())
+			if (obj->getProperties().isEmpty())
+				return nullptr;
+		
+		id << "data";  break;
+	case DebugWatchIndex::PaintRoutine:			
+		v = paintRoutine; 
+		
+		if (v.isUndefined() || v.isVoid())
+			return nullptr;
+		
+		id << "paintRoutine";  break;
+	case DebugWatchIndex::TimerCallback:		return timerRoutine.createDebugObject("timerCallback");
+	case DebugWatchIndex::MouseCallback:		return mouseRoutine.createDebugObject("mouseCallback");
+	case DebugWatchIndex::PreloadCallback:		return this->loadRoutine.createDebugObject("loadingCallback");
+	case DebugWatchIndex::ChildPanels:
+	{
+		if (childPanels.isEmpty())
+			return nullptr;
+
+		Array<var> s;
+		for (auto p : childPanels)
+			s.add(var(p));
+
+		v = s;
+		id << "childPanels";
+		break;
+	}
+	case DebugWatchIndex::FileCallback:		   return fileDropRoutine.createDebugObject("fileCallback");
+	case DebugWatchIndex::NumDebugWatchIndexes:
+	default:
+		break;
+	}
+
+	auto vf = [v]() {return v; };
+	return new LambdaValueInformation(vf, Identifier(id), {}, DebugInformation::Type::Constant, getLocation());
+}
+
+
+void ScriptingApi::Content::ScriptPanel::buildDebugListIfEmpty() const
+{
+	if (cachedList.isEmpty())
+	{
+		for (int i = 0; i < (int)DebugWatchIndex::NumDebugWatchIndexes; i++)
+		{
+			auto ptr = createChildElement((DebugWatchIndex)i);
+
+			if (ptr != nullptr)
+				cachedList.add(ptr);
+		}
+	}
+}
+
+hise::DebugInformationBase* ScriptingApi::Content::ScriptPanel::getChildElement(int index)
+{
+	return cachedList[index];
+}
+
+int ScriptingApi::Content::ScriptPanel::getNumChildElements() const
+{
+	buildDebugListIfEmpty();
+	return cachedList.size();
+}
+
 
 
 #endif
@@ -3513,6 +3617,8 @@ ScriptingApi::Content::ScriptedViewport::ScriptedViewport(ProcessorWithScripting
 	propertyIds.add("scrollBarThickness");		ADD_AS_SLIDER_TYPE(0, 40, 1);
 	propertyIds.add("autoHide");				ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	propertyIds.add(Identifier("useList"));		ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+	propertyIds.add(Identifier("viewPositionX")); ADD_AS_SLIDER_TYPE(0, 1, 0.01);
+	propertyIds.add(Identifier("viewPositionY")); ADD_AS_SLIDER_TYPE(0, 1, 0.01);
 	propertyIds.add(Identifier("items"));		ADD_TO_TYPE_SELECTOR(SelectorTypes::MultilineSelector);
 	ADD_SCRIPT_PROPERTY(i01, "fontName");		ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 	ADD_NUMBER_PROPERTY(i02, "fontSize");		ADD_AS_SLIDER_TYPE(1, 200, 1);
@@ -3523,6 +3629,8 @@ ScriptingApi::Content::ScriptedViewport::ScriptedViewport(ProcessorWithScripting
 	setDefaultValue(ScriptComponent::Properties::y, y);
 	setDefaultValue(ScriptComponent::Properties::width, 200);
 	setDefaultValue(ScriptComponent::Properties::height, 100);
+	setDefaultValue(viewPositionX, 0.0);
+	setDefaultValue(viewPositionY, 0.0);
 	setDefaultValue(scrollbarThickness, 16.0);
 	setDefaultValue(autoHide, true);
 	setDefaultValue(useList, false);
@@ -3550,6 +3658,17 @@ void ScriptingApi::Content::ScriptedViewport::setScriptObjectPropertyWithChangeM
 		//}
 	}
 
+	if (id == getIdFor(viewPositionX))
+	{
+		auto y = (double)getScriptObjectProperty(getIdFor(viewPositionY));
+		positionBroadcaster.sendMessage(sendNotificationAsync, (double)newValue, y);
+	}
+
+	if (id == getIdFor(viewPositionY))
+	{
+		auto x = (double)getScriptObjectProperty(getIdFor(viewPositionX));
+		positionBroadcaster.sendMessage(sendNotificationAsync, x, (double)newValue);
+	}
 
 	ScriptComponent::setScriptObjectPropertyWithChangeMessage(id, newValue, notifyEditor);
 }
@@ -3851,8 +3970,6 @@ colour(Colour(0xff777777))
 		contentPropertyData = ValueTree("ContentProperties");
 	}
 
-	
-
 	setMethod("addButton", Wrapper::addButton);
 	setMethod("addKnob", Wrapper::addKnob);
 	setMethod("addLabel", Wrapper::addLabel);
@@ -3868,6 +3985,8 @@ colour(Colour(0xff777777))
 	setMethod("setToolbarProperties", Wrapper::setToolbarProperties);
 	setMethod("setHeight", Wrapper::setHeight);
 	setMethod("setWidth", Wrapper::setWidth);
+	setMethod("createScreenshot", Wrapper::createScreenshot);
+	setMethod("addVisualGuide", Wrapper::addVisualGuide);
     setMethod("makeFrontInterface", Wrapper::makeFrontInterface);
 	setMethod("makeFullScreenInterface", Wrapper::makeFullScreenInterface);
 	setMethod("setName", Wrapper::setName);
@@ -3882,6 +4001,7 @@ colour(Colour(0xff777777))
 	setMethod("clear", Wrapper::clear);
 	setMethod("createPath", Wrapper::createPath);
 	setMethod("createShader", Wrapper::createShader);
+	setMethod("getCurrentTooltip", Wrapper::getCurrentTooltip);
 }
 
 ScriptingApi::Content::~Content()
@@ -4069,6 +4189,7 @@ void ScriptingApi::Content::beginInitialization()
 	allowGuiCreation = true;
 
 	updateWatcher = nullptr;
+	guides.clear();
 }
 
 
@@ -4104,13 +4225,14 @@ void ScriptingApi::Content::setWidth(int newWidth) noexcept
 	}
 
 	width = newWidth;
+	
 };
 
 void ScriptingApi::Content::makeFrontInterface(int newWidth, int newHeight)
 {
     width = newWidth;
     height = newHeight;
-    
+
     dynamic_cast<JavascriptMidiProcessor*>(getProcessor())->addToFront(true);
     
 }
@@ -4660,6 +4782,95 @@ var ScriptingApi::Content::createShader(const String& fileName)
 	return var(f);
 }
 
+
+void ScriptingApi::Content::createScreenshot(var area, var directory, String name)
+{
+	if (screenshotListener != nullptr)
+	{
+		if (auto sf = dynamic_cast<ScriptingObjects::ScriptFile*>(directory.getObject()))
+		{
+			auto dir = sf->f;
+
+			if (!dir.existsAsFile() && !dir.isDirectory())
+				dir.createDirectory();
+
+			if (sf->f.isDirectory())
+			{
+				auto target = sf->f.getChildFile(name).withFileExtension("png");
+				Rectangle<float> a;
+
+				if (auto comp = dynamic_cast<ScriptComponent*>(area.getObject()))
+				{
+					a.setX((int)comp->getGlobalPositionX());
+					a.setY((int)comp->getGlobalPositionY());
+					a.setWidth((int)comp->getWidth());
+					a.setHeight((int)comp->getHeight());
+				}
+				else
+				{
+					auto r = Result::ok();
+					a = ApiHelpers::getRectangleFromVar(area, &r);
+
+					if (!r.wasOk())
+						reportScriptError(r.getErrorMessage());
+				}
+
+				screenshotListener->makeScreenshot(target, a);
+			}
+		}
+	}
+}
+
+void ScriptingApi::Content::addVisualGuide(var guideData, var colour)
+{
+	if (auto ga = guideData.getArray())
+	{
+		VisualGuide g;
+		g.c = Helpers::getCleanedObjectColour(colour);
+
+		if (ga->size() == 4)
+		{
+			g.t = VisualGuide::Type::Rectangle;
+			g.area = ApiHelpers::getRectangleFromVar(guideData);
+		}
+		else if (ga->size() == 2)
+		{
+			auto x = (float)ga->getUnchecked(0);
+			auto y = (float)ga->getUnchecked(1);
+
+			if (x == 0)
+			{
+				g.t = VisualGuide::Type::HorizontalLine;
+				g.area = { 0.0f, y, (float)width, 1.0f };
+			}
+			else if (y == 0)
+			{
+				g.t = VisualGuide::Type::VerticalLine;
+				g.area = { x, 0.0, 1.0f, (float)height };
+			}
+		}
+
+		guides.add(std::move(g));
+	}
+	else
+		guides.clear();
+
+	if (screenshotListener != nullptr)
+		screenshotListener->visualGuidesChanged();
+}
+
+String ScriptingApi::Content::getCurrentTooltip()
+{
+	auto& desktop = Desktop::getInstance();
+	auto mouseSource = desktop.getMainMouseSource();
+	auto* newComp = mouseSource.isTouch() ? nullptr : mouseSource.getComponentUnderMouse();
+
+	if (auto ttc = dynamic_cast<TooltipClient*> (newComp))
+		return ttc->getTooltip();
+
+	return {};
+}
+
 #undef ADD_TO_TYPE_SELECTOR
 #undef ADD_AS_SLIDER_TYPE
 #undef SEND_MESSAGE
@@ -4959,7 +5170,7 @@ void ScriptingApi::Content::Helpers::gotoLocation(ScriptComponent* sc)
 		{
 			auto location = info->getObject()->getLocation();
 
-			DebugableObject::Helpers::gotoLocation(p, info);
+			DebugableObject::Helpers::gotoLocation(p, info.get());
 
 			return;
 		}
@@ -5291,6 +5502,61 @@ var ScriptingApi::Content::Helpers::getCleanedComponentValue(const var& data, bo
 		float d = (float)data;
 		FloatSanitizers::sanitizeFloatNumber(d);
 		return var(d);
+	}
+}
+
+hise::ScriptComponentPropertyTypeSelector::SelectorTypes ScriptComponentPropertyTypeSelector::getTypeForId(const Identifier &id) const
+{
+	if (toggleProperties.contains(id)) return ToggleSelector;
+	else if (sliderProperties.contains(id)) return SliderSelector;
+	else if (colourProperties.contains(id)) return ColourPickerSelector;
+	else if (choiceProperties.contains(id)) return ChoiceSelector;
+	else if (multilineProperties.contains(id)) return MultilineSelector;
+	else if (fileProperties.contains(id)) return FileSelector;
+	else if (codeProperties.contains(id)) return CodeSelector;
+	else return TextSelector;
+}
+
+void ScriptComponentPropertyTypeSelector::addToTypeSelector(SelectorTypes type, Identifier id, double min /*= 0.0*/, double max /*= 1.0*/, double interval /*= 0.01*/)
+{
+	switch (type)
+	{
+	case ScriptComponentPropertyTypeSelector::ToggleSelector:
+		toggleProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::ColourPickerSelector:
+		colourProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::SliderSelector:
+	{
+		sliderProperties.addIfNotAlreadyThere(id);
+		int index = sliderProperties.indexOf(id);
+		SliderRange range;
+
+		range.min = min;
+		range.max = max;
+		range.interval = interval;
+
+		sliderRanges.set(id.toString(), range);
+		break;
+	}
+	case ScriptComponentPropertyTypeSelector::ChoiceSelector:
+		choiceProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::MultilineSelector:
+		multilineProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::FileSelector:
+		fileProperties.addIfNotAlreadyThere(id);
+		break;
+	case ScriptComponentPropertyTypeSelector::TextSelector:
+		break;
+	case ScriptComponentPropertyTypeSelector::CodeSelector:
+		codeProperties.addIfNotAlreadyThere(id);
+	case ScriptComponentPropertyTypeSelector::numSelectorTypes:
+		break;
+	default:
+		break;
 	}
 }
 
