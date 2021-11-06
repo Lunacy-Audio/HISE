@@ -1740,7 +1740,7 @@ private:
 
 	struct CustomTypeFace
 	{
-		CustomTypeFace(Typeface* tf, Identifier id_) :
+		CustomTypeFace(ReferenceCountedObjectPtr<juce::Typeface> tf, Identifier id_) :
 			typeface(tf),
 			id(id_)
 		{};
