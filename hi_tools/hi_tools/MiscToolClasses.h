@@ -220,6 +220,7 @@ public:
 		context.setRenderer(this);
 		context.setContinuousRepainting(true);
 		context.setComponentPaintingEnabled(true);
+		context.setMultisamplingEnabled(true);
 		context.attachTo(parent);
 	}
 
