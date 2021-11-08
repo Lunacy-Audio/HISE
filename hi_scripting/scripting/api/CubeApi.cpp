@@ -271,7 +271,7 @@ cube::Cube& CubeApi::getCubeData(const MainController* mc)
 			Cube::Ptr newObject = new Cube();
 
 			// a var takes ownership of an object if it's derived by ReferenceCountedObject
-			gObj->setProperty(cubeId, var(newObject));
+			gObj->setProperty(cubeId, var(newObject.get()));
 
 			return *newObject;
 		}
