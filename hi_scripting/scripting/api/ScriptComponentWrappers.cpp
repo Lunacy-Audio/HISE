@@ -2152,6 +2152,20 @@ public:
 		refreshAfterSampleMapChange();
 	};
 
+	void samplePropertyWasChanged(ModulatorSamplerSound* soundThatWasChanged, const Identifier& id, const var& newValue) override
+	{
+		if (!SampleIds::Helpers::isAudioProperty(id))
+			return;
+
+		if (waveform == nullptr)
+			return;
+
+		if (waveform->getCurrentSound() != soundThatWasChanged)
+			return;
+
+		waveform->updateRanges();
+	}
+
 	void sampleMapCleared() override 
 	{
 		refreshAfterSampleMapChange();

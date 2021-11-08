@@ -708,10 +708,7 @@ juce::ValueTree JSONConversionHelpers::jsonToValueTree(var data, const Identifie
 	{
 		data = data.getProperty(typeId, {});
 		jassert(data.isObject());
-		DBG(JSON::toString(data));
 	}
-
-
 
 	ValueTree v(typeId);
 
@@ -761,9 +758,6 @@ juce::ValueTree JSONConversionHelpers::jsonToValueTree(var data, const Identifie
 			}
 		}
 	}
-
-	if (isParentData)
-		DBG(v.createXml()->createDocument(""));
 
 	return v;
 }
