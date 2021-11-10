@@ -221,6 +221,7 @@ public:
 		context.setContinuousRepainting(true);
 		context.setComponentPaintingEnabled(true);
 		context.attachTo(parent);
+		topLevelRenderer = dynamic_cast<juce::OpenGLRenderer>(&parent);
 	}
 
 	//==============================================================================
@@ -390,22 +391,29 @@ private:
 	//==============================================================================
 	void newOpenGLContextCreated() override
 	{
+		if (topLevelRenderer != nullptr)
+			topLevelRenderer->newOpenGLContextCreated();
 		checkComponents(false, false);
 	}
 
 	void renderOpenGL() override
 	{
 		juce::OpenGLHelpers::clear(backgroundColour);
+		if (topLevelRenderer != nullptr)
+			topLevelRenderer->renderOpenGL();
 		checkComponents(false, true);
 	}
 
 	void openGLContextClosing() override
 	{
+		if (topLevelRenderer != nullptr)
+			topLevelRenderer->openGLContextClosing();
 		checkComponents(true, false);
 	}
 
 	//==============================================================================
 	juce::Component& parent;
+	juce::OpenGLRenderer* topLevelRenderer;
 
 	struct Client
 	{
