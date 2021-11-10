@@ -50,6 +50,7 @@ class FrontendProcessorEditor: public AudioProcessorEditor,
 							   public ComponentWithBackendConnection,
 							   public GlobalSettingManager::ScaleFactorListener,
 							   public TopLevelWindowWithOptionalOpenGL,
+							   public OpenGLRenderer,
 							   public MainController::LockFreeDispatcher::PresetLoadListener
 							   private OpenGLRenderer
 {
@@ -133,7 +134,10 @@ public:
 		//interfaceComponent->checkInterfaces();
 	}
 
-	
+	// OpenGLRenderer overrides.
+    void newOpenGLContextCreated() override;
+    void renderOpenGL() override {}
+    void openGLContextClosing() override {}
 
 private:
 
