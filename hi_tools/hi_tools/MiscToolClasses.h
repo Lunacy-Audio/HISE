@@ -300,7 +300,7 @@ public:
 		context.setContinuousRepainting(true);
 		context.setComponentPaintingEnabled(true);
 		context.attachTo(parent);
-		topLevelRenderer = dynamic_cast<juce::OpenGLRenderer>(&parent);
+		topLevelRenderer = dynamic_cast<juce::OpenGLRenderer*>(&parent);
 	}
 
 	//==============================================================================
