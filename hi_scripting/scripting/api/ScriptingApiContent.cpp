@@ -2633,6 +2633,7 @@ ScriptComponent(base, imageName)
 	ADD_SCRIPT_PROPERTY(i01, "fileName");			ADD_TO_TYPE_SELECTOR(SelectorTypes::FileSelector);
 	ADD_NUMBER_PROPERTY(i02, "offset");
 	ADD_NUMBER_PROPERTY(i03, "scale");
+	ADD_SCRIPT_PROPERTY(i07, "blendMode");			ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 	ADD_SCRIPT_PROPERTY(i04, "allowCallbacks");		ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 	ADD_SCRIPT_PROPERTY(i05, "popupMenuItems");		ADD_TO_TYPE_SELECTOR(SelectorTypes::MultilineSelector);
 	ADD_SCRIPT_PROPERTY(i06, "popupOnRightClick");	ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
@@ -2644,6 +2645,7 @@ ScriptComponent(base, imageName)
 	setDefaultValue(ScriptComponent::Properties::width, 50);
 	setDefaultValue(ScriptComponent::Properties::height, 50);
 	setDefaultValue(ScriptComponent::Properties::saveInPreset, false);
+	setDefaultValue(BlendMode, "Normal");
 	setDefaultValue(Alpha, 1.0f);
 	setDefaultValue(FileName, String());
 	setDefaultValue(Offset, 0);
@@ -2682,7 +2684,36 @@ StringArray ScriptingApi::Content::ScriptImage::getOptionsFor(const Identifier &
 	{
 		return MouseCallbackComponent::getCallbackLevels();
 	}
-
+	else if (id == getIdFor(BlendMode))
+	{
+		return {
+			"Normal",
+			"Lighten",
+			"Darken",
+			"Multiply",
+			"Average",
+			"Add",
+			"Subtract",
+			"Difference",
+			"Negation",
+			"Screen",
+			"Exclusion",
+			"Overlay",
+			"SoftLight",
+			"HardLight",
+			"ColorDodge",
+			"ColorBurn",
+			"LinearDodge",
+			"LinearBurn",
+			"LinearLight",
+			"VividLight",
+			"PinLight",
+			"HardMix",
+			"Reflect",
+			"Glow",
+			"Phoenix"
+		};
+	}
 
 	return ScriptComponent::getOptionsFor(id);
 }
@@ -2700,6 +2731,13 @@ void ScriptingApi::Content::ScriptImage::setScriptObjectPropertyWithChangeMessag
 		setImageFile(newValue, true);
 	}
 
+	if (id == getIdFor(BlendMode))
+	{
+		auto idx = getOptionsFor(id).indexOf(newValue.toString());
+		blendMode = (gin::BlendMode)idx;
+		updateBlendMode();
+	}
+	
 	ScriptComponent::setScriptObjectPropertyWithChangeMessage(id, newValue, notifyEditor);
 }
 
@@ -2720,6 +2758,8 @@ void ScriptingApi::Content::ScriptImage::setImageFile(const String &absoluteFile
 	image.clear();
 	image = getProcessor()->getMainController()->getExpansionHandler().loadImageReference(ref);
 
+	updateBlendMode();
+
 	setScriptObjectProperty(FileName, absoluteFileName, sendNotification);
 };
 
@@ -2732,10 +2772,14 @@ ScriptCreatedComponentWrapper * ScriptingApi::Content::ScriptImage::createCompon
 
 const Image ScriptingApi::Content::ScriptImage::getImage() const
 {
-	return image ? *image.getData() :
-		PoolHelpers::getEmptyImage(getScriptObjectProperty(ScriptComponent::Properties::width),
+	if (blendMode != gin::Normal)
+	{
+		return blendImage.isValid() ? blendImage : PoolHelpers::getEmptyImage(getScriptObjectProperty(ScriptComponent::Properties::width),
 			getScriptObjectProperty(ScriptComponent::Properties::height));
+	}
 
+	return image ? *image.getData() : PoolHelpers::getEmptyImage(getScriptObjectProperty(ScriptComponent::Properties::width),
+		getScriptObjectProperty(ScriptComponent::Properties::height));
 }
 
 StringArray ScriptingApi::Content::ScriptImage::getItemList() const
@@ -2769,6 +2813,20 @@ void ScriptingApi::Content::ScriptImage::handleDefaultDeactivatedProperties()
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(linkedTo));
 }
 
+void ScriptingApi::Content::ScriptImage::updateBlendMode()
+{
+	if (blendMode == gin::Normal)
+		return;
+
+	if (image)
+	{
+		auto original = image->data;
+		
+		blendImage = Image(Image::ARGB, original.getWidth(), original.getHeight(), true);
+		gin::applyBlend(blendImage, original, blendMode);
+	}
+}
+
 struct ScriptingApi::Content::ScriptPanel::Wrapper
 {
 	API_VOID_METHOD_WRAPPER_0(ScriptPanel, repaint);
@@ -2793,12 +2851,9 @@ struct ScriptingApi::Content::ScriptPanel::Wrapper
 	API_METHOD_WRAPPER_0(ScriptPanel, removeFromParent);
 	API_METHOD_WRAPPER_0(ScriptPanel, getChildPanelList);
 	API_METHOD_WRAPPER_0(ScriptPanel, getParentPanel);
-
-#if HISE_INCLUDE_RLOTTIE
 	API_VOID_METHOD_WRAPPER_1(ScriptPanel, setAnimation);
 	API_VOID_METHOD_WRAPPER_1(ScriptPanel, setAnimationFrame);
 	API_METHOD_WRAPPER_0(ScriptPanel, getAnimationData);
-#endif
 	API_METHOD_WRAPPER_0(ScriptPanel, isVisibleAsPopup);
 	API_VOID_METHOD_WRAPPER_1(ScriptPanel, setIsModalPopup);
 };
@@ -2900,11 +2955,9 @@ void ScriptingApi::Content::ScriptPanel::init()
 	ADD_API_METHOD_0(getChildPanelList);
 	ADD_API_METHOD_0(getParentPanel);
 	ADD_API_METHOD_3(setMouseCursor);
-#if HISE_INCLUDE_RLOTTIE
 	ADD_API_METHOD_0(getAnimationData);
 	ADD_API_METHOD_1(setAnimation);
 	ADD_API_METHOD_1(setAnimationFrame);
-#endif
 }
 
 
@@ -3134,22 +3187,6 @@ void ScriptingApi::Content::ScriptPanel::timerCallback()
 
 	if (timerRoutine)
 		timerRoutine.call(nullptr, 0);
-
-#if 0
-	WeakReference<ScriptPanel> tmp(this);
-
-	auto f = [tmp, mc](JavascriptProcessor* )
-	{
-		Result r = Result::ok();
-
-		if (auto panel = tmp.get())
-			panel->timerCallbackInternal(mc, r);
-
-		return r;
-	};
-
-	mc->getJavascriptThreadPool().addJob(JavascriptThreadPool::Task::LowPriorityCallbackExecution, dynamic_cast<JavascriptProcessor*>(getScriptProcessor()), f);
-#endif
 }
 
 
@@ -3453,15 +3490,21 @@ var ScriptingApi::Content::ScriptPanel::addChildPanel()
 	return var(childPanels.getLast().get());
 }
 
-#if HISE_INCLUDE_RLOTTIE
+
 var ScriptingApi::Content::ScriptPanel::getAnimationData()
 {
+#if HISE_INCLUDE_RLOTTIE
 	updateAnimationData();
 	return var(animationData);
+#else
+	reportScriptError("RLottie is disabled. Compile with HISE_INCLUDE_RLOTTIE");
+	return var();
+#endif
 }
 
 void ScriptingApi::Content::ScriptPanel::setAnimation(String base64LottieAnimation)
 {
+#if HISE_INCLUDE_RLOTTIE
 	if (base64LottieAnimation.isEmpty())
 	{
 		animation = nullptr;
@@ -3484,18 +3527,26 @@ void ScriptingApi::Content::ScriptPanel::setAnimation(String base64LottieAnimati
 		if (l.get() != nullptr)
 			l->animationChanged();
 	}
+#else
+	reportScriptError("RLottie is disabled. Compile with HISE_INCLUDE_RLOTTIE");
+#endif
 }
 
 void ScriptingApi::Content::ScriptPanel::setAnimationFrame(int numFrame)
 {
+#if HISE_INCLUDE_RLOTTIE
 	if (animation != nullptr)
 	{
 		animation->setFrame(numFrame);
 		updateAnimationData();
 		graphics->getDrawHandler().flush();
 	}
+#else
+	reportScriptError("RLottie is disabled. Compile with HISE_INCLUDE_RLOTTIE");
+#endif
 }
 
+#if HISE_INCLUDE_RLOTTIE
 void ScriptingApi::Content::ScriptPanel::updateAnimationData()
 {
 	DynamicObject::Ptr obj = animationData.getDynamicObject();  
@@ -3520,6 +3571,7 @@ void ScriptingApi::Content::ScriptPanel::updateAnimationData()
 
 	animationData = var(obj.get());
 }
+#endif
 
 bool ScriptingApi::Content::ScriptPanel::removeFromParent()
 {
@@ -3565,7 +3617,6 @@ void ScriptingApi::Content::ScriptPanel::removeAnimationListener(AnimationListen
 	animationListeners.removeAllInstancesOf(l);
 #endif
 }
-
 
 hise::DebugInformationBase::Ptr ScriptingApi::Content::ScriptPanel::createChildElement(DebugWatchIndex i) const
 {
@@ -3640,10 +3691,6 @@ int ScriptingApi::Content::ScriptPanel::getNumChildElements() const
 	buildDebugListIfEmpty();
 	return cachedList.size();
 }
-
-
-
-#endif
 
 ScriptCreatedComponentWrapper * ScriptingApi::Content::ScriptedViewport::createComponentWrapper(ScriptContentComponent *content, int index)
 {
@@ -4813,6 +4860,9 @@ var ScriptingApi::Content::createShader(const String& fileName)
 {
 	auto f = new ScriptingObjects::ScriptShader(getScriptProcessor());
 
+	
+	addScreenshotListener(f);
+
 #if HISE_SUPPORT_GLSL_LINE_NUMBERS
 	f->setEnableLineNumbers(true);
 #endif
@@ -4826,7 +4876,7 @@ var ScriptingApi::Content::createShader(const String& fileName)
 
 void ScriptingApi::Content::createScreenshot(var area, var directory, String name)
 {
-	if (screenshotListener != nullptr)
+	if (!screenshotListeners.isEmpty())
 	{
 		if (auto sf = dynamic_cast<ScriptingObjects::ScriptFile*>(directory.getObject()))
 		{
@@ -4856,7 +4906,27 @@ void ScriptingApi::Content::createScreenshot(var area, var directory, String nam
 						reportScriptError(r.getErrorMessage());
 				}
 
-				screenshotListener->makeScreenshot(target, a);
+				// Send a message to all listeners
+				for (auto sc : screenshotListeners)
+				{
+					if (sc != nullptr)
+						sc->prepareScreenshot();
+				}
+
+				int timeWaitedMs = 0;
+
+				// Now block until everything is ready
+				for (auto sc : screenshotListeners)
+				{
+					if (sc != nullptr)
+						timeWaitedMs += sc->blockWhileWaiting();
+				}
+
+				for (auto sc : screenshotListeners)
+				{
+					if (sc != nullptr)
+						sc->makeScreenshot(target, a);
+				}
 			}
 		}
 	}
@@ -4896,8 +4966,11 @@ void ScriptingApi::Content::addVisualGuide(var guideData, var colour)
 	else
 		guides.clear();
 
-	if (screenshotListener != nullptr)
-		screenshotListener->visualGuidesChanged();
+	for (auto sc : screenshotListeners)
+	{
+		if(sc != nullptr)
+			sc->visualGuidesChanged();
+	}
 }
 
 String ScriptingApi::Content::getCurrentTooltip()

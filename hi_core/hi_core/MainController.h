@@ -745,6 +745,10 @@ public:
 			useUndoForPresetLoads = shouldAllowUndo;
 		}
 
+		void preprocess(ValueTree& presetToLoad);
+
+		void postPresetLoad();
+
 #if READ_ONLY_FACTORY_PRESETS
 
 		
