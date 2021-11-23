@@ -189,6 +189,8 @@ struct ScriptingObjects::ScriptFile::Wrapper
 	API_METHOD_WRAPPER_1(ScriptFile, toString);
 	API_METHOD_WRAPPER_0(ScriptFile, isFile);
 	API_METHOD_WRAPPER_0(ScriptFile, isDirectory);
+	API_METHOD_WRAPPER_1(ScriptFile, moveFileTo);
+	API_METHOD_WRAPPER_1(ScriptFile, copyFileTo);
 	API_METHOD_WRAPPER_1(ScriptFile, writeObject);
 	API_METHOD_WRAPPER_1(ScriptFile, writeString);
 	API_METHOD_WRAPPER_2(ScriptFile, writeEncryptedObject);
@@ -231,6 +233,8 @@ ScriptingObjects::ScriptFile::ScriptFile(ProcessorWithScriptingContent* p, const
 	ADD_API_METHOD_1(toString);
 	ADD_API_METHOD_0(isFile);
 	ADD_API_METHOD_0(isDirectory);
+	ADD_API_METHOD_1(moveFileTo);
+	ADD_API_METHOD_1(copyFileTo);
 	ADD_API_METHOD_0(deleteFileOrDirectory);
 	ADD_API_METHOD_1(writeObject);
 	ADD_API_METHOD_1(writeString);
@@ -313,6 +317,24 @@ bool ScriptingObjects::ScriptFile::isFile() const
 bool ScriptingObjects::ScriptFile::isDirectory() const
 {
 	return f.isDirectory();
+}
+
+bool ScriptingObjects::ScriptFile::moveFileTo(String targetLocation)
+{
+	if (targetLocation.isNotEmpty()) {
+		File targetFile = f.getSiblingFile(targetLocation);
+		return f.moveFileTo(targetFile);
+	}
+	return false;
+}
+
+bool ScriptingObjects::ScriptFile::copyFileTo(String targetLocation)
+{
+	if (targetLocation.isNotEmpty()) {
+		File targetFile = f.getSiblingFile(targetLocation);
+		return f.copyFileTo(targetFile);
+	}
+	return false;
 }
 
 bool ScriptingObjects::ScriptFile::deleteFileOrDirectory()
