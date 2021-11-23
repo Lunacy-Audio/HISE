@@ -56,6 +56,7 @@
 #define JUCE_MODULE_AVAILABLE_hi_dsp_library              1
 #define JUCE_MODULE_AVAILABLE_hi_lac                      1
 #define JUCE_MODULE_AVAILABLE_hi_modules                  1
+#define JUCE_MODULE_AVAILABLE_hi_rlottie                  1
 #define JUCE_MODULE_AVAILABLE_hi_sampler                  1
 #define JUCE_MODULE_AVAILABLE_hi_scripting                1
 #define JUCE_MODULE_AVAILABLE_hi_snex                     1
@@ -202,7 +203,7 @@
 #endif
 
 #ifndef    ENABLE_STARTUP_LOGGER
- #define   ENABLE_STARTUP_LOGGER 1
+ //#define ENABLE_STARTUP_LOGGER 0
 #endif
 
 #ifndef    HISE_MAX_PROCESSING_BLOCKSIZE
@@ -226,11 +227,11 @@
 #endif
 
 #ifndef    HISE_SAMPLE_DIALOG_SHOW_INSTALL_BUTTON
- #define   HISE_SAMPLE_DIALOG_SHOW_INSTALL_BUTTON 0
+ //#define HISE_SAMPLE_DIALOG_SHOW_INSTALL_BUTTON 1
 #endif
 
 #ifndef    HISE_SAMPLE_DIALOG_SHOW_LOCATE_BUTTON
- #define   HISE_SAMPLE_DIALOG_SHOW_LOCATE_BUTTON 0
+ //#define HISE_SAMPLE_DIALOG_SHOW_LOCATE_BUTTON 1
 #endif
 
 //==============================================================================
@@ -268,10 +269,21 @@
 #endif
 
 //==============================================================================
+// hi_rlottie flags:
+
+#ifndef    HISE_INCLUDE_RLOTTIE
+ //#define HISE_INCLUDE_RLOTTIE 1
+#endif
+
+#ifndef    HISE_RLOTTIE_DYNAMIC_LIBRARY
+ //#define HISE_RLOTTIE_DYNAMIC_LIBRARY 0
+#endif
+
+//==============================================================================
 // hi_scripting flags:
 
 #ifndef    INCLUDE_BIG_SCRIPTNODE_OBJECT_COMPILATION
- #define   INCLUDE_BIG_SCRIPTNODE_OBJECT_COMPILATION 0
+ //#define INCLUDE_BIG_SCRIPTNODE_OBJECT_COMPILATION 1
 #endif
 
 //==============================================================================
@@ -311,6 +323,10 @@
  //#define IS_MARKDOWN_EDITOR 0
 #endif
 
+#ifndef    HISE_INCLUDE_PITCH_DETECTION
+ //#define HISE_INCLUDE_PITCH_DETECTION 1
+#endif
+
 //==============================================================================
 // juce_audio_devices flags:
 
@@ -327,7 +343,7 @@
 #endif
 
 #ifndef    JUCE_DIRECTSOUND
- //#define JUCE_DIRECTSOUND 1
+ #define   JUCE_DIRECTSOUND 1
 #endif
 
 #ifndef    JUCE_ALSA
@@ -455,7 +471,7 @@
 #endif
 
 #ifndef    JUCE_STRICT_REFCOUNTEDPOINTER
- //#define JUCE_STRICT_REFCOUNTEDPOINTER 0
+ #define   JUCE_STRICT_REFCOUNTEDPOINTER 1
 #endif
 
 #ifndef    JUCE_ENABLE_ALLOCATION_HOOKS
@@ -546,7 +562,7 @@
 // juce_gui_extra flags:
 
 #ifndef    JUCE_WEB_BROWSER
- #define   JUCE_WEB_BROWSER 1
+ //#define JUCE_WEB_BROWSER 1
 #endif
 
 #ifndef    JUCE_USE_WIN_WEBVIEW2
