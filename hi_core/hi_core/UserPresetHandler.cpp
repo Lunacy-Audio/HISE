@@ -91,11 +91,6 @@ void MainController::UserPresetHandler::setTagsForPreset(const File& f, const St
 	PresetBrowser::DataBaseHelpers::writeTagsInXml(f, tags);
 }
 
-bool MainController::UserPresetHandler::getPresetFavorite(const File& f)
-{
-	// return PresetBrowser::DataBaseHelpers::isFavorite(PresetBrowser::getDataBase(), f);
-}
-
 void MainController::UserPresetHandler::setCurrentlyLoadedFile(const File& f)
 {
 	currentlyLoadedFile = f;

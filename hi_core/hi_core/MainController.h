@@ -893,9 +893,6 @@ public:
 		void setTagsForPreset(const File& f, const StringArray& tags);
 
 		/** Returns whether or not preset file is favorite */
-		bool getPresetFavorite(const File& f);
-
-		/** Returns whether or not preset file is favorite */
 		void setPresetFavorite(const File& f, bool isFavorite);
 
 		/** Writes tags to preset file. */
