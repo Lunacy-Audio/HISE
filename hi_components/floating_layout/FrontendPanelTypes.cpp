@@ -570,14 +570,22 @@ var PresetBrowserPanel::toDynamicObject() const
 	var obj = FloatingTileContent::toDynamicObject();
 
 	storePropertyInObject(obj, SpecialPanelIds::ShowSaveButton, options.showSaveButtons);
-
 	storePropertyInObject(obj, SpecialPanelIds::ShowExpansionsAsColumn, options.showExpansions);
 	storePropertyInObject(obj, SpecialPanelIds::ShowFolderButton, options.showFolderButton);
 	storePropertyInObject(obj, SpecialPanelIds::ShowNotes, options.showNotesLabel);
 	storePropertyInObject(obj, SpecialPanelIds::ShowEditButtons, options.showEditButtons);
+	storePropertyInObject(obj, SpecialPanelIds::EditButtonOffset, var(options.editButtonOffset));
+	storePropertyInObject(obj, SpecialPanelIds::ShowAddButton, options.showAddButton);
+	storePropertyInObject(obj, SpecialPanelIds::ShowRenameButton, options.showRenameButton);
+	storePropertyInObject(obj, SpecialPanelIds::ShowDeleteButton, options.showDeleteButton);
 	storePropertyInObject(obj, SpecialPanelIds::ShowFavoriteIcon, options.showFavoriteIcons);
+	storePropertyInObject(obj, SpecialPanelIds::ButtonsInsideBorder, options.buttonsInsideBorder);
 	storePropertyInObject(obj, SpecialPanelIds::NumColumns, options.numColumns);
 	storePropertyInObject(obj, SpecialPanelIds::ColumnWidthRatio, var(options.columnWidthRatios));
+	storePropertyInObject(obj, SpecialPanelIds::ListAreaOffset, var(options.listAreaOffset));
+	storePropertyInObject(obj, SpecialPanelIds::ColumnRowPadding, var(options.columnRowPadding));
+	storePropertyInObject(obj, SpecialPanelIds::SearchBarBounds, var(options.searchBarBounds));
+	storePropertyInObject(obj, SpecialPanelIds::FavoriteButtonBounds, var(options.favoriteButtonBounds));
 
 	return obj;
 }
@@ -589,7 +597,12 @@ void PresetBrowserPanel::fromDynamicObject(const var& object)
 	options.showSaveButtons = getPropertyWithDefault(object, SpecialPanelIds::ShowSaveButton);
 	options.showFolderButton = getPropertyWithDefault(object, SpecialPanelIds::ShowFolderButton);
 	options.showNotesLabel = getPropertyWithDefault(object, SpecialPanelIds::ShowNotes);
-	options.showEditButtons = getPropertyWithDefault(object, SpecialPanelIds::ShowEditButtons);
+	options.showEditButtons = getPropertyWithDefault(object, SpecialPanelIds::ShowEditButtons);	
+	options.showAddButton = getPropertyWithDefault(object, SpecialPanelIds::ShowAddButton);	
+	options.showRenameButton = getPropertyWithDefault(object, SpecialPanelIds::ShowRenameButton);
+	options.showDeleteButton = getPropertyWithDefault(object, SpecialPanelIds::ShowDeleteButton);
+	options.buttonsInsideBorder = getPropertyWithDefault(object, SpecialPanelIds::ButtonsInsideBorder);
+	options.editButtonOffset = getPropertyWithDefault(object, SpecialPanelIds::EditButtonOffset);
 	options.showExpansions = getPropertyWithDefault(object, SpecialPanelIds::ShowExpansionsAsColumn);
 	options.numColumns = getPropertyWithDefault(object, SpecialPanelIds::NumColumns);
 
@@ -598,7 +611,35 @@ void PresetBrowserPanel::fromDynamicObject(const var& object)
 	{
 		options.columnWidthRatios.clear();
 		options.columnWidthRatios.addArray(*ratios.getArray());
+	}	
+
+	auto listAreaOffset = getPropertyWithDefault(object, SpecialPanelIds::ListAreaOffset);	
+	if (listAreaOffset.isArray())
+	{
+		options.listAreaOffset.clear();
+		options.listAreaOffset.addArray(*listAreaOffset.getArray());
 	}
+	
+	auto columnRowPadding = getPropertyWithDefault(object, SpecialPanelIds::ColumnRowPadding);	
+	if (columnRowPadding.isArray())
+	{
+		options.columnRowPadding.clear();
+		options.columnRowPadding.addArray(*columnRowPadding.getArray());
+	}
+	
+	auto searchBarBounds = getPropertyWithDefault(object, SpecialPanelIds::SearchBarBounds);	
+	if (searchBarBounds.isArray())
+	{
+		options.searchBarBounds.clear();
+		options.searchBarBounds.addArray(*searchBarBounds.getArray());
+	}	
+	
+	auto favoriteButtonBounds = getPropertyWithDefault(object, SpecialPanelIds::FavoriteButtonBounds);	
+	if (favoriteButtonBounds.isArray())
+	{
+		options.favoriteButtonBounds.clear();
+		options.favoriteButtonBounds.addArray(*favoriteButtonBounds.getArray());
+	}	
 	
 	options.showFavoriteIcons = getPropertyWithDefault(object, SpecialPanelIds::ShowFavoriteIcon);
 	options.backgroundColour = findPanelColour(PanelColourId::bgColour);
@@ -630,6 +671,15 @@ juce::Identifier PresetBrowserPanel::getDefaultablePropertyId(int index) const
 	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ShowSaveButton, "ShowSaveButton");
 	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ShowNotes, "ShowNotes");
 	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ShowEditButtons, "ShowEditButtons");
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ShowAddButton, "ShowAddButton");
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ShowRenameButton, "ShowRenameButton");
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ShowDeleteButton, "ShowDeleteButton");
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ButtonsInsideBorder, "ButtonsInsideBorder");
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::EditButtonOffset, "EditButtonOffset");
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ListAreaOffset, "ListAreaOffset");
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ColumnRowPadding, "ColumnRowPadding");
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::SearchBarBounds, "SearchBarBounds");
+	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::FavoriteButtonBounds, "FavoriteButtonBounds");
 	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::NumColumns, "NumColumns");
 	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ColumnWidthRatio, "ColumnWidthRatio");
 	RETURN_DEFAULT_PROPERTY_ID(index, SpecialPanelIds::ShowExpansionsAsColumn, "ShowExpansionsAsColumn");
@@ -652,6 +702,11 @@ var PresetBrowserPanel::getDefaultProperty(int index) const
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ShowSaveButton, true);
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ShowNotes, true);
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ShowEditButtons, true);
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ShowAddButton, true);
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ShowRenameButton, true);
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ShowDeleteButton, true);
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ButtonsInsideBorder, false);
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::EditButtonOffset, 10);
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::NumColumns, 3);
 
 	Array<var> defaultRatios;
@@ -660,6 +715,18 @@ var PresetBrowserPanel::getDefaultProperty(int index) const
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ColumnWidthRatio, var(defaultRatios));
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ShowExpansionsAsColumn, false);
 	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ShowFavoriteIcon, true);
+	
+	Array<var> defaultListAreaOffset = {0, 0, 0, 0};
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ListAreaOffset, var(defaultListAreaOffset));
+
+	Array<var> defaultColumnRowPadding = {0, 0, 0, 0};
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::ColumnRowPadding, var(defaultColumnRowPadding));
+
+	Array<var> defaultSearchBarBounds;
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::SearchBarBounds, var(defaultSearchBarBounds));
+
+	Array<var> defaultFavoriteButtonBounds;
+	RETURN_DEFAULT_PROPERTY(index, SpecialPanelIds::FavoriteButtonBounds, var(defaultFavoriteButtonBounds));
 
 	return var();
 }
@@ -772,21 +839,21 @@ void AboutPagePanel::rebuildText()
 		bgImage = handler.loadImageReference(PoolReference(getMainController(), "{PROJECT_FOLDER}about.png", ProjectHandler::SubDirectories::Images));
 	}
 	
+	String licencee;
+
+#if USE_BACKEND || USE_COPY_PROTECTION
+	if (auto ul = getMainController()->getLicenseUnlocker())
+		licencee = ul->getUserEmail();
+#endif
 
 #if USE_FRONTEND
 	const String projectName = FrontendHandler::getProjectName();
-
-#if USE_COPY_PROTECTION
-	const String licencee = dynamic_cast<FrontendProcessor*>(getMainController())->unlocker.getEmailAdress();
-#endif
-
 	const String version = FrontendHandler::getVersionString();
 	
 #else
 	const auto& data = dynamic_cast<GlobalSettingManager*>(getMainController())->getSettingsObject();
 
 	const String projectName = data.getSetting(HiseSettings::Project::Name);
-	const String licencee = "mailMcFaceMail@mail.mail";
 	const String version = data.getSetting(HiseSettings::Project::Version);
 
 #endif
@@ -813,7 +880,7 @@ void AboutPagePanel::rebuildText()
 		text.append(version + nl + nl, normal, low);
 	}
 
-#if USE_COPY_PROTECTION
+#if USE_COPY_PROTECTION && !USE_SCRIPT_COPY_PROTECTION
 	if (showLicensedEmail)
 	{
 		text.append("Licensed to: ", bold, low);

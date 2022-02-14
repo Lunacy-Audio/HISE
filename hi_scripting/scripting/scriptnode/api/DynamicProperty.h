@@ -125,17 +125,21 @@ struct dynamic_base_holder: public dynamic_base
 	{
 		dynamic_base::Ptr old = base;
 
+		auto oldValue = getDisplayValue();
+
 		{
 			SimpleReadWriteLock::ScopedWriteLock sl(connectionLock);
 			base = b;
 		}
 
-		call(getDisplayValue());
+		call(oldValue);
 	}
 
 	bool isConnected() const
 	{
-		return base != nullptr;
+		// this should always return true to allow setting the display value
+		// when there's no connection
+		return true;
 	}
 
 	dynamic_base::Ptr base;
@@ -165,11 +169,11 @@ template <bool ScaleInput> struct dynamic_chain : public dynamic_base
 	void call(double v)
 	{
 		setDisplayValue(v);
-		auto nv = ScaleInput ? getRange().convertTo0to1(v) : v;
+		auto nv = ScaleInput ? getRange().convertTo0to1(v, true) : v;
 
 		for (auto& t : targets)
 		{
-			auto tv = ScaleInput ? t->getRange().convertFrom0to1(nv) : v;
+			auto tv = ScaleInput ? t->getRange().convertFrom0to1(nv, true) : v;
 			t->call(tv);
 		}
 	}

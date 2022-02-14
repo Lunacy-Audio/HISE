@@ -956,11 +956,7 @@ public:
 
 		void initialise();
 
-
-
 	private:
-
-		
 
 		struct ConsoleMessage
 		{
@@ -1099,9 +1095,7 @@ public:
 
 		bool handleBufferDuringSuspension(AudioSampleBuffer& b);
 
-		/** Calls the function later on the same thread (either message thread or sample loading thread. */
-		void callLater(const std::function<void()>& f);
-
+		
 	private:
 
 		friend class SuspendHelpers::ScopedTicket;
@@ -1595,6 +1589,10 @@ public:
 		return xyzPool.get();
 	}
 
+#if USE_COPY_PROTECTION || USE_BACKEND
+	virtual juce::OnlineUnlockStatus* getLicenseUnlocker() = 0;
+#endif
+
 #if HISE_INCLUDE_RLOTTIE
 	RLottieManager::Ptr getRLottieManager();
 #endif
@@ -1849,6 +1847,9 @@ private:
 	int scrollY;
 	BigInteger shownComponents;
 
+    // Make sure that this is alive all the time...
+    snex::cppgen::CustomNodeProperties data;
+    
 	ScopedPointer<ControlledObject> defaultPresetHandler;
 
 	void handleSuspendedNoteOffs();

@@ -213,6 +213,17 @@ void MainController::CodeHandler::initialise()
 
 void MainController::CodeHandler::writeToConsole(const String &t, int warningLevel, const Processor *p, Colour /*c*/)
 {
+#if USE_BACKEND
+	if (CompileExporter::isExportingFromCommandLine())
+	{
+#if !JUCE_MAC
+        DBG(t);
+#endif
+        std::cout << t << "\n";
+		return;
+	}
+#endif
+
 	pendingMessages.push({ (WarningLevel)warningLevel, const_cast<Processor*>(p), t });
 	triggerAsyncUpdate();
 }
@@ -257,9 +268,6 @@ void MainController::CodeHandler::printPendingMessagesFromQueue()
 	overflowProtection = false;
 
 	WeakReference<Processor> p = mc->getMainSynthChain();
-
-	auto c = mainConsole.getComponent();
-
 	
 #endif
 }

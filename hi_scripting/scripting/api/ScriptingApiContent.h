@@ -541,6 +541,9 @@ public:
         /** Returns the absolute y-position relative to the interface. */
         int getGlobalPositionY();
         
+		/** Returns list of component's children */
+		var getChildComponents();
+				
 		/** Returns a [x, y, w, h] array that was reduced by the given amount. */
 		var getLocalBounds(float reduceAmount);
 
@@ -583,6 +586,9 @@ public:
 		/** Call this method in order to give away the focus for this component. */
 		void loseFocus();
 
+		/** Attaches the local look and feel to this component. */
+		void setLocalLookAndFeel(var lafObject);
+
 		// End of API Methods ============================================================================================
 
 		bool handleKeyPress(const KeyPress& k);
@@ -614,6 +620,10 @@ public:
 		struct Wrapper;
 
 		bool isConnectedToProcessor() const;;
+
+		bool isConnectedToGlobalCable() const;
+
+		void sendGlobalCableValue(var v);
 
 		Processor* getConnectedProcessor() const { return connectedProcessor.get(); };
 
@@ -661,6 +671,10 @@ public:
 			return scriptChangedProperties.contains(id);
 		}
 
+		void repaintThisAndAllChildren();
+
+
+
 		void setPropertyToLookFor(const Identifier& id)
 		{
 			searchedProperty = id;
@@ -680,6 +694,9 @@ public:
 				}
 			}
 		}
+
+		/** Returns a local look and feel if it was registered before. */
+		LookAndFeel* createLocalLookAndFeel();
 
 		static Array<Identifier> numberPropertyIds;
 		static bool numbersInitialised;
@@ -748,6 +765,8 @@ public:
 
 	private:
 
+		var localLookAndFeel;
+
 		WeakCallbackHolder keyboardCallback;
 
 		struct AsyncControlCallbackSender : private UpdateDispatcher::Listener
@@ -770,6 +789,8 @@ public:
             ProcessorWithScriptingContent* p;
         };
         
+		struct GlobalCableConnection;
+
 		AsyncControlCallbackSender controlSender;
 
 		bool isPositionProperty(Identifier id) const;
@@ -801,6 +822,8 @@ public:
 
 		WeakReference<Processor> connectedProcessor;
 		int connectedParameterIndex = -1;
+
+		ScopedPointer<GlobalCableConnection> globalConnection;
 
         int connectedMacroIndex = -1;
         bool macroRecursionProtection = false;
@@ -866,6 +889,7 @@ public:
 		/** Set the value from a 0.0 to 1.0 range */
 		void setValueNormalized(double normalizedValue) override;
 
+		/** Returns the normalized value. */
 		double getValueNormalized() const override;
 
 		/** Sets the range and the step size of the knob. */
@@ -1674,6 +1698,9 @@ public:
 		/** Loads a image which can be drawn with the paint function later on. */
 		void loadImage(String imageName, String prettyName);
 
+		/** Unload all images from the panel. */
+		void unloadAllImages();
+
 		/** If `allowedDragging` is enabled, it will define the boundaries where the panel can be dragged. */
 		void setDraggingBounds(var area);
 
@@ -1737,20 +1764,7 @@ public:
 
 		void setScriptObjectPropertyWithChangeMessage(const Identifier &id, var newValue, NotificationType notifyEditor=sendNotification) override
 		{
-			if (id == getIdFor((int)ScriptComponent::Properties::visible))
-			{
-				const bool wasVisible = (bool)getScriptObjectProperty(visible);
-
-				const bool isNowVisible = (bool)newValue;
-
-				setScriptObjectProperty(visible, newValue);
-
-				if (wasVisible != isNowVisible)
-				{
-					repaintThisAndAllChildren();
-
-				}
-			}
+			
 
 			ScriptComponent::setScriptObjectPropertyWithChangeMessage(id, newValue, notifyEditor);
 
@@ -1766,8 +1780,6 @@ public:
 			}
 #endif
 		}
-
-		void repaintThisAndAllChildren();
 
 		struct Wrapper;
 
@@ -2121,7 +2133,7 @@ public:
 	ScriptSliderPack *addSliderPack(Identifier sliderPackName, int x, int y);
 
 	/** Adds a viewport. */
-	ScriptedViewport* addScriptedViewport(Identifier viewportName, int x, int y);
+	ScriptedViewport* addViewport(Identifier viewportName, int x, int y);
 
 	/** Adds a floating layout component. */
 	ScriptFloatingTile* addFloatingTile(Identifier floatingTileName, int x, int y);
@@ -2185,6 +2197,9 @@ public:
 
 	/** Set this to true to render all script panels with double resolution for retina or rescaling. */
 	void setUseHighResolutionForPanels(bool shouldUseDoubleResolution);
+
+	/** Creates a look and feel that you can attach manually to certain components. */
+	var createLocalLookAndFeel();
 
 	// ================================================================================================================
 

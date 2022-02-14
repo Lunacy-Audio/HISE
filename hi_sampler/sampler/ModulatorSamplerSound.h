@@ -151,9 +151,10 @@ struct Helpers
 	{
 		switch (m)
 		{
-		case Modulation::Mode::GainMode: return SampleIds::GainTable;
+		case Modulation::Mode::GainMode:  return SampleIds::GainTable;
 		case Modulation::Mode::PitchMode: return SampleIds::PitchTable;
-		case Modulation::Mode::PanMode: return SampleIds::LowPassTable;
+		case Modulation::Mode::PanMode:   return SampleIds::LowPassTable;
+        default:                          return {};
 		}
 			
 		return {};
@@ -518,7 +519,7 @@ public:
 
 		void rebuildBuffer();
 
-		MidiTable table;
+		SampleLookupTable table;
 		WeakReference<HiseAudioThumbnail> thumbnailToPreview;
 
 		static void processThumbnail(EnvelopeTable& t, var left, var right);
@@ -553,16 +554,18 @@ public:
 
 		static float getFreqValueInverse(float input);
 
-	private:
-
 		static float getFreqValue(float input);
-
-		
 
 		static float getGainValue(float input)
 		{
 			return input * 2.0f;
 		}
+
+		static float getPitchValue(float input);
+
+	private:
+
+		
 
 		static String getFreqencyString(float input)
 		{
@@ -610,7 +613,7 @@ public:
 			return input;
 		}
 
-		static float getPitchValue(float input);
+		
 
 		Range<int> sampleRange;
 		HeapBlock<float> lookupTable;
@@ -860,7 +863,7 @@ private:
 
 	AsyncCleaner asyncCleaner;
 
-	ReferenceCountedArray<MonolithInfoToUse> loadedMonoliths;
+	ReferenceCountedArray<HlacMonolithInfo> loadedMonoliths;
 
 	int getSoundIndexFromPool(int64 hashCode);
 

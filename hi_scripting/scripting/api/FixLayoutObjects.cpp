@@ -41,7 +41,10 @@ void LayoutBase::Helpers::writeElement(DataType type, uint8* dataWithOffset, con
 	{
 	case DataType::Integer: *reinterpret_cast<int*>(dataWithOffset) = (int)newValue; break;
 	case DataType::Float:    *reinterpret_cast<float*>(dataWithOffset) = (float)newValue; break;
-	case DataType::Boolean: *reinterpret_cast<int*>(dataWithOffset) = (int)(bool)newValue; break;
+	case DataType::Boolean: *reinterpret_cast<int*>(dataWithOffset) = (int)(bool)newValue;
+        break;
+    default:
+        break;
 	}
 }
 
@@ -97,6 +100,7 @@ juce::uint32 LayoutBase::Helpers::getTypeSize(DataType type)
 	case DataType::Integer: return sizeof(int);
 	case DataType::Boolean: return sizeof(int);
 	case DataType::Float:   return sizeof(float);
+    default:                return 0;
 	}
 }
 
@@ -252,7 +256,7 @@ var Factory::create()
 {
 	if (initResult.wasOk())
 	{
-		auto b = allocator->allocate(getElementSizeInBytes());
+		auto b = allocator->allocate((int)getElementSizeInBytes());
 
 		auto r = new ObjectReference();
 		r->init(this, b, true);
@@ -288,6 +292,8 @@ var Factory::createStack()
 		arrays.add(newElement);
 		return var(newElement);
 	}
+    
+    return var();
 }
 
 void Factory::setCompareFunction(var newCompareFunction)
@@ -619,7 +625,7 @@ void Array::init(LayoutBase* parent)
 
 	if (numAllocated > 0)
 	{
-		data = allocator->allocate(numAllocated);
+		data = allocator->allocate((int)numAllocated);
 		
 		for (int i = 0; i < numElements; i++)
 		{
@@ -644,7 +650,7 @@ void Array::fill(var obj)
 	else
 	{
 		for (auto i : items)
-			i->reset();
+			i->clear();
 	}
 }
 
@@ -653,23 +659,24 @@ void Array::clear()
 	fill(var());
 }
 
-int Array::indexOf(var obj)
+int Array::indexOf(var obj) const
 {
 	if (auto o = dynamic_cast<ObjectReference*>(obj.getObject()))
 	{
 		int index = 0;
 
-		for (auto i : items)
+		int numToSearch = size();
+
+		for (int i = 0; i < numToSearch; i++)
 		{
-			if (compareFunction(i, o) == 0)
-				return index;
+			auto item = items[i];
 
-			if (*i == *o)
-				return index;
+			if (compareFunction(item, o) == 0)
+				return i;
 
-			index++;
+			if (*item == *o)
+				return i;
 		}
-
 	}
 
 	return -1;
@@ -697,10 +704,14 @@ bool Array::copy(String propertyName, var target)
 
 	auto ptr = data + offset;
 
+
+
 	if (auto b = target.getBuffer())
 	{
 		if (numElements != b->size)
 			reportScriptError("buffer size mismatch");
+
+		auto numToCopy = size();
 
 		for (int i = 0; i < numElements; i++)
 		{
@@ -713,7 +724,7 @@ bool Array::copy(String propertyName, var target)
 	}
 	else if (auto a = target.getArray())
 	{
-		a->ensureStorageAllocated(numElements);
+		a->ensureStorageAllocated((int)numElements);
 		
 		for (int i = 0; i < numElements; i++)
 		{
@@ -728,6 +739,16 @@ bool Array::copy(String propertyName, var target)
 	return false;
 }
 
+int Array::size() const
+{
+	return numElements;
+}
+
+bool Array::contains(var obj) const
+{
+	return indexOf(obj) != -1;
+}
+
 bool Stack::insert(var obj)
 {
 	auto idx = indexOf(obj);
@@ -739,14 +760,14 @@ bool Stack::insert(var obj)
 	{
 		*items[position] = *ref;
 
-		position = jmin<int>(position + 1, numElements - 1);
+		position = jmin<int>(position + 1, (int)numElements - 1);
 		return true;
 	}
 
 	return false;
 }
 
-int Stack::getNumUsed() const
+int Stack::size() const
 {
 	return position;
 }
@@ -774,6 +795,26 @@ bool Stack::removeElement(int index)
 
 	return false;
 }
+
+void Stack::clear()
+{
+	for (auto i : items)
+		i->clear();
+	
+	clearQuick();
+}
+
+void Stack::clearQuick()
+{
+	position = 0;
+}
+
+bool Stack::isEmpty() const
+{
+	return position == 0;
+}
+
+
 
 }
 

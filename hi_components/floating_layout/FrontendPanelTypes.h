@@ -408,6 +408,15 @@ public:
 		ShowExpansionsAsColumn,
 		NumColumns,
 		ColumnWidthRatio,
+		EditButtonOffset,
+		ListAreaOffset,
+		ShowAddButton,
+		ShowRenameButton,
+		ShowDeleteButton,
+		ButtonsInsideBorder,
+		ColumnRowPadding,
+		SearchBarBounds,
+		FavoriteButtonBounds,
 		numSpecialProperties
 	};
 

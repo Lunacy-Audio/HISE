@@ -810,11 +810,7 @@ void mcl::TextEditor::paint (Graphics& g)
 		return;
 	}
 
-	
-
-    auto start = Time::getMillisecondCounterHiRes();
     String renderSchemeString;
-
 	renderTextUsingGlyphArrangement(g);
 
 	g.setColour(Colours::blue.withAlpha(0.8f));
@@ -1605,26 +1601,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
         updateSelections();
         return true;
     };
-    auto addSelectionAtNextMatch = [this] ()
-    {
-        const auto& s = document.getSelections().getLast();
-
-        if (! s.isSingleLine())
-        {
-            return false;
-        }
-        auto t = document.search (s.tail, document.getSelectionContent (s));
-
-        if (t.isSingular())
-        {
-            return false;
-        }
-        document.addSelection (t);
-        translateToEnsureCaretIsVisible();
-        updateSelections();
-        return true;
-    };
-
+    
 	auto remove = [this](Target target, Direction direction)
 	{
 		const auto& s = document.getSelections().getLast();
@@ -1699,6 +1676,8 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     {
         if (key.isKeyCode(KeyPress::rightKey)) return nav(mods, Target::commandTokenNav, Direction::forwardCol);
         if (key.isKeyCode(KeyPress::leftKey))  return nav(mods, Target::commandTokenNav, Direction::backwardCol);
+        
+        updateAutocomplete();
     }
 #endif
     
@@ -1733,12 +1712,14 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
     }
     if (mods.isCommandDown())
     {
+        closeAutocomplete(true, {}, {});
+        
         if (key.isKeyCode (KeyPress::downKey)) return nav (mods, Target::document, Direction::forwardRow);
         if (key.isKeyCode (KeyPress::upKey  )) return nav (mods, Target::document, Direction::backwardRow);
         
 #if JUCE_MAC
-        if (key.isKeyCode (KeyPress::leftKey)) return nav(mods, Target::firstnonwhitespace, Direction::backwardCol);
-        if (key.isKeyCode (KeyPress::rightKey  )) return nav(mods, Target::line, Direction::forwardCol);
+        if (key.isKeyCode (KeyPress::leftKey)) return nav(mods, Target::firstnonwhitespaceAfterLineBreak, Direction::backwardCol);
+        if (key.isKeyCode (KeyPress::rightKey  )) return nav(mods, Target::lineUntilBreak, Direction::forwardCol);
 #endif
     }
 
@@ -1852,7 +1833,7 @@ bool mcl::TextEditor::keyPressed (const KeyPress& key)
 
 #if JUCE_WINDOWS || JUCE_LINUX
     // Home/End: End / start of line
-	if (key.isKeyCode(KeyPress::homeKey)) return nav(mods, Target::firstnonwhitespace, Direction::backwardCol);
+	if (key.isKeyCode(KeyPress::homeKey)) return nav(mods, Target::firstnonwhitespaceAfterLineBreak, Direction::backwardCol);
 	if (key.isKeyCode(KeyPress::endKey))  return nav(mods, Target::lineUntilBreak, Direction::forwardCol);
 #else
     // Home/End: Scroll to beginning

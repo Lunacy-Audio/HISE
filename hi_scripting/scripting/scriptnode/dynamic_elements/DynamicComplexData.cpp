@@ -103,8 +103,7 @@ void dynamic_base::onComplexDataEvent(ComplexDataUIUpdaterBase::EventType d, var
 			cTree.setProperty(PropertyIds::EmbeddedData, s, parentNode->getUndoManager());
 		}
 
-		if(d == ComplexDataUIUpdaterBase::EventType::ContentRedirected)
-			updateExternalData();
+		updateExternalData();
 	}
 }
 
@@ -329,11 +328,13 @@ namespace pimpl
 			getObject()->sourceWatcher.removeSourceListener(this);
 	}
 
+	void complex_ui_laf::drawTableBackground(Graphics& g, TableEditor& te, Rectangle<float> area, double rulerPosition)
+	{
+		ScriptnodeComboBoxLookAndFeel::drawScriptnodeDarkBackground(g, area, false);	
+	}	
 
 	void complex_ui_laf::drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float lineThickness)
 	{
-		ScriptnodeComboBoxLookAndFeel::drawScriptnodeDarkBackground(g, area, false);
-
 		UnblurryGraphics ug(g, te, true);
 
 		auto b = area;
@@ -470,7 +471,7 @@ namespace pimpl
 
 		if (auto e = dynamic_cast<SampleLookupTable*>(te.getEditedTable()))
 		{
-			auto yValue = e->getInterpolatedValue(te.getLastIndex() * SAMPLE_LOOKUP_TABLE_SIZE, dontSendNotification);
+			auto yValue = e->getInterpolatedValue(te.getLastIndex(), dontSendNotification);
 
 			Point<float> p(x, (1.0f - yValue) * area.getHeight());
 

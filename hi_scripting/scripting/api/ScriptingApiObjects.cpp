@@ -186,20 +186,30 @@ struct ScriptingObjects::ScriptFile::Wrapper
 	API_METHOD_WRAPPER_0(ScriptFile, getParentDirectory);
 	API_METHOD_WRAPPER_1(ScriptFile, getChildFile);
 	API_METHOD_WRAPPER_1(ScriptFile, createDirectory);
+	API_METHOD_WRAPPER_0(ScriptFile, getSize);
+	API_METHOD_WRAPPER_0(ScriptFile, getBytesFreeOnVolume);
+	API_METHOD_WRAPPER_1(ScriptFile, setExecutePermission);
+	API_METHOD_WRAPPER_1(ScriptFile, startAsProcess);
+	API_METHOD_WRAPPER_0(ScriptFile, getHash);
 	API_METHOD_WRAPPER_1(ScriptFile, toString);
 	API_METHOD_WRAPPER_0(ScriptFile, isFile);
 	API_METHOD_WRAPPER_0(ScriptFile, isDirectory);
 	API_METHOD_WRAPPER_1(ScriptFile, moveFileTo);
 	API_METHOD_WRAPPER_1(ScriptFile, copyFileTo);
 	API_METHOD_WRAPPER_1(ScriptFile, writeObject);
+	API_METHOD_WRAPPER_2(ScriptFile, writeAsXmlFile);
+	API_METHOD_WRAPPER_0(ScriptFile, loadFromXmlFile);
 	API_METHOD_WRAPPER_1(ScriptFile, writeString);
 	API_METHOD_WRAPPER_2(ScriptFile, writeEncryptedObject);
 	API_METHOD_WRAPPER_3(ScriptFile, writeAudioFile);
 	API_METHOD_WRAPPER_0(ScriptFile, loadAsString);
 	API_METHOD_WRAPPER_0(ScriptFile, loadAsObject);
+	API_METHOD_WRAPPER_0(ScriptFile, loadAsAudioFile);
 	API_METHOD_WRAPPER_0(ScriptFile, deleteFileOrDirectory);
 	API_METHOD_WRAPPER_1(ScriptFile, loadEncryptedObject);
+	API_METHOD_WRAPPER_1(ScriptFile, rename);
 	API_METHOD_WRAPPER_1(ScriptFile, toReferenceString);
+	API_METHOD_WRAPPER_1(ScriptFile, getRelativePathFrom);
 	API_VOID_METHOD_WRAPPER_2(ScriptFile, setReadOnly);
 	API_VOID_METHOD_WRAPPER_3(ScriptFile, extractZipFile);
 	API_VOID_METHOD_WRAPPER_0(ScriptFile, show);
@@ -219,7 +229,7 @@ String ScriptingObjects::ScriptFile::getFileNameFromFile(var fileOrString)
 }
 
 ScriptingObjects::ScriptFile::ScriptFile(ProcessorWithScriptingContent* p, const File& f_) :
-	ConstScriptingObject(p, 3),
+	ConstScriptingObject(p, 4),
 	f(f_)
 {
 	addConstant("FullPath", (int)FullPath);
@@ -230,8 +240,13 @@ ScriptingObjects::ScriptFile::ScriptFile(ProcessorWithScriptingContent* p, const
 	ADD_API_METHOD_0(getParentDirectory);
 	ADD_API_METHOD_1(getChildFile);
 	ADD_API_METHOD_1(createDirectory);
+	ADD_API_METHOD_0(getSize);
+	ADD_API_METHOD_0(getHash);
 	ADD_API_METHOD_1(toString);
 	ADD_API_METHOD_0(isFile);
+	ADD_API_METHOD_0(getBytesFreeOnVolume);
+	ADD_API_METHOD_1(setExecutePermission);
+	ADD_API_METHOD_1(startAsProcess);
 	ADD_API_METHOD_0(isDirectory);
 	ADD_API_METHOD_1(moveFileTo);
 	ADD_API_METHOD_1(copyFileTo);
@@ -242,11 +257,16 @@ ScriptingObjects::ScriptFile::ScriptFile(ProcessorWithScriptingContent* p, const
 	ADD_API_METHOD_3(writeAudioFile);
 	ADD_API_METHOD_0(loadAsString);
 	ADD_API_METHOD_0(loadAsObject);
+	ADD_API_METHOD_0(loadAsAudioFile);
 	ADD_API_METHOD_1(loadEncryptedObject);
+	ADD_API_METHOD_1(rename);
 	ADD_API_METHOD_0(show);
 	ADD_API_METHOD_3(extractZipFile);
 	ADD_API_METHOD_2(setReadOnly);
 	ADD_API_METHOD_1(toReferenceString);
+	ADD_API_METHOD_1(getRelativePathFrom);
+	ADD_API_METHOD_0(loadFromXmlFile);
+	ADD_API_METHOD_2(writeAsXmlFile);
 }
 
 
@@ -267,6 +287,31 @@ var ScriptingObjects::ScriptFile::createDirectory(String directoryName)
 
 	return new ScriptFile(getScriptProcessor(), f.getChildFile(directoryName));
 }
+
+int64 ScriptingObjects::ScriptFile::getSize()
+{	
+	return f.getSize();
+}
+
+int64 ScriptingObjects::ScriptFile::getBytesFreeOnVolume()
+{
+	return f.getBytesFreeOnVolume();
+}
+
+bool ScriptingObjects::ScriptFile::setExecutePermission(bool shouldBeExecutable)
+{
+	return f.setExecutePermission(shouldBeExecutable);
+}
+
+bool ScriptingObjects::ScriptFile::startAsProcess(String parameters)
+{
+	return f.startAsProcess(parameters);
+}
+
+String ScriptingObjects::ScriptFile::getHash()
+{
+	return SHA256(f).toHexString();
+};
 
 String ScriptingObjects::ScriptFile::toString(int formatType) const
 {
@@ -349,6 +394,56 @@ bool ScriptingObjects::ScriptFile::writeObject(var jsonData)
 {
 	auto text = JSON::toString(jsonData);
 	return writeString(text);
+}
+
+bool ScriptingObjects::ScriptFile::writeAsXmlFile(var jsonDataToBeXmled, String tagName)
+{
+	ScopedPointer<XmlElement> xml = new XmlElement(tagName);
+
+	if (auto obj = jsonDataToBeXmled.getDynamicObject())
+	{
+		for (const auto& p : obj->getProperties())
+		{
+			if (p.value.isString())
+				xml->setAttribute(p.name, p.value.toString());
+			else if (p.value.isInt() || p.value.isInt64())
+				xml->setAttribute(p.name, (int)p.value);
+			else
+				xml->setAttribute(p.name, (double)p.value);
+		}
+	}
+
+	auto content = xml->createDocument("");
+	return writeString(content);
+}
+
+
+
+juce::var ScriptingObjects::ScriptFile::loadFromXmlFile()
+{
+	auto s = loadAsString();
+
+	if (auto xml = XmlDocument::parse(s))
+	{
+		DynamicObject::Ptr p = new DynamicObject();
+
+		for (int i = 0; i < xml->getNumAttributes(); i++)
+		{
+			auto id = xml->getAttributeName(i);
+			auto sv = xml->getStringAttribute(id);
+
+			if (sv.containsOnly("1234567890"))
+				p->setProperty(Identifier(id), sv.getIntValue());
+			else if (sv.containsOnly("1234567890."))
+				p->setProperty(Identifier(id), sv.getDoubleValue());
+			else
+				p->setProperty(Identifier(id), sv);
+		}
+
+		return var(p.get());
+	}
+
+	return var();
 }
 
 bool ScriptingObjects::ScriptFile::writeAudioFile(var audioData, double sampleRate, int bitDepth)
@@ -536,6 +631,66 @@ var ScriptingObjects::ScriptFile::loadEncryptedObject(String key)
 	return v;
 }
 
+bool ScriptingObjects::ScriptFile::rename(String newName)
+{	
+	auto newFile = f.getSiblingFile(newName).withFileExtension(f.getFileExtension());
+	return f.moveFileTo(newFile);
+}
+
+juce::var ScriptingObjects::ScriptFile::loadAsAudioFile() const
+{
+	double unused = 0;
+	auto buffer = hlac::CompressionHelpers::loadFile(f, unused);
+
+	if (buffer.getNumSamples() == 0 || buffer.getNumChannels() == 0)
+	{
+		reportScriptError("No valid audio file");
+	}
+
+	if (buffer.getNumChannels() == 1)
+	{
+		auto bf = new VariantBuffer(buffer.getNumSamples());
+
+		bf->buffer = buffer;
+		return var(bf);
+	}
+	else
+	{
+		Array<var> channels;
+
+		for (int i = 0; i < buffer.getNumChannels(); i++)
+		{
+			auto ptr = buffer.getReadPointer(i);
+			auto bf = new VariantBuffer(buffer.getNumSamples());
+			FloatVectorOperations::copy(bf->buffer.getWritePointer(0), ptr, bf->size);
+			channels.add(var(bf));
+		}
+
+		return var(channels);
+	}
+
+	return var();
+}
+
+String ScriptingObjects::ScriptFile::getRelativePathFrom(var otherFile)
+{
+	if (auto sf = dynamic_cast<ScriptFile*>(otherFile.getObject()))
+	{
+		if (!sf->f.isDirectory())
+			reportScriptError("otherFile is not a directory");
+
+		auto rp = f.getRelativePathFrom(sf->f);
+		return rp.replaceCharacter('\\', '/');
+	}
+	else
+	{
+		reportScriptError("otherFile is not a file");
+	}
+
+
+	return {};
+}
+
 void ScriptingObjects::ScriptFile::show()
 {
 	auto f_ = f;
@@ -544,6 +699,33 @@ void ScriptingObjects::ScriptFile::show()
 		f_.revealToUser();
 	});
 }
+
+struct PartUpdater : public Timer
+{
+	PartUpdater(const std::function<void()>& f_):
+		f(f_)
+	{
+		startTimer(200);
+	}
+
+	~PartUpdater()
+	{
+		ScopedLock sl(lock);
+		stopTimer();
+	}
+
+	std::function<void()> f;
+
+	void timerCallback() override
+	{
+		ScopedLock sl(lock);
+		f();
+	}
+
+	CriticalSection lock;
+
+	bool abortFlag = false;
+};
 
 void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool overwriteFiles, var callback)
 {
@@ -567,6 +749,8 @@ void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool over
 
 		DynamicObject::Ptr data = new DynamicObject();
 
+		double entryProgress = 0.0;
+
 		data->setProperty("Status", 0);
 		data->setProperty("Progress", 0.0);
 		data->setProperty("TotalBytesWritten", 0);
@@ -578,7 +762,7 @@ void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool over
 		int64 numBytesWritten = 0;
 
 		WeakCallbackHolder cb(safeThis.get()->getScriptProcessor(), callback, 1);
-		cb.setThisObject(safeThis.get());
+		//cb.setThisObject(safeThis.get());
 		cb.incRefCount();
 
 		if (cb)
@@ -590,7 +774,13 @@ void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool over
 		data->setProperty("Status", 1);
 		int numEntries = zipFile.getNumEntries();
 		bool callForEachFile = numEntries < 500;
+		
+		int64 numBytesToWrite = 0;
 
+		for (int i = 0; i < numEntries; i++)
+		{
+			numBytesToWrite += zipFile.getEntry(i)->uncompressedSize;
+		}
 
 		for (int i = 0; i < numEntries; i++)
 		{
@@ -610,12 +800,40 @@ void ScriptingObjects::ScriptFile::extractZipFile(var targetDirectory, bool over
 			c->setProperty("TotalBytesWritten", numBytesWritten);
 			c->setProperty("CurrentFile", zipFile.getEntry(i)->filename);
 
-			if (callForEachFile && cb)
+			ScopedPointer<PartUpdater> partUpdater;
+
+			auto entrySize = zipFile.getEntry(i)->uncompressedSize;
+
+			auto updateEntryProgress = entrySize > 200 * 1024 * 1024;
+			
+			if (updateEntryProgress)
+			{
+				auto f = [&]()
+				{
+					auto c2 = c->clone();
+					auto betterProgress = ((double)numBytesWritten + entryProgress * (double)entrySize) / (double)numBytesToWrite;
+
+					safeThis.get()->getScriptProcessor()->getMainController_()->getSampleManager().getPreloadProgress() = betterProgress;
+					c2->setProperty("Progress", betterProgress);
+
+					if (cb)
+					{
+						cb.call1(var(c2.get()));
+					}
+				};
+
+				partUpdater = new PartUpdater(f);
+			}
+			else if (callForEachFile && cb)
 				cb.call1(var(c.get()));
 
-			auto result = zipFile.uncompressEntry(i, tf, overwriteFiles);
 
-			numBytesWritten += zipFile.getEntry(i)->uncompressedSize;
+			auto result = zipFile.uncompressEntry(i, tf, overwriteFiles, &entryProgress);
+
+			
+			partUpdater = nullptr;
+
+			numBytesWritten += entrySize;
 
 			if (result.failed())
 			{
@@ -1089,9 +1307,10 @@ struct ScriptingObjects::ScriptAudioFile::Wrapper
 	API_METHOD_WRAPPER_0(ScriptAudioFile, getCurrentlyDisplayedIndex);
 	API_VOID_METHOD_WRAPPER_1(ScriptAudioFile, setDisplayCallback);
 	API_VOID_METHOD_WRAPPER_1(ScriptAudioFile, setContentCallback);
+    API_VOID_METHOD_WRAPPER_1(ScriptAudioFile, linkTo);
 };
 
-ScriptingObjects::ScriptAudioFile::ScriptAudioFile(ProcessorWithScriptingContent* pwsc, int index_, snex::ExternalDataHolder* otherHolder) :
+ScriptingObjects::ScriptAudioFile::ScriptAudioFile(ProcessorWithScriptingContent* pwsc, int index_, ExternalDataHolder* otherHolder) :
 	ScriptComplexDataReferenceBase(pwsc, 0, snex::ExternalData::DataType::AudioFile, otherHolder)
 {
 	ADD_API_METHOD_2(setRange);
@@ -1103,6 +1322,7 @@ ScriptingObjects::ScriptAudioFile::ScriptAudioFile(ProcessorWithScriptingContent
 	ADD_API_METHOD_0(getCurrentlyDisplayedIndex);
 	ADD_API_METHOD_1(setDisplayCallback);
 	ADD_API_METHOD_1(setContentCallback);
+    ADD_API_METHOD_1(linkTo);
 }
 
 void ScriptingObjects::ScriptAudioFile::clear()
@@ -1215,7 +1435,7 @@ struct ScriptingObjects::ScriptRingBuffer::Wrapper
 	API_METHOD_WRAPPER_2(ScriptRingBuffer, getResizedBuffer);
 };
 
-ScriptingObjects::ScriptRingBuffer::ScriptRingBuffer(ProcessorWithScriptingContent* pwsc, int index, snex::ExternalDataHolder* other/*=nullptr*/):
+ScriptingObjects::ScriptRingBuffer::ScriptRingBuffer(ProcessorWithScriptingContent* pwsc, int index, ExternalDataHolder* other/*=nullptr*/):
 	ScriptComplexDataReferenceBase(pwsc, index, snex::ExternalData::DataType::DisplayBuffer, other)
 {
 	ADD_API_METHOD_0(getReadBuffer);
@@ -1345,9 +1565,10 @@ struct ScriptingObjects::ScriptTableData::Wrapper
 	API_VOID_METHOD_WRAPPER_1(ScriptTableData, setContentCallback);
 	API_VOID_METHOD_WRAPPER_1(ScriptTableData, setTablePointsFromArray);
 	API_METHOD_WRAPPER_0(ScriptTableData, getTablePointsAsArray);
+    API_VOID_METHOD_WRAPPER_1(ScriptTableData, linkTo);
 };
 
-ScriptingObjects::ScriptTableData::ScriptTableData(ProcessorWithScriptingContent* pwsc, int index, snex::ExternalDataHolder* otherHolder):
+ScriptingObjects::ScriptTableData::ScriptTableData(ProcessorWithScriptingContent* pwsc, int index, ExternalDataHolder* otherHolder):
 	ScriptComplexDataReferenceBase(pwsc, index, snex::ExternalData::DataType::Table, otherHolder)
 {
 	ADD_API_METHOD_0(reset);
@@ -1359,6 +1580,7 @@ ScriptingObjects::ScriptTableData::ScriptTableData(ProcessorWithScriptingContent
 	ADD_API_METHOD_1(setContentCallback);
 	ADD_API_METHOD_1(setTablePointsFromArray);
 	ADD_API_METHOD_0(getTablePointsAsArray);
+    ADD_API_METHOD_1(linkTo);
 }
 
 Component* ScriptingObjects::ScriptTableData::createPopupComponent(const MouseEvent& e, Component *c)
@@ -1395,23 +1617,9 @@ float ScriptingObjects::ScriptTableData::getTableValueNormalised(double normalis
 {
 	if (auto st = dynamic_cast<SampleLookupTable*>(getTable()))
 	{
-		return st->getInterpolatedValue((double)SAMPLE_LOOKUP_TABLE_SIZE * normalisedInput, sendNotificationAsync);
+		return st->getInterpolatedValue(normalisedInput, sendNotificationAsync);
 	}
-	if (auto mt = dynamic_cast<MidiTable*>(getTable()))
-	{
-		auto indexInTable = jlimit(0.0, (double)mt->getTableSize(), normalisedInput * (double)mt->getTableSize());
-		auto data = mt->getReadPointer();
-
-		const int iLow = jlimit(0, mt->getTableSize()-1, (int)indexInTable);
-		const int iHigh = jlimit(0, mt->getTableSize() - 1, iLow + 1);
-		const float delta = (float)indexInTable - (float)iLow;
-		const float value = Interpolator::interpolateLinear(data[iLow], data[iHigh], delta);
-
-		mt->getUpdater().sendDisplayChangeMessage(normalisedInput, sendNotificationAsync);
-
-		return value;
-	}
-
+	
 	return 0.0f;
 }
 
@@ -1482,8 +1690,7 @@ void ScriptingObjects::ScriptTableData::setTablePointsFromArray(var pointList)
 			ngp.getReference(0).x = 0.0f;
 			ngp.getReference(ngp.size() - 1).x = 1.0f;
 
-			getTable()->setGraphPoints(ngp, a->size());
-			getTable()->fillLookUpTable();
+			getTable()->setGraphPoints(ngp, a->size(), true);
 		}
 		else
 			reportScriptError("You need at least 2 table points");
@@ -1500,9 +1707,10 @@ struct ScriptingObjects::ScriptSliderPackData::Wrapper
 	API_METHOD_WRAPPER_0(ScriptSliderPackData, getCurrentlyDisplayedIndex);
 	API_VOID_METHOD_WRAPPER_1(ScriptSliderPackData, setDisplayCallback);
 	API_VOID_METHOD_WRAPPER_1(ScriptSliderPackData, setContentCallback);
+    API_VOID_METHOD_WRAPPER_1(ScriptSliderPackData, linkTo);
 };
 
-ScriptingObjects::ScriptSliderPackData::ScriptSliderPackData(ProcessorWithScriptingContent* pwsc, int dataIndex, snex::ExternalDataHolder* otherHolder) :
+ScriptingObjects::ScriptSliderPackData::ScriptSliderPackData(ProcessorWithScriptingContent* pwsc, int dataIndex, ExternalDataHolder* otherHolder) :
 	ScriptComplexDataReferenceBase(pwsc, dataIndex, snex::ExternalData::DataType::SliderPack, otherHolder)
 {
 	ADD_API_METHOD_2(setValue);
@@ -1513,6 +1721,7 @@ ScriptingObjects::ScriptSliderPackData::ScriptSliderPackData(ProcessorWithScript
 	ADD_API_METHOD_0(getCurrentlyDisplayedIndex);
 	ADD_API_METHOD_1(setDisplayCallback);
 	ADD_API_METHOD_1(setContentCallback);
+    ADD_API_METHOD_1(linkTo);
 }
 
 var ScriptingObjects::ScriptSliderPackData::getStepSize() const
@@ -1584,6 +1793,7 @@ struct ScriptingObjects::ScriptingSamplerSound::Wrapper
 	API_METHOD_WRAPPER_0(ScriptingSamplerSound, getSampleRate);
 	API_METHOD_WRAPPER_1(ScriptingSamplerSound, getRange);
 	API_METHOD_WRAPPER_1(ScriptingSamplerSound, refersToSameSample);
+	API_METHOD_WRAPPER_0(ScriptingSamplerSound, getCustomProperties);
 };
 
 ScriptingObjects::ScriptingSamplerSound::ScriptingSamplerSound(ProcessorWithScriptingContent* p, ModulatorSampler* sampler_, ModulatorSamplerSound::Ptr sound_) :
@@ -1601,6 +1811,7 @@ ScriptingObjects::ScriptingSamplerSound::ScriptingSamplerSound(ProcessorWithScri
 	ADD_API_METHOD_1(replaceAudioFile);
 	ADD_API_METHOD_1(refersToSameSample);
 	ADD_API_METHOD_0(getSampleRate);
+	ADD_API_METHOD_0(getCustomProperties);
 
 	sampleIds.ensureStorageAllocated(ModulatorSamplerSound::numProperties);
 	sampleIds.add(SampleIds::ID);
@@ -1626,6 +1837,7 @@ ScriptingObjects::ScriptingSamplerSound::ScriptingSamplerSound(ProcessorWithScri
 	sampleIds.add(SampleIds::UpperVelocityXFade);
 	sampleIds.add(SampleIds::SampleState);
 	sampleIds.add(SampleIds::Reversed);
+	
 
 	for (int i = 1; i < sampleIds.size(); i++)
 		addConstant(sampleIds[i].toString(), (int)i);
@@ -1638,18 +1850,35 @@ juce::String ScriptingObjects::ScriptingSamplerSound::getDebugValue() const
 
 hise::DebugInformation* ScriptingObjects::ScriptingSamplerSound::getChildElement(int index)
 {
-	ModulatorSamplerSound::Ptr other = sound;
+	std::function<var()> av;
 
-	auto id = sampleIds[index];
+	Identifier id;
 
-	auto av = [other, id]()
+	if (isPositiveAndBelow(index, sampleIds.size()))
 	{
-		if (other != nullptr)
-			return other->getSampleProperty(id);
+		id = sampleIds[index];
+		ModulatorSamplerSound::Ptr other = sound;
 
-		return var();
-	};
+		av = [other, id]()
+		{
+			if (other != nullptr)
+				return other->getSampleProperty(id);
 
+			return var();
+		};
+	}
+	else
+	{
+		id = Identifier("CustomProperties");
+
+		var obj(customObject);
+
+		av = [obj]()
+		{
+			return obj;
+		};
+	}
+		
 	String cid = "%PARENT%.";
 	cid << id;
 
@@ -1961,6 +2190,15 @@ bool ScriptingObjects::ScriptingSamplerSound::refersToSameSample(var otherSample
 	RETURN_IF_NO_THROW(false);
 }
 
+juce::var ScriptingObjects::ScriptingSamplerSound::getCustomProperties()
+{
+	if (customObject.isObject())
+		return customObject;
+
+	customObject = var(new DynamicObject());
+	return customObject;
+}
+
 hise::ModulatorSampler* ScriptingObjects::ScriptingSamplerSound::getSampler() const
 {
 	auto s = dynamic_cast<ModulatorSampler*>(sampler.get());
@@ -1981,6 +2219,7 @@ struct ScriptingObjects::ScriptingModulator::Wrapper
 	API_VOID_METHOD_WRAPPER_2(ScriptingModulator, setAttribute);
 	API_METHOD_WRAPPER_1(ScriptingModulator, getAttribute);
   API_METHOD_WRAPPER_1(ScriptingModulator, getAttributeId);
+	API_METHOD_WRAPPER_1(ScriptingModulator, getAttributeIndex);
 	API_METHOD_WRAPPER_0(ScriptingModulator, getNumAttributes);
 	API_VOID_METHOD_WRAPPER_1(ScriptingModulator, setBypassed);
 	API_METHOD_WRAPPER_0(ScriptingModulator, isBypassed);
@@ -2034,6 +2273,7 @@ moduleHandler(m_, dynamic_cast<JavascriptProcessor*>(p))
 	ADD_API_METHOD_0(getIntensity);
   ADD_API_METHOD_1(getAttribute);
   ADD_API_METHOD_1(getAttributeId);
+	ADD_API_METHOD_1(getAttributeIndex);
 	ADD_API_METHOD_0(getCurrentLevel);
 	ADD_API_METHOD_0(exportState);
 	ADD_API_METHOD_1(restoreState);
@@ -2130,6 +2370,14 @@ String ScriptingObjects::ScriptingModulator::getAttributeId(int parameterIndex)
         return mod->getIdentifierForParameterIndex(parameterIndex).toString();    
     
     return String();
+}
+
+int ScriptingObjects::ScriptingModulator::getAttributeIndex(String parameterId)
+{
+    if (checkValidObject())
+        return mod->getParameterIndexForIdentifier(parameterId);
+
+    return -1;
 }
 
 int ScriptingObjects::ScriptingModulator::getNumAttributes() const
@@ -2418,6 +2666,7 @@ struct ScriptingObjects::ScriptingEffect::Wrapper
 	API_VOID_METHOD_WRAPPER_2(ScriptingEffect, setAttribute);
     API_METHOD_WRAPPER_1(ScriptingEffect, getAttribute);
     API_METHOD_WRAPPER_1(ScriptingEffect, getAttributeId);
+		API_METHOD_WRAPPER_1(ScriptingEffect, getAttributeIndex);
 	API_METHOD_WRAPPER_0(ScriptingEffect, getNumAttributes);
 	API_VOID_METHOD_WRAPPER_1(ScriptingEffect, setBypassed);
 	API_METHOD_WRAPPER_0(ScriptingEffect, isBypassed);
@@ -2460,6 +2709,7 @@ moduleHandler(fx, dynamic_cast<JavascriptProcessor*>(p))
 	ADD_API_METHOD_0(isBypassed);
     ADD_API_METHOD_1(getAttribute);
     ADD_API_METHOD_1(getAttributeId);
+		ADD_API_METHOD_1(getAttributeIndex);
 	ADD_API_METHOD_1(getCurrentLevel);
 	ADD_API_METHOD_0(exportState);
 	ADD_API_METHOD_1(restoreState);
@@ -2511,6 +2761,14 @@ String ScriptingObjects::ScriptingEffect::getAttributeId(int parameterIndex)
         return effect->getIdentifierForParameterIndex(parameterIndex).toString();    
     
     return String();
+}
+
+int ScriptingObjects::ScriptingEffect::getAttributeIndex(String parameterId)
+{
+    if (checkValidObject())
+        return effect->getParameterIndexForIdentifier(parameterId);
+
+    return -1;
 }
 
 int ScriptingObjects::ScriptingEffect::getNumAttributes() const
@@ -2997,6 +3255,7 @@ struct ScriptingObjects::ScriptingSynth::Wrapper
 	API_VOID_METHOD_WRAPPER_2(ScriptingSynth, setAttribute);
     API_METHOD_WRAPPER_1(ScriptingSynth, getAttribute);
     API_METHOD_WRAPPER_1(ScriptingSynth, getAttributeId);
+		API_METHOD_WRAPPER_1(ScriptingSynth, getAttributeIndex);
 	API_METHOD_WRAPPER_0(ScriptingSynth, getNumAttributes);
 	API_VOID_METHOD_WRAPPER_1(ScriptingSynth, setBypassed);
 	API_METHOD_WRAPPER_0(ScriptingSynth, isBypassed);
@@ -3038,6 +3297,7 @@ ScriptingObjects::ScriptingSynth::ScriptingSynth(ProcessorWithScriptingContent *
 	ADD_API_METHOD_2(setAttribute);
     ADD_API_METHOD_1(getAttribute);
     ADD_API_METHOD_1(getAttributeId);
+		ADD_API_METHOD_1(getAttributeIndex);
 	ADD_API_METHOD_1(setBypassed);
 	ADD_API_METHOD_0(isBypassed);
 	ADD_API_METHOD_1(getChildSynthByIndex);
@@ -3091,6 +3351,14 @@ String ScriptingObjects::ScriptingSynth::getAttributeId(int parameterIndex)
         return synth->getIdentifierForParameterIndex(parameterIndex).toString();    
     
     return String();
+}
+
+int ScriptingObjects::ScriptingSynth::getAttributeIndex(String parameterId)
+{
+    if (checkValidObject())
+        return synth->getParameterIndexForIdentifier(parameterId);
+
+    return -1;
 }
 
 int ScriptingObjects::ScriptingSynth::getNumAttributes() const
@@ -3298,6 +3566,7 @@ struct ScriptingObjects::ScriptingMidiProcessor::Wrapper
     API_METHOD_WRAPPER_1(ScriptingMidiProcessor, getAttribute);
 	API_METHOD_WRAPPER_0(ScriptingMidiProcessor, getNumAttributes);
 	API_METHOD_WRAPPER_1(ScriptingMidiProcessor, getAttributeId);
+	API_METHOD_WRAPPER_1(ScriptingMidiProcessor, getAttributeIndex);
 	API_VOID_METHOD_WRAPPER_1(ScriptingMidiProcessor, setBypassed);
 	API_METHOD_WRAPPER_0(ScriptingMidiProcessor, isBypassed);
 	API_METHOD_WRAPPER_0(ScriptingMidiProcessor, exportState);
@@ -3340,6 +3609,7 @@ mp(mp_)
 	ADD_API_METHOD_0(exportScriptControls);
 	ADD_API_METHOD_0(getNumAttributes);
 	ADD_API_METHOD_1(getAttributeId);
+	ADD_API_METHOD_1(getAttributeIndex);
 	ADD_API_METHOD_0(asMidiPlayer);
 }
 
@@ -3415,6 +3685,14 @@ String ScriptingObjects::ScriptingMidiProcessor::getAttributeId(int parameterInd
         return mp->getIdentifierForParameterIndex(parameterIndex).toString();    
     
     return String();
+}
+
+int ScriptingObjects::ScriptingMidiProcessor::getAttributeIndex(String parameterId)
+{
+    if (checkValidObject())
+        return mp->getParameterIndexForIdentifier(parameterId);
+
+    return -1;
 }
 
 void ScriptingObjects::ScriptingMidiProcessor::setBypassed(bool shouldBeBypassed)
@@ -3508,6 +3786,7 @@ struct ScriptingObjects::ScriptingAudioSampleProcessor::Wrapper
 	API_VOID_METHOD_WRAPPER_2(ScriptingAudioSampleProcessor, setAttribute);
     API_METHOD_WRAPPER_1(ScriptingAudioSampleProcessor, getAttribute);
     API_METHOD_WRAPPER_1(ScriptingAudioSampleProcessor, getAttributeId);
+		API_METHOD_WRAPPER_1(ScriptingAudioSampleProcessor, getAttributeIndex);
 	API_METHOD_WRAPPER_0(ScriptingAudioSampleProcessor, getNumAttributes);
 	API_VOID_METHOD_WRAPPER_1(ScriptingAudioSampleProcessor, setBypassed);
 	API_METHOD_WRAPPER_0(ScriptingAudioSampleProcessor, isBypassed);
@@ -3541,6 +3820,7 @@ audioSampleProcessor(dynamic_cast<Processor*>(sampleProcessor))
 	ADD_API_METHOD_2(setAttribute);
     ADD_API_METHOD_1(getAttribute);
     ADD_API_METHOD_1(getAttributeId);
+		ADD_API_METHOD_1(getAttributeIndex);
 	ADD_API_METHOD_0(getNumAttributes);
 	ADD_API_METHOD_1(setBypassed);
 	ADD_API_METHOD_0(isBypassed);
@@ -3578,6 +3858,14 @@ String ScriptingObjects::ScriptingAudioSampleProcessor::getAttributeId(int param
         return audioSampleProcessor->getIdentifierForParameterIndex(parameterIndex).toString();    
     
     return String();
+}
+
+int ScriptingObjects::ScriptingAudioSampleProcessor::getAttributeIndex(String parameterId)
+{
+    if (checkValidObject())
+        return audioSampleProcessor->getParameterIndexForIdentifier(parameterId);
+
+    return -1;
 }
 
 int ScriptingObjects::ScriptingAudioSampleProcessor::getNumAttributes() const
@@ -3657,7 +3945,7 @@ var ScriptingObjects::ScriptingAudioSampleProcessor::getAudioFile(int slotIndex)
 {
 	if (checkValidObject())
 	{
-		if (auto ed = dynamic_cast<ExternalDataHolder*>(audioSampleProcessor.get()))
+		if (auto ed = dynamic_cast<ProcessorWithExternalData*>(audioSampleProcessor.get()))
 			return var(new ScriptAudioFile(getScriptProcessor(), slotIndex, ed));
 	}
 
@@ -3790,7 +4078,7 @@ var ScriptingObjects::ScriptingTableProcessor::getTable(int tableIndex)
 {
 	if (checkValidObject())
 	{
-		if (auto ed = dynamic_cast<ExternalDataHolder*>(tableProcessor.get()))
+		if (auto ed = dynamic_cast<ProcessorWithExternalData*>(tableProcessor.get()))
 			return var(new ScriptTableData(getScriptProcessor(), tableIndex, ed));
 	}
 
@@ -3814,7 +4102,7 @@ var ScriptingObjects::ScriptSliderPackProcessor::getSliderPack(int sliderPackInd
 {
 	if (checkValidObject())
 	{
-		if (auto ed = dynamic_cast<ExternalDataHolder*>(sp.get()))
+		if (auto ed = dynamic_cast<ProcessorWithExternalData*>(sp.get()))
 			return var(new ScriptSliderPackData(getScriptProcessor(), sliderPackIndex, ed));
 	}
 
@@ -4679,1055 +4967,6 @@ int ScriptingObjects::ScriptedMidiPlayer::getNumTracks()
 }
 
 
-struct ScriptingObjects::ScriptedLookAndFeel::Wrapper
-{
-	API_VOID_METHOD_WRAPPER_2(ScriptedLookAndFeel, registerFunction);
-	API_VOID_METHOD_WRAPPER_2(ScriptedLookAndFeel, setGlobalFont);
-	API_VOID_METHOD_WRAPPER_2(ScriptedLookAndFeel, loadImage);
-};
-
-
-ScriptingObjects::ScriptedLookAndFeel::ScriptedLookAndFeel(ProcessorWithScriptingContent* sp) :
-	ConstScriptingObject(sp, 0),
-	g(new GraphicsObject(sp, this)),
-	functions(new DynamicObject())
-{
-	ADD_API_METHOD_2(registerFunction);
-	ADD_API_METHOD_2(setGlobalFont);
-	ADD_API_METHOD_2(loadImage);
-
-	getScriptProcessor()->getMainController_()->setCurrentScriptLookAndFeel(this);
-}
-
-ScriptingObjects::ScriptedLookAndFeel::~ScriptedLookAndFeel()
-{
-	
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::registerFunction(var functionName, var function)
-{
-	if (HiseJavascriptEngine::isJavascriptFunction(function))
-	{
-		functions.getDynamicObject()->setProperty(Identifier(functionName.toString()), function);
-	}
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::setGlobalFont(const String& fontName, float fontSize)
-{
-	f = getScriptProcessor()->getMainController_()->getFontFromString(fontName, fontSize);
-}
-
-Array<Identifier> ScriptingObjects::ScriptedLookAndFeel::getAllFunctionNames()
-{
-	static const Array<Identifier> sa =
-	{
-		"drawAlertWindow",
-		"getAlertWindowMarkdownStyleData",
-		"drawAlertWindowIcon",
-		"drawPopupMenuBackground",
-		"drawPopupMenuItem",
-		"drawToggleButton",
-		"drawRotarySlider",
-		"drawLinearSlider",
-		"drawDialogButton",
-		"drawComboBox",
-		"drawNumberTag",
-		"drawPresetBrowserBackground",
-		"drawPresetBrowserColumnBackground",
-		"drawPresetBrowserListItem",
-		"drawPresetBrowserSearchBar",
-		"drawPresetBrowserTag",
-		"drawTablePath",
-		"drawTablePoint",
-		"drawTableRuler",
-		"drawScrollbar",
-		"drawMidiDropper",
-        "drawThumbnailBackground",
-        "drawThumbnailText",
-        "drawThumbnailPath",
-        "drawThumbnailRange",
-        "drawThumbnailRuler",
-		"drawAhdsrBall",
-		"drawAhdsrPath",
-		"drawKeyboardBackground",
-		"drawWhiteNote",
-		"drawBlackNote"
-	};
-
-	return sa;
-}
-
-bool ScriptingObjects::ScriptedLookAndFeel::callWithGraphics(Graphics& g_, const Identifier& functionname, var argsObject)
-{
-	// If this hits, you need to add that id to the array above.
-	jassert(getAllFunctionNames().contains(functionname));
-
-	auto f = functions.getProperty(functionname, {});
-
-	if (HiseJavascriptEngine::isJavascriptFunction(f))
-	{
-		var args[2];
-		
-		args[0] = var(g.get());
-		args[1] = argsObject;
-
-		var thisObject(this);
-		var::NativeFunctionArgs arg(thisObject, args, 2);
-		auto engine = dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine();
-		Result r = Result::ok();
-		
-		try
-		{
-			engine->callExternalFunctionRaw(f, arg);
-		}
-		catch (String& errorMessage)
-		{
-			debugToConsole(dynamic_cast<Processor*>(getScriptProcessor()), errorMessage);
-		}
-		catch (HiseJavascriptEngine::RootObject::Error& e)
-		{
-			auto p = dynamic_cast<Processor*>(getScriptProcessor());
-			debugToConsole(p, e.toString(p) + e.errorMessage);
-		}
-		
-		g->getDrawHandler().flush();
-
-		DrawActions::Handler::Iterator iter(&g->getDrawHandler());
-
-		while (auto action = iter.getNextAction())
-		{
-			action->perform(g_);
-		}
-
-		return true;
-	}
-
-	return false;
-}
-
-var ScriptingObjects::ScriptedLookAndFeel::callDefinedFunction(const Identifier& functionname, var* args, int numArgs)
-{
-	// If this hits, you need to add that id to the array above.
-	jassert(getAllFunctionNames().contains(functionname));
-
-	auto f = functions.getProperty(functionname, {});
-
-	if (HiseJavascriptEngine::isJavascriptFunction(f))
-	{
-		var thisObject(this);
-		var::NativeFunctionArgs arg(thisObject, args, numArgs);
-		auto engine = dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine();
-		Result r = Result::ok();
-
-		try
-		{
-			return engine->callExternalFunctionRaw(f, arg);
-		}
-		catch (String& errorMessage)
-		{
-			debugToConsole(dynamic_cast<Processor*>(getScriptProcessor()), errorMessage);
-		}
-		catch (HiseJavascriptEngine::RootObject::Error& )
-		{
-
-		}
-	}
-
-	return {};
-}
-
-Identifier ScriptingObjects::ScriptedLookAndFeel::Laf::getIdOfParentFloatingTile(Component& c)
-{
-	if (auto ft = c.findParentComponentOfClass<FloatingTile>())
-	{
-		return ft->getCurrentFloatingPanel()->getIdentifierForBaseClass();
-	}
-
-	return {};
-}
-
-bool ScriptingObjects::ScriptedLookAndFeel::Laf::addParentFloatingTile(Component& c, DynamicObject* obj)
-{
-	auto id = getIdOfParentFloatingTile(c);
-
-	if (id.isValid())
-	{
-		obj->setProperty("parentType", id.toString());
-		return true;
-	}
-
-	return false;
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawAlertBox(Graphics& g_, AlertWindow& w, const Rectangle<int>& ta, TextLayout& tl)
-{
-	if (functionDefined("drawAlertWindow"))
-	{
-		auto obj = new DynamicObject();
-
-		obj->setProperty("area", ApiHelpers::getVarRectangle(w.getLocalBounds().toFloat()));
-		obj->setProperty("title", w.getName()); 
-
-		addParentFloatingTile(w, obj);
-
-		if (get()->callWithGraphics(g_, "drawAlertWindow", var(obj)))
-			return;
-	}
-
-	GlobalHiseLookAndFeel::drawAlertBox(g_, w, ta, tl);
-}
-
-hise::MarkdownLayout::StyleData ScriptingObjects::ScriptedLookAndFeel::Laf::getAlertWindowMarkdownStyleData()
-{
-	auto s = MessageWithIcon::LookAndFeelMethods::getAlertWindowMarkdownStyleData();
-
-	if (functionDefined("getAlertWindowMarkdownStyleData"))
-	{
-		auto obj = new DynamicObject();
-
-		obj->setProperty("textColour", s.textColour.getARGB());
-		obj->setProperty("codeColour", s.codeColour.getARGB());
-		obj->setProperty("linkColour", s.linkColour.getARGB());
-		obj->setProperty("headlineColour", s.headlineColour.getARGB());
-
-		obj->setProperty("headlineFont", s.boldFont.getTypefaceName());
-		obj->setProperty("font", s.f.getTypefaceName());
-		obj->setProperty("fontSize", s.fontSize);
-
-		var x = var(obj);
-
-		auto nObj = get()->callDefinedFunction("getAlertWindowMarkdownStyleData", &x, 1);
-
-		if (nObj.getDynamicObject() != nullptr)
-		{
-			s.textColour = ScriptingApi::Content::Helpers::getCleanedObjectColour(nObj["textColour"]);
-			s.linkColour = ScriptingApi::Content::Helpers::getCleanedObjectColour(nObj["linkColour"]);
-			s.codeColour = ScriptingApi::Content::Helpers::getCleanedObjectColour(nObj["codeColour"]);
-			s.headlineColour = ScriptingApi::Content::Helpers::getCleanedObjectColour(nObj["headlineColour"]);
-
-			s.boldFont = getMainController()->getFontFromString(nObj.getProperty("headlineFont", "Default"), s.boldFont.getHeight());
-
-			s.fontSize = nObj["fontSize"];
-			s.f = getMainController()->getFontFromString(nObj.getProperty("font", "Default"), s.boldFont.getHeight());
-		}
-	}
-	
-	return s;
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPopupMenuBackground(Graphics& g_, int width, int height)
-{
-	if (functionDefined("drawPopupMenuBackground"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("width", width);
-		obj->setProperty("height", height);
-
-		if (get()->callWithGraphics(g_, "drawPopupMenuBackground", var(obj)))
-			return;
-	}
-
-	GlobalHiseLookAndFeel::drawPopupMenuBackground(g_, width, height);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPopupMenuItem(Graphics& g_, const Rectangle<int>& area, bool isSeparator, bool isActive, bool isHighlighted, bool isTicked, bool hasSubMenu, const String& text, const String& shortcutKeyText, const Drawable* icon, const Colour* textColourToUse)
-{
-	if (functionDefined("drawPopupMenuItem"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
-		obj->setProperty("isSeparator", isSeparator);
-		obj->setProperty("isActive", isActive);
-		obj->setProperty("isHighlighted", isHighlighted);
-		obj->setProperty("isTicked", isTicked);
-		obj->setProperty("hasSubMenu", hasSubMenu);
-		obj->setProperty("text", text);
-
-		if (get()->callWithGraphics(g_, "drawPopupMenuItem", var(obj)))
-			return;
-	}
-
-	GlobalHiseLookAndFeel::drawPopupMenuItem(g_, area, isSeparator, isActive, isHighlighted, isTicked, hasSubMenu, text, shortcutKeyText, icon, textColourToUse);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawToggleButton(Graphics &g_, ToggleButton &b, bool isMouseOverButton, bool isButtonDown)
-{
-	if (functionDefined("drawToggleButton"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(b.getLocalBounds().toFloat()));
-		obj->setProperty("enabled", b.isEnabled());
-		obj->setProperty("text", b.getButtonText());
-		obj->setProperty("over", isMouseOverButton);
-		obj->setProperty("down", isButtonDown);
-		obj->setProperty("value", b.getToggleState());
-
-		obj->setProperty("bgColour", b.findColour(HiseColourScheme::ComponentOutlineColourId).getARGB());
-		obj->setProperty("itemColour1", b.findColour(HiseColourScheme::ComponentFillTopColourId).getARGB());
-		obj->setProperty("itemColour2", b.findColour(HiseColourScheme::ComponentFillBottomColourId).getARGB());
-		obj->setProperty("textColour", b.findColour(HiseColourScheme::ComponentTextColourId).getARGB());
-
-		addParentFloatingTile(b, obj);
-
-		if (get()->callWithGraphics(g_, "drawToggleButton", var(obj)))
-			return;
-	}
-
-	GlobalHiseLookAndFeel::drawToggleButton(g_, b, isMouseOverButton, isButtonDown);
-}
-
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawRotarySlider(Graphics &g_, int /*x*/, int /*y*/, int width, int height, float /*sliderPosProportional*/, float /*rotaryStartAngle*/, float /*rotaryEndAngle*/, Slider &s)
-{
-	if (functionDefined("drawRotarySlider"))
-	{
-		auto obj = new DynamicObject();
-
-		s.setTextBoxStyle (Slider::NoTextBox, false, -1, -1);
-
-		obj->setProperty("id", s.getComponentID());
-		obj->setProperty("enabled", s.isEnabled());
-		obj->setProperty("text", s.getName());
-		obj->setProperty("area", ApiHelpers::getVarRectangle(s.getLocalBounds().toFloat()));
-
-		obj->setProperty("value", s.getValue());
-		
-		NormalisableRange<double> range = NormalisableRange<double>(s.getMinimum(), s.getMaximum(), s.getInterval(), s.getSkewFactor());
-		obj->setProperty("valueNormalized", range.convertTo0to1(s.getValue()));
-
-		obj->setProperty("valueSuffixString", s.getTextFromValue(s.getValue()));
-		obj->setProperty("suffix", s.getTextValueSuffix());
-		obj->setProperty("skew", s.getSkewFactor());
-		obj->setProperty("min", s.getMinimum());
-		obj->setProperty("max", s.getMaximum());
-
-		obj->setProperty("clicked", s.isMouseButtonDown());
-		obj->setProperty("hover", s.isMouseOver());
-
-		obj->setProperty("bgColour", s.findColour(HiseColourScheme::ComponentOutlineColourId).getARGB());
-		obj->setProperty("itemColour1", s.findColour(HiseColourScheme::ComponentFillTopColourId).getARGB());
-		obj->setProperty("itemColour2", s.findColour(HiseColourScheme::ComponentFillBottomColourId).getARGB());
-		obj->setProperty("textColour", s.findColour(HiseColourScheme::ComponentTextColourId).getARGB());
-
-		addParentFloatingTile(s, obj);
-
-		if (get()->callWithGraphics(g_, "drawRotarySlider", var(obj)))
-			return;
-	}
-
-	GlobalHiseLookAndFeel::drawRotarySlider(g_, -1, -1, width, height, -1, -1, -1, s);
-}
-
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawLinearSlider(Graphics &g, int /*x*/, int /*y*/, int width, int height, float /*sliderPos*/, float /*minSliderPos*/, float /*maxSliderPos*/, const Slider::SliderStyle style, Slider &slider)
-{
-	if (functionDefined("drawLinearSlider"))
-	{
-		auto obj = new DynamicObject();
-
-		obj->setProperty("id", slider.getComponentID());
-		obj->setProperty("enabled", slider.isEnabled());
-		obj->setProperty("text", slider.getName());
-		obj->setProperty("area", ApiHelpers::getVarRectangle(slider.getLocalBounds().toFloat()));
-
-		obj->setProperty("valueSuffixString", slider.getTextFromValue(slider.getValue()));
-		obj->setProperty("suffix", slider.getTextValueSuffix());
-		obj->setProperty("skew", slider.getSkewFactor());
-
-		obj->setProperty("style", style);	// Horizontal:2, Vertical:3, Range:9
-
-		// Vertical & Horizontal style slider
-		obj->setProperty("min", slider.getMinimum());
-		obj->setProperty("max", slider.getMaximum());
-		obj->setProperty("value", slider.getValue());
-		
-		NormalisableRange<double> range = NormalisableRange<double>(slider.getMinimum(), slider.getMaximum(), slider.getInterval(), slider.getSkewFactor());
-		obj->setProperty("valueNormalized", range.convertTo0to1(slider.getValue()));
-
-		// Range style slider
-		double minv = 0.0;
-		double maxv = 1.0;
-
-		if (slider.isTwoValue())
-		{
-			minv = slider.getMinValue();
-			maxv = slider.getMaxValue();
-		}
-
-		obj->setProperty("valueRangeStyleMin", minv);
-		obj->setProperty("valueRangeStyleMax", maxv);
-
-		obj->setProperty("valueRangeStyleMinNormalized", range.convertTo0to1(minv));
-		obj->setProperty("valueRangeStyleMaxNormalized", range.convertTo0to1(maxv));
-
-		obj->setProperty("clicked", slider.isMouseButtonDown());
-		obj->setProperty("hover", slider.isMouseOver());
-
-		obj->setProperty("bgColour", slider.findColour(HiseColourScheme::ComponentOutlineColourId).getARGB());
-		obj->setProperty("itemColour1", slider.findColour(HiseColourScheme::ComponentFillTopColourId).getARGB());
-		obj->setProperty("itemColour2", slider.findColour(HiseColourScheme::ComponentFillBottomColourId).getARGB());
-		obj->setProperty("textColour", slider.findColour(HiseColourScheme::ComponentTextColourId).getARGB());
-
-		addParentFloatingTile(slider, obj);
-
-		if (get()->callWithGraphics(g, "drawLinearSlider", var(obj)))
-			return;
-	}
-
-	GlobalHiseLookAndFeel::drawLinearSlider(g, -1, -1, width, height, -1, -1, -1, style, slider);
-}
-
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawButtonText(Graphics &g_, TextButton &button, bool isMouseOverButton, bool isButtonDown)
-{
-	if (functionDefined("drawDialogButton"))
-		return;
-
-	static const Identifier pb("PresetBrowser");
-
-	if (getIdOfParentFloatingTile(button) == pb)
-		PresetBrowserLookAndFeelMethods::drawPresetBrowserButtonText(g_, button, isMouseOverButton, isButtonDown);
-	else
-		GlobalHiseLookAndFeel::drawButtonText(g_, button, isMouseOverButton, isButtonDown);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawComboBox(Graphics& g_, int width, int height, bool isButtonDown, int buttonX, int buttonY, int buttonW, int buttonH, ComboBox& cb)
-{
-	if (functionDefined("drawComboBox"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(cb.getLocalBounds().toFloat()));
-
-		auto text = cb.getText();
-
-		if (text.isEmpty())
-		{
-			if (cb.getNumItems() == 0)
-				text = cb.getTextWhenNoChoicesAvailable();
-			else
-				text = cb.getTextWhenNothingSelected();
-		}
-
-		obj->setProperty("text", text);
-		obj->setProperty("active", cb.getSelectedId() != 0);
-		obj->setProperty("enabled", cb.isEnabled() && cb.getNumItems() > 0);
-
-		obj->setProperty("bgColour", cb.findColour(HiseColourScheme::ComponentOutlineColourId).getARGB());
-		obj->setProperty("itemColour1", cb.findColour(HiseColourScheme::ComponentFillTopColourId).getARGB());
-		obj->setProperty("itemColour2", cb.findColour(HiseColourScheme::ComponentFillBottomColourId).getARGB());
-		obj->setProperty("textColour", cb.findColour(HiseColourScheme::ComponentTextColourId).getARGB());
-
-		addParentFloatingTile(cb, obj);
-
-		if (get()->callWithGraphics(g_, "drawComboBox", var(obj)))
-			return;
-	}
-
-	GlobalHiseLookAndFeel::drawComboBox(g_, width, height, isButtonDown, buttonX, buttonY, buttonW, buttonH, cb);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::positionComboBoxText(ComboBox &c, Label &labelToPosition)
-{
-	if (functionDefined("drawComboBox"))
-	{
-		labelToPosition.setVisible(false);
-		return;
-	}
-
-	GlobalHiseLookAndFeel::positionComboBoxText(c, labelToPosition);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawComboBoxTextWhenNothingSelected(Graphics& g, ComboBox& box, Label& label)
-{
-	if (functionDefined("drawComboBox"))
-	{
-		label.setVisible(false);
-		return;
-	}
-
-	GlobalHiseLookAndFeel::drawComboBoxTextWhenNothingSelected(g, box, label);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawButtonBackground(Graphics& g_, Button& button, const Colour& bg, bool isMouseOverButton, bool isButtonDown)
-{
-	if (functionDefined("drawDialogButton"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(button.getLocalBounds().toFloat()));
-		obj->setProperty("text", button.getButtonText());
-		obj->setProperty("enabled", button.isEnabled());
-		obj->setProperty("over", isMouseOverButton);
-		obj->setProperty("down", isButtonDown);
-		obj->setProperty("value", button.getToggleState());
-		obj->setProperty("bgColour", bg.getARGB());
-		obj->setProperty("textColour", textColour.getARGB());
-
-		addParentFloatingTile(button, obj);
-
-		if (get()->callWithGraphics(g_, "drawDialogButton", var(obj)))
-			return;
-	}
-
-	static const Identifier pb("PresetBrowser");
-
-	if(getIdOfParentFloatingTile(button) == pb)
-		PresetBrowserLookAndFeelMethods::drawPresetBrowserButtonBackground(g_, button, bg, isMouseOverButton, isButtonDown);
-	else
-		GlobalHiseLookAndFeel::drawButtonBackground(g_, button, bg, isMouseOverButton, isButtonDown);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawNumberTag(Graphics& g_, Colour& c, Rectangle<int> area, int offset, int size, int number)
-{
-	if (auto l = get())
-	{
-		if (number != -1)
-		{
-			auto obj = new DynamicObject();
-			obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
-			obj->setProperty("macroIndex", number - 1);
-
-			if (l->callWithGraphics(g_, "drawNumberTag", var(obj)))
-				return;
-		}
-	}
-
-	NumberTag::LookAndFeelMethods::drawNumberTag(g_, c, area, offset, size, number);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPresetBrowserBackground(Graphics& g_, PresetBrowser* p)
-{
-	if (functionDefined("drawPresetBrowserBackground"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(p->getLocalBounds().toFloat()));
-		obj->setProperty("bgColour", backgroundColour.getARGB());
-		obj->setProperty("itemColour", highlightColour.getARGB());
-		obj->setProperty("itemColour2", modalBackgroundColour.getARGB());
-		obj->setProperty("textColour", textColour.getARGB());
-
-		if (get()->callWithGraphics(g_, "drawPresetBrowserBackground", var(obj)))
-			return;
-	}
-
-	PresetBrowserLookAndFeelMethods::drawPresetBrowserBackground(g_, p);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawColumnBackground(Graphics& g_, Rectangle<int> listArea, const String& emptyText)
-{
-	if (functionDefined("drawPresetBrowserColumnBackground"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(listArea.toFloat()));
-		obj->setProperty("text", emptyText);
-		obj->setProperty("bgColour", backgroundColour.getARGB());
-		obj->setProperty("itemColour", highlightColour.getARGB());
-		obj->setProperty("itemColour2", modalBackgroundColour.getARGB());
-		obj->setProperty("textColour", textColour.getARGB());
-
-		if (get()->callWithGraphics(g_, "drawPresetBrowserColumnBackground", var(obj)))
-			return;
-	}
-
-	PresetBrowserLookAndFeelMethods::drawColumnBackground(g_, listArea, emptyText);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawListItem(Graphics& g_, int columnIndex, int rowIndex, const String& itemName, Rectangle<int> position, bool rowIsSelected, bool deleteMode)
-{
-	if (functionDefined("drawPresetBrowserListItem"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(position.toFloat()));
-		obj->setProperty("columnIndex", columnIndex);
-		obj->setProperty("rowIndex", rowIndex);
-		obj->setProperty("text", itemName);
-		obj->setProperty("selected", rowIsSelected);
-		obj->setProperty("bgColour", backgroundColour.getARGB());
-		obj->setProperty("itemColour", highlightColour.getARGB());
-		obj->setProperty("itemColour2", modalBackgroundColour.getARGB());
-		obj->setProperty("textColour", textColour.getARGB());
-
-		if (get()->callWithGraphics(g_, "drawPresetBrowserListItem", var(obj)))
-			return;
-	}
-
-	PresetBrowserLookAndFeelMethods::drawListItem(g_, columnIndex, rowIndex, itemName, position, rowIsSelected, deleteMode);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawSearchBar(Graphics& g_, Rectangle<int> area)
-{
-	if (functionDefined("drawPresetBrowserSearchBar"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
-		obj->setProperty("bgColour", backgroundColour.getARGB());
-		obj->setProperty("itemColour", highlightColour.getARGB());
-		obj->setProperty("itemColour2", modalBackgroundColour.getARGB());
-		obj->setProperty("textColour", textColour.getARGB());
-
-		auto p = new ScriptingObjects::PathObject(get()->getScriptProcessor());
-
-		var keeper(p);
-
-		static const unsigned char searchIcon[] = { 110, 109, 0, 0, 144, 68, 0, 0, 48, 68, 98, 7, 31, 145, 68, 198, 170, 109, 68, 78, 223, 103, 68, 148, 132, 146, 68, 85, 107, 42, 68, 146, 2, 144, 68, 98, 54, 145, 219, 67, 43, 90, 143, 68, 66, 59, 103, 67, 117, 24, 100, 68, 78, 46, 128, 67, 210, 164, 39, 68, 98, 93, 50, 134, 67, 113, 58, 216, 67, 120, 192, 249, 67, 83, 151,
-	103, 67, 206, 99, 56, 68, 244, 59, 128, 67, 98, 72, 209, 112, 68, 66, 60, 134, 67, 254, 238, 144, 68, 83, 128, 238, 67, 0, 0, 144, 68, 0, 0, 48, 68, 99, 109, 0, 0, 208, 68, 0, 0, 0, 195, 98, 14, 229, 208, 68, 70, 27, 117, 195, 211, 63, 187, 68, 146, 218, 151, 195, 167, 38, 179, 68, 23, 8, 77, 195, 98, 36, 92, 165, 68, 187, 58,
-	191, 194, 127, 164, 151, 68, 251, 78, 102, 65, 0, 224, 137, 68, 0, 0, 248, 66, 98, 186, 89, 77, 68, 68, 20, 162, 194, 42, 153, 195, 67, 58, 106, 186, 193, 135, 70, 41, 67, 157, 224, 115, 67, 98, 13, 96, 218, 193, 104, 81, 235, 67, 243, 198, 99, 194, 8, 94, 78, 68, 70, 137, 213, 66, 112, 211, 134, 68, 98, 109, 211, 138, 67,
-	218, 42, 170, 68, 245, 147, 37, 68, 128, 215, 185, 68, 117, 185, 113, 68, 28, 189, 169, 68, 98, 116, 250, 155, 68, 237, 26, 156, 68, 181, 145, 179, 68, 76, 44, 108, 68, 16, 184, 175, 68, 102, 10, 33, 68, 98, 249, 118, 174, 68, 137, 199, 2, 68, 156, 78, 169, 68, 210, 27, 202, 67, 0, 128, 160, 68, 0, 128, 152, 67, 98, 163,
-	95, 175, 68, 72, 52, 56, 67, 78, 185, 190, 68, 124, 190, 133, 66, 147, 74, 205, 68, 52, 157, 96, 194, 98, 192, 27, 207, 68, 217, 22, 154, 194, 59, 9, 208, 68, 237, 54, 205, 194, 0, 0, 208, 68, 0, 0, 0, 195, 99, 101, 0, 0 };
-
-		p->getPath().loadPathFromData(searchIcon, sizeof(searchIcon));
-		p->getPath().applyTransform(AffineTransform::rotation(float_Pi));
-		p->getPath().scaleToFit(6.0f, 5.0f, 18.0f, 18.0f, true);
-
-		obj->setProperty("icon", var(p));
-
-		if (get()->callWithGraphics(g_, "drawPresetBrowserSearchBar", var(obj)))
-			return;
-	}
-
-	PresetBrowserLookAndFeelMethods::drawSearchBar(g_, area);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTablePath(Graphics& g_, TableEditor& te, Path& p, Rectangle<float> area, float lineThickness)
-{
-	if (functionDefined("drawTablePath"))
-	{
-		auto obj = new DynamicObject();
-
-		auto sp = new ScriptingObjects::PathObject(get()->getScriptProcessor());
-
-		var keeper(sp);
-
-		sp->getPath() = p;
-
-		obj->setProperty("path", var(sp));
-
-		obj->setProperty("area", ApiHelpers::getVarRectangle(area));
-		obj->setProperty("lineThickness", lineThickness);
-		obj->setProperty("bgColour", te.findColour(TableEditor::ColourIds::bgColour).getARGB());
-		obj->setProperty("itemColour", te.findColour(TableEditor::ColourIds::fillColour).getARGB());
-		obj->setProperty("itemColour2", te.findColour(TableEditor::ColourIds::lineColour).getARGB());
-		obj->setProperty("textColour", te.findColour(TableEditor::ColourIds::rulerColour).getARGB());
-
-		addParentFloatingTile(te, obj);
-
-		if (get()->callWithGraphics(g_, "drawTablePath", var(obj)))
-			return;
-	}
-
-    TableEditor::LookAndFeelMethods::drawTablePath(g_, te, p, area, lineThickness);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTablePoint(Graphics& g_, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged)
-{
-	if (functionDefined("drawTablePoint"))
-	{
-		auto obj = new DynamicObject();
-
-		obj->setProperty("tablePoint", ApiHelpers::getVarRectangle(tablePoint));
-		obj->setProperty("isEdge", isEdge);
-		obj->setProperty("hover", isHover);
-		obj->setProperty("clicked", isDragged);
-		obj->setProperty("bgColour", te.findColour(TableEditor::ColourIds::bgColour).getARGB());
-		obj->setProperty("itemColour", te.findColour(TableEditor::ColourIds::fillColour).getARGB());
-		obj->setProperty("itemColour2", te.findColour(TableEditor::ColourIds::lineColour).getARGB());
-		obj->setProperty("textColour", te.findColour(TableEditor::ColourIds::rulerColour).getARGB());
-
-		addParentFloatingTile(te, obj);
-
-		if (get()->callWithGraphics(g_, "drawTablePoint", var(obj)))
-			return;
-	}
-
-    TableEditor::LookAndFeelMethods::drawTablePoint(g_, te, tablePoint, isEdge, isHover, isDragged);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTableRuler(Graphics& g_, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition)
-{
-	if (functionDefined("drawTableRuler"))
-	{
-		auto obj = new DynamicObject();
-
-		obj->setProperty("area", ApiHelpers::getVarRectangle(area));
-		obj->setProperty("position", rulerPosition);
-		obj->setProperty("lineThickness", lineThickness);
-		obj->setProperty("bgColour", te.findColour(TableEditor::ColourIds::bgColour).getARGB());
-		obj->setProperty("itemColour", te.findColour(TableEditor::ColourIds::fillColour).getARGB());
-		obj->setProperty("itemColour2", te.findColour(TableEditor::ColourIds::lineColour).getARGB());
-		obj->setProperty("textColour", te.findColour(TableEditor::ColourIds::rulerColour).getARGB());
-
-		addParentFloatingTile(te, obj);
-
-		if (get()->callWithGraphics(g_, "drawTableRuler", var(obj)))
-			return;
-	}
-
-    TableEditor::LookAndFeelMethods::drawTableRuler(g_, te, area, lineThickness, rulerPosition);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawScrollbar(Graphics& g_, ScrollBar& scrollbar, int x, int y, int width, int height, bool isScrollbarVertical, int thumbStartPosition, int thumbSize, bool isMouseOver, bool isMouseDown)
-{
-	if (functionDefined("drawScrollbar"))
-	{
-		auto obj = new DynamicObject();
-
-		auto fullArea = Rectangle<int>(x, y, width, height).toFloat();
-
-		Rectangle<float> thumbArea;
-
-		if(isScrollbarVertical)
-			thumbArea = Rectangle<int>(x, y + thumbStartPosition, width, thumbSize).toFloat();
-		else
-			thumbArea = Rectangle<int>(x + thumbStartPosition, y, thumbSize, height).toFloat();
-
-		obj->setProperty("area", ApiHelpers::getVarRectangle(fullArea));
-		obj->setProperty("handle", ApiHelpers::getVarRectangle(thumbArea));
-		obj->setProperty("vertical", isScrollbarVertical);
-		obj->setProperty("over", isMouseOver);
-		obj->setProperty("down", isMouseDown);
-		obj->setProperty("bgColour", scrollbar.findColour(ScrollBar::ColourIds::backgroundColourId).getARGB());
-		obj->setProperty("itemColour", scrollbar.findColour(ScrollBar::ColourIds::thumbColourId).getARGB());
-		obj->setProperty("itemColour2", scrollbar.findColour(ScrollBar::ColourIds::trackColourId).getARGB());
-		
-		addParentFloatingTile(scrollbar, obj);
-
-		if (get()->callWithGraphics(g_, "drawScrollbar", var(obj)))
-			return;
-	}
-
-	GlobalHiseLookAndFeel::drawScrollbar(g_, scrollbar, x, y, width, height, isScrollbarVertical, thumbStartPosition, thumbSize, isMouseOver, isMouseDown);
-}
-
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawAhdsrPathSection(Graphics& g, AhdsrGraph& graph, const Path& s, bool isActive)
-{
-	if (functionDefined("drawAhdsrPath"))
-	{
-		auto obj = new DynamicObject();
-
-		auto p = new ScriptingObjects::PathObject(get()->getScriptProcessor());
-
-		var keeper(p);
-
-		p->getPath() = s;
-
-		obj->setProperty("isActive", isActive);
-		obj->setProperty("path", keeper);
-		obj->setProperty("currentState", graph.getCurrentStateIndex());
-		obj->setProperty("area", ApiHelpers::getVarRectangle(s.getBounds().toFloat()));
-		obj->setProperty("bgColour", graph.findColour(AhdsrGraph::ColourIds::bgColour).getARGB());
-		obj->setProperty("itemColour", graph.findColour(AhdsrGraph::ColourIds::fillColour).getARGB());
-		obj->setProperty("itemColour2", graph.findColour(AhdsrGraph::ColourIds::lineColour).getARGB());
-		obj->setProperty("itemColour3", graph.findColour(AhdsrGraph::ColourIds::outlineColour).getARGB());
-
-		addParentFloatingTile(graph, obj);
-
-		if (get()->callWithGraphics(g, "drawAhdsrPath", var(obj)))
-			return;
-	}
-	
-	AhdsrGraph::LookAndFeelMethods::drawAhdsrPathSection(g, graph, s, isActive);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawAhdsrBallPosition(Graphics& g, AhdsrGraph& graph, Point<float> pos)
-{
-	if (functionDefined("drawAhdsrBall"))
-	{
-		auto obj = new DynamicObject();
-
-		obj->setProperty("area", ApiHelpers::getVarRectangle(graph.getLocalBounds().toFloat()));
-		obj->setProperty("position", ApiHelpers::getVarFromPoint(pos));
-		obj->setProperty("currentState", graph.getCurrentStateIndex());
-		obj->setProperty("bgColour", graph.findColour(AhdsrGraph::ColourIds::bgColour).getARGB());
-		obj->setProperty("itemColour", graph.findColour(AhdsrGraph::ColourIds::fillColour).getARGB());
-		obj->setProperty("itemColour2", graph.findColour(AhdsrGraph::ColourIds::lineColour).getARGB());
-		obj->setProperty("itemColour3", graph.findColour(AhdsrGraph::ColourIds::outlineColour).getARGB());
-
-		addParentFloatingTile(graph, obj);
-
-		if (get()->callWithGraphics(g, "drawAhdsrBall", var(obj)))
-			return;
-	}
-
-	AhdsrGraph::LookAndFeelMethods::drawAhdsrBallPosition(g, graph, pos);
-}
-
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawMidiDropper(Graphics& g_, Rectangle<float> area, const String& text, MidiFileDragAndDropper& d)
-{
-	if (functionDefined("drawMidiDropper"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(area));
-		obj->setProperty("hover", d.hover);
-		obj->setProperty("active", d.isActive());
-		obj->setProperty("externalDrag", d.externalDrag);
-
-		obj->setProperty("bgColour", d.findColour(HiseColourScheme::ComponentBackgroundColour).getARGB());
-		obj->setProperty("itemColour", d.findColour(HiseColourScheme::ComponentOutlineColourId).getARGB());
-		obj->setProperty("textColour", d.findColour(HiseColourScheme::ComponentTextColourId).getARGB());
-		obj->setProperty("text", text);
-
-		if (get()->callWithGraphics(g_, "drawMidiDropper", var(obj)))
-			return;
-	}
-
-	MidiFileDragAndDropper::LookAndFeelMethods::drawMidiDropper(g_, area, text, d);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawHiseThumbnailBackground(Graphics& g_, HiseAudioThumbnail& th, bool areaIsEnabled, Rectangle<int> area)
-{
-    if (functionDefined("drawThumbnailBackground"))
-    {
-        auto obj = new DynamicObject();
-        obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
-        obj->setProperty("enabled", areaIsEnabled);
-        
-        obj->setProperty("bgColour", th.findColour  (AudioDisplayComponent::ColourIds::bgColour).getARGB());
-        obj->setProperty("itemColour", th.findColour(AudioDisplayComponent::ColourIds::fillColour).getARGB());
-        obj->setProperty("textColour", th.findColour(AudioDisplayComponent::ColourIds::outlineColour).getARGB());
-        
-        if (get()->callWithGraphics(g_, "drawThumbnailBackground", var(obj)))
-            return;
-    }
-
-    HiseAudioThumbnail::LookAndFeelMethods::drawHiseThumbnailBackground(g_, th, areaIsEnabled, area);
-}
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawHiseThumbnailPath(Graphics& g_, HiseAudioThumbnail& th, bool areaIsEnabled, const Path& path)
-{
-    if (functionDefined("drawThumbnailPath"))
-    {
-        auto obj = new DynamicObject();
-        auto area = path.getBounds();
-        obj->setProperty("area", ApiHelpers::getVarRectangle(area));
-        obj->setProperty("enabled", areaIsEnabled);
-        
-        auto sp = new ScriptingObjects::PathObject(get()->getScriptProcessor());
-
-        var keeper(sp);
-
-        sp->getPath() = path;
-
-        obj->setProperty("path", keeper);
-        
-        obj->setProperty("bgColour", th.findColour  (AudioDisplayComponent::ColourIds::bgColour).getARGB());
-        obj->setProperty("itemColour", th.findColour(AudioDisplayComponent::ColourIds::fillColour).getARGB());
-        obj->setProperty("textColour", th.findColour(AudioDisplayComponent::ColourIds::outlineColour).getARGB());
-        
-        if (get()->callWithGraphics(g_, "drawThumbnailPath", var(obj)))
-            return;
-    }
-
-    HiseAudioThumbnail::LookAndFeelMethods::drawHiseThumbnailPath(g_, th, areaIsEnabled, path);
-        
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawHiseThumbnailRectList(Graphics& g, HiseAudioThumbnail& th, bool areaIsEnabled, const HiseAudioThumbnail::RectangleListType& rectList)
-{
-    jassertfalse; // should never happen
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawThumbnailRange(Graphics& g_, HiseAudioThumbnail& th, Rectangle<float> area, int areaIndex, Colour c, bool areaEnabled)
-{
-    if (functionDefined("drawThumbnailRange"))
-    {
-        auto obj = new DynamicObject();
-        obj->setProperty("area", ApiHelpers::getVarRectangle(area));
-        obj->setProperty("rangeIndex", areaIndex);
-        obj->setProperty("rangeColour", c.getARGB());
-        obj->setProperty("enabled", areaEnabled);
-        
-        obj->setProperty("bgColour", th.findColour  (AudioDisplayComponent::ColourIds::bgColour).getARGB());
-        obj->setProperty("itemColour", th.findColour(AudioDisplayComponent::ColourIds::fillColour).getARGB());
-        obj->setProperty("textColour", th.findColour(AudioDisplayComponent::ColourIds::outlineColour).getARGB());
-        
-        if (get()->callWithGraphics(g_, "drawThumbnailRange", var(obj)))
-            return;
-    }
-
-    HiseAudioThumbnail::LookAndFeelMethods::drawThumbnailRange(g_, th, area, areaIndex, c, areaEnabled);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTextOverlay(Graphics& g_, HiseAudioThumbnail& th, const String& text, Rectangle<float> area)
-{
-    if (functionDefined("drawThumbnailText"))
-    {
-        auto obj = new DynamicObject();
-        obj->setProperty("area", ApiHelpers::getVarRectangle(area));
-        obj->setProperty("text", text);
-        
-        obj->setProperty("bgColour", th.findColour  (AudioDisplayComponent::ColourIds::bgColour).getARGB());
-        obj->setProperty("itemColour", th.findColour(AudioDisplayComponent::ColourIds::fillColour).getARGB());
-        obj->setProperty("textColour", th.findColour(AudioDisplayComponent::ColourIds::outlineColour).getARGB());
-        
-        if (get()->callWithGraphics(g_, "drawThumbnailText", var(obj)))
-            return;
-    }
-
-    HiseAudioThumbnail::LookAndFeelMethods::drawTextOverlay(g_, th, text, area);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawKeyboardBackground(Graphics &g_, Component* c, int width, int height)
-{
-	if (functionDefined("drawKeyboardBackground"))
-	{
-		auto obj = new DynamicObject();
-
-		Rectangle<int> a(0, 0, width, height);
-
-		obj->setProperty("area", ApiHelpers::getVarRectangle(a.toFloat()));
-
-		
-
-		if (get()->callWithGraphics(g_, "drawKeyboardBackground", var(obj)))
-			return;
-	}
-
-	CustomKeyboardLookAndFeelBase::drawKeyboardBackground(g_, c, width, height);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawWhiteNote(CustomKeyboardState* state, Component* c, int midiNoteNumber, Graphics &g_, int x, int y, int w, int h, bool isDown, bool isOver, const Colour &lineColour, const Colour &textColour)
-{
-	if (functionDefined("drawWhiteNote"))
-	{
-		auto obj = new DynamicObject();
-
-		Rectangle<int> a(x, y, w, h);
-
-		obj->setProperty("area", ApiHelpers::getVarRectangle(a.toFloat()));
-		obj->setProperty("noteNumber", midiNoteNumber);
-		obj->setProperty("hover", isOver);
-		obj->setProperty("down", isDown);
-        obj->setProperty("keyColour", state->getColourForSingleKey(midiNoteNumber).getARGB());
-
-		if (get()->callWithGraphics(g_, "drawWhiteNote", var(obj)))
-			return;
-	}
-
-	CustomKeyboardLookAndFeelBase::drawWhiteNote(state, c, midiNoteNumber, g_, x, y, w, h, isDown, isOver, lineColour, textColour);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawBlackNote(CustomKeyboardState* state, Component* c, int midiNoteNumber, Graphics &g_, int x, int y, int w, int h, bool isDown, bool isOver, const Colour &noteFillColour)
-{
-	if (functionDefined("drawBlackNote"))
-	{
-		auto obj = new DynamicObject();
-
-		Rectangle<int> a(x, y, w, h);
-
-		obj->setProperty("area", ApiHelpers::getVarRectangle(a.toFloat()));
-		obj->setProperty("noteNumber", midiNoteNumber);
-		obj->setProperty("hover", isOver);
-		obj->setProperty("down", isDown);
-        obj->setProperty("keyColour", state->getColourForSingleKey(midiNoteNumber).getARGB());
-
-		if (get()->callWithGraphics(g_, "drawBlackNote", var(obj)))
-			return;
-	}
-
-	CustomKeyboardLookAndFeelBase::drawBlackNote(state, c, midiNoteNumber, g_, x, y, w, h, isDown, isOver, noteFillColour);
-}
-
-juce::Image ScriptingObjects::ScriptedLookAndFeel::Laf::createIcon(PresetHandler::IconType type)
-{
-	auto img = MessageWithIcon::LookAndFeelMethods::createIcon(type);
-
-	if (auto l = get())
-	{
-		auto obj = new DynamicObject();
-		
-		String s;
-
-		switch (type)
-		{
-		case PresetHandler::IconType::Error:	s = "Error"; break;
-		case PresetHandler::IconType::Info:		s = "Info"; break;
-		case PresetHandler::IconType::Question: s = "Question"; break;
-		case PresetHandler::IconType::Warning:	s = "Warning"; break;
-		default: jassertfalse; break;
-		}
-
-		obj->setProperty("type", s);
-		obj->setProperty("area", ApiHelpers::getVarRectangle({ 0.0f, 0.0f, (float)img.getWidth(), (float)img.getHeight() }));
-
-		Image img2(Image::ARGB, img.getWidth(), img.getHeight(), true);
-		Graphics g(img2);
-
-		if (l->callWithGraphics(g, "drawAlertWindowIcon", var(obj)))
-		{
-			if ((int)obj->getProperty("type") == -1)
-				return {};
-
-			return img2;
-		}
-			
-	}
-
-	return img;
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawTag(Graphics& g_, bool blinking, bool active, bool selected, const String& name, Rectangle<int> position)
-{
-	if (functionDefined("drawPresetBrowserTag"))
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(position.toFloat()));
-		obj->setProperty("text", name);
-		obj->setProperty("blinking", blinking);
-		obj->setProperty("value", active);
-		obj->setProperty("selected", selected);
-		obj->setProperty("bgColour", backgroundColour.getARGB());
-		obj->setProperty("itemColour", highlightColour.getARGB());
-		obj->setProperty("itemColour2", modalBackgroundColour.getARGB());
-		obj->setProperty("textColour", textColour.getARGB());
-
-		if (get()->callWithGraphics(g_, "drawPresetBrowserTag", var(obj)))
-			return;
-	}
-
-	PresetBrowserLookAndFeelMethods::drawTag(g_, blinking, active, selected, name, position);
-}
-
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawModalOverlay(Graphics& g_, Rectangle<int> area, Rectangle<int> labelArea, const String& title, const String& command)
-{
-	if (auto l = get())
-	{
-		auto obj = new DynamicObject();
-		obj->setProperty("area", ApiHelpers::getVarRectangle(area.toFloat()));
-		obj->setProperty("labelArea", ApiHelpers::getVarRectangle(labelArea.toFloat()));
-		obj->setProperty("title", title);
-		obj->setProperty("text", command);
-		obj->setProperty("bgColour", backgroundColour.getARGB());
-		obj->setProperty("itemColour", highlightColour.getARGB());
-		obj->setProperty("itemColour2", modalBackgroundColour.getARGB());
-		obj->setProperty("textColour", textColour.getARGB());
-
-		if (l->callWithGraphics(g_, "drawPresetBrowserDialog", var(obj)))
-			return;
-	}
-
-	PresetBrowserLookAndFeelMethods::drawModalOverlay(g_, area, labelArea, title, command);
-}
-
-
-
-bool ScriptingObjects::ScriptedLookAndFeel::Laf::functionDefined(const String& s)
-{
-	return get() != nullptr && HiseJavascriptEngine::isJavascriptFunction(get()->functions.getProperty(Identifier(s), {}));
-}
-
-#if !HISE_USE_CUSTOM_ALERTWINDOW_LOOKANDFEEL
-LookAndFeel* HiseColourScheme::createAlertWindowLookAndFeel(void* mainController)
-{
-	if (auto mc = reinterpret_cast<MainController*>(mainController))
-	{
-		if (mc->getCurrentScriptLookAndFeel() != nullptr)
-			return new ScriptingObjects::ScriptedLookAndFeel::Laf(mc);
-	}
-
-	return new hise::AlertWindowLookAndFeel();
-}
-#endif
-
 
 
 var ApiHelpers::getVarFromPoint(Point<float> pos)
@@ -5758,6 +4997,30 @@ juce::Array<juce::Identifier> ApiHelpers::getGlobalApiClasses()
 	return ids;
 }
 
+juce::PathStrokeType ApiHelpers::createPathStrokeType(var strokeType)
+{
+	PathStrokeType s(1.0f);
+
+	if (auto obj = strokeType.getDynamicObject())
+	{
+		static const StringArray endcaps = { "butt", "square", "rounded" };
+		static const StringArray jointStyles = { "mitered", "curved","beveled" };
+
+		auto endCap = (PathStrokeType::EndCapStyle)endcaps.indexOf(obj->getProperty("EndCapStyle").toString());
+		auto jointStyle = (PathStrokeType::JointStyle)jointStyles.indexOf(obj->getProperty("JointStyle").toString());
+		auto thickness = (float)obj->getProperty("Thickness");
+
+		s = PathStrokeType(SANITIZED(thickness), jointStyle, endCap);
+	}
+	else
+	{
+		auto t = (float)strokeType;
+		s = PathStrokeType(SANITIZED(t));
+	}
+
+	return s;
+}
+
 #if USE_BACKEND
 juce::ValueTree ApiHelpers::getApiTree()
 {
@@ -5777,7 +5040,7 @@ struct ScriptingObjects::ScriptDisplayBufferSource::Wrapper
 	API_METHOD_WRAPPER_1(ScriptDisplayBufferSource, getDisplayBuffer);
 };
 
-ScriptingObjects::ScriptDisplayBufferSource::ScriptDisplayBufferSource(ProcessorWithScriptingContent *p, ExternalDataHolder *h):
+ScriptingObjects::ScriptDisplayBufferSource::ScriptDisplayBufferSource(ProcessorWithScriptingContent *p, ProcessorWithExternalData *h):
 	ConstScriptingObject(p, 0),
 	source(h)
 {
@@ -5791,7 +5054,7 @@ var ScriptingObjects::ScriptDisplayBufferSource::getDisplayBuffer(int index)
 		auto numObjects = source->getNumDataObjects(ExternalData::DataType::DisplayBuffer);
 
 		if (isPositiveAndBelow(index, numObjects))
-			return var(new ScriptingObjects::ScriptRingBuffer(getScriptProcessor(), index, source));
+			return var(new ScriptingObjects::ScriptRingBuffer(getScriptProcessor(), index, dynamic_cast<ProcessorWithExternalData*>(source.get())));
 
 		reportScriptError("Can't find buffer at index " + String(index));
 	}
@@ -6919,6 +6182,290 @@ void ScriptingObjects::ScriptFFT::applyInverseFFT(int numChannelsThisTime)
 		FFTHelpers::toComplexArray(wb.phaseBuffer->buffer, wb.magBuffer->buffer, wb.chunkOutput->buffer);
 
 		fft->performRealOnlyInverseTransform(wb.chunkOutput->buffer.getWritePointer(0));
+	}
+}
+
+struct ScriptingObjects::GlobalRoutingManagerReference::Wrapper
+{
+	API_METHOD_WRAPPER_1(GlobalRoutingManagerReference, getCable);
+};
+
+
+ScriptingObjects::GlobalRoutingManagerReference::GlobalRoutingManagerReference(ProcessorWithScriptingContent* sp) :
+	ConstScriptingObject(sp, 0),
+	ControlledObject(sp->getMainController_())
+{
+	auto ptr = scriptnode::routing::GlobalRoutingManager::Helpers::getOrCreate(getMainController());
+	manager = ptr.get();
+
+	ADD_API_METHOD_1(getCable);
+}
+
+scriptnode::routing::GlobalRoutingManager::Cable* getCableFromVar(const var& v)
+{
+	if (auto c = v.getObject())
+	{
+		return static_cast<scriptnode::routing::GlobalRoutingManager::Cable*>(c);
+	}
+
+	return nullptr;
+}
+
+Component* ScriptingObjects::GlobalRoutingManagerReference::createPopupComponent(const MouseEvent& e, Component *c)
+{
+	return scriptnode::routing::GlobalRoutingManager::Helpers::createDebugViewer(getScriptProcessor()->getMainController_());
+}
+
+juce::var ScriptingObjects::GlobalRoutingManagerReference::getCable(String cableId)
+{
+	if (auto m = dynamic_cast<scriptnode::routing::GlobalRoutingManager*>(manager.getObject()))
+	{
+		auto c = m->getSlotBase(cableId, scriptnode::routing::GlobalRoutingManager::SlotBase::SlotType::Cable);
+
+		return new GlobalCableReference(getScriptProcessor(), var(c.get()));
+	}
+
+	return var();
+}
+
+struct ScriptingObjects::GlobalCableReference::Wrapper
+{
+	API_METHOD_WRAPPER_0(GlobalCableReference, getValue);
+	API_METHOD_WRAPPER_0(GlobalCableReference, getValueNormalised);
+	API_VOID_METHOD_WRAPPER_1(GlobalCableReference, setValue);
+	API_VOID_METHOD_WRAPPER_1(GlobalCableReference, setValueNormalised);
+	API_VOID_METHOD_WRAPPER_2(GlobalCableReference, setRange);
+	API_VOID_METHOD_WRAPPER_3(GlobalCableReference, setRangeWithSkew);
+	API_VOID_METHOD_WRAPPER_3(GlobalCableReference, setRangeWithStep);
+	API_VOID_METHOD_WRAPPER_2(GlobalCableReference, registerCallback);
+};
+
+struct ScriptingObjects::GlobalCableReference::DummyTarget : public scriptnode::routing::GlobalRoutingManager::CableTargetBase
+{
+	DummyTarget(GlobalCableReference& p) :
+		parent(p)
+	{
+		if (auto c = getCableFromVar(parent.cable))
+			c->addTarget(this);
+	}
+
+	String getTargetId() const override 
+	{ 
+		String s;
+		s << dynamic_cast<Processor*>(parent.getScriptProcessor())->getId();
+		s << ".";
+		s << parent.getDebugName();
+		s << " (Script Reference)";
+		return s;
+	}
+
+	Path getTargetIcon() const override
+	{
+		Path path;
+		path.loadPathFromData(HiBinaryData::SpecialSymbols::scriptProcessor, sizeof(HiBinaryData::SpecialSymbols::scriptProcessor));
+		return path;
+	}
+
+	void selectCallback(Component* rootEditor) override
+	{
+#if USE_BACKEND
+		auto r = dynamic_cast<BackendRootWindow*>(rootEditor);
+
+		r->gotoIfWorkspace(dynamic_cast<Processor*>(parent.getScriptProcessor()));
+#endif
+	}
+
+	void sendValue(double v) final override {};
+
+	~DummyTarget()
+	{
+		if (auto c = getCableFromVar(parent.cable))
+		{
+			c->removeTarget(this);
+		}
+	}
+
+	GlobalCableReference& parent;
+};
+
+ScriptingObjects::GlobalCableReference::GlobalCableReference(ProcessorWithScriptingContent* ps, var c) :
+	ConstScriptingObject(ps, 0),
+	cable(c),
+	dummyTarget(new DummyTarget(*this))
+{
+	ADD_API_METHOD_0(getValue);
+	ADD_API_METHOD_0(getValueNormalised);
+	ADD_API_METHOD_1(setValue);
+	ADD_API_METHOD_1(setValueNormalised);
+	ADD_API_METHOD_2(setRange);
+	ADD_API_METHOD_3(setRangeWithSkew);
+	ADD_API_METHOD_3(setRangeWithStep);
+	ADD_API_METHOD_2(registerCallback);
+}
+
+ScriptingObjects::GlobalCableReference::~GlobalCableReference()
+{
+	callbacks.clear();
+}
+
+double ScriptingObjects::GlobalCableReference::getValue() const
+{
+	auto v = getValueNormalised();
+	return inputRange.convertFrom0to1(v, true);
+}
+
+double ScriptingObjects::GlobalCableReference::getValueNormalised() const
+{
+	if (auto c = getCableFromVar(cable))
+		return c->lastValue;
+	
+	return 0.0;
+}
+
+void ScriptingObjects::GlobalCableReference::setValueNormalised(double normalisedInput)
+{
+	if (auto c = getCableFromVar(cable))
+		c->sendValue(nullptr, normalisedInput);
+}
+
+void ScriptingObjects::GlobalCableReference::setValue(double inputWithinRange)
+{
+	auto v = inputRange.convertTo0to1(inputWithinRange, true);
+	setValueNormalised(v);
+}
+
+void ScriptingObjects::GlobalCableReference::setRange(double min, double max)
+{
+	inputRange = scriptnode::InvertableParameterRange(min, max);
+}
+
+void ScriptingObjects::GlobalCableReference::setRangeWithSkew(double min, double max, double midPoint)
+{
+	inputRange = scriptnode::InvertableParameterRange(min, max);
+	inputRange.setSkewForCentre(midPoint);
+}
+
+void ScriptingObjects::GlobalCableReference::setRangeWithStep(double min, double max, double stepSize)
+{
+	inputRange = scriptnode::InvertableParameterRange(min, max, stepSize);
+}
+
+
+
+struct ScriptingObjects::GlobalCableReference::Callback: public scriptnode::routing::GlobalRoutingManager::CableTargetBase,
+														 public PooledUIUpdater::SimpleTimer
+{
+	Callback(GlobalCableReference& p, const var& f, bool synchronous) :
+		SimpleTimer(p.getScriptProcessor()->getMainController_()->getGlobalUIUpdater()),
+		parent(p),
+		sync(synchronous),
+		callback(p.getScriptProcessor(), f, 1)
+	{
+		id << dynamic_cast<Processor*>(p.getScriptProcessor())->getId();
+		id << ".";
+
+		if (auto ilf = dynamic_cast<HiseJavascriptEngine::RootObject::InlineFunction::Object*>(f.getObject()))
+		{
+			id << ilf->name;
+			funcLocation = ilf->getLocation();
+
+			callback.incRefCount();
+			callback.setHighPriority();
+
+			if (auto c = getCableFromVar(parent.cable))
+			{
+				c->addTarget(this);
+			}
+
+			if (!synchronous)
+				start();
+			else
+				stop();
+		}
+		else
+		{
+			stop();
+		}
+	}
+
+	void timerCallback() override
+	{
+		if (sync)
+			return;
+
+		double nv;
+
+		if (value.getChangedValue(nv))
+			callback.call1(nv);
+	}
+
+	String getTargetId() const override { return id; }
+
+	Path getTargetIcon() const override
+	{
+		Path path;
+		path.loadPathFromData(HiBinaryData::SpecialSymbols::scriptProcessor, sizeof(HiBinaryData::SpecialSymbols::scriptProcessor));
+		return path;
+	}
+
+	void selectCallback(Component* rootEditor) override
+	{
+#if USE_BACKEND
+		auto sp = parent.getScriptProcessor();
+
+		auto br = dynamic_cast<BackendRootWindow*>(rootEditor);
+
+		br->gotoIfWorkspace(dynamic_cast<Processor*>(sp));
+
+		auto l = funcLocation;
+
+		BackendPanelHelpers::ScriptingWorkspace::showEditor(br, true);
+
+		auto f = [sp, l]()
+		{
+			DebugableObject::Helpers::gotoLocation(nullptr, dynamic_cast<JavascriptProcessor*>(sp), l);
+		};
+
+		Timer::callAfterDelay(400, f); 
+#endif
+	}
+
+	void sendValue(double v) override
+	{
+		if (sync)
+		{
+			callback.call1(v);
+		}
+		else
+			value.setModValueIfChanged(v);
+	}
+
+	~Callback()
+	{
+		if (auto c = getCableFromVar(parent.cable))
+		{
+			c->removeTarget(this);
+		}
+	}
+
+	GlobalCableReference& parent;
+
+	WeakCallbackHolder callback;
+	const bool sync = false;
+
+	ModValue value;
+
+	String id;
+
+	DebugableObject::Location funcLocation;
+};
+
+void ScriptingObjects::GlobalCableReference::registerCallback(var callbackFunction, bool synchronous)
+{
+	if (HiseJavascriptEngine::isJavascriptFunction(callbackFunction))
+	{
+		auto nc = new Callback(*this, callbackFunction, synchronous);
+		callbacks.add(nc);
 	}
 }
 

@@ -83,6 +83,12 @@ public:
 		smoother.setSmoothingTime(smoothingTime);
 	}
 
+	void reset()
+	{
+		smoother.resetToValue(gain);
+		lastValue = gain;
+	}
+
 	void processBlock(float** data, int numChannels, int numSamples);
 
 	int getNumConstants() const 
@@ -174,6 +180,8 @@ public:
 		}
 	}
 
+
+
 	void waitForBackgroundProcessing() override
 	{
 		if (useBackgroundThread)
@@ -219,126 +227,18 @@ private:
 	bool useBackgroundThread = true;
 };
 
-
-/** @brief A convolution reverb using zero-latency convolution
-*	@ingroup effectTypes
-*
-*	This is a wrapper for the convolution engine found in WDL (the sole MIT licenced convolution engine available)
-*	It is not designed to replace real convolution reverbs (as the CPU usage for impulses > 0.6 seconds is unreasonable),
-*	but your early reflection impulses or other filter impulses will be thankful for this effect.
-*/
-class ConvolutionEffect: public MasterEffectProcessor,
-						 public AudioSampleProcessor,
-						 public NonRealtimeProcessor,
-						 public MultiChannelAudioBuffer::Listener,
-						 public AsyncUpdater
+struct ConvolutionEffectBase: public AsyncUpdater,
+							  public NonRealtimeProcessor
 {
+	ConvolutionEffectBase();;
+	virtual ~ConvolutionEffectBase();;
 
-#if 0
-	class LoadingThread : public Thread
+	void setImpulse(NotificationType n);
+
+	void handleAsyncUpdate() override
 	{
-	public:
-
-		LoadingThread(ConvolutionEffect& parent_) :
-			Thread("Convolution Impulse Calculation"),
-			parent(parent_)
-		{}
-
-		~LoadingThread()
-		{
-			stopThread(1000);
-		}
-
-		void run() override;
-
-		ConvolutionEffect& parent;
-
-		void reloadImpulse()
-		{
-			ScopedValueSetter<bool> svs(parent.isReloading, true);
-
-			reloadInternal();
-
-			return;
-
-			if (!isThreadRunning())
-				startThread(5);
-
-			if (pending)
-				shouldRestart = true;
-			else
-				pending = true;
-		};
-		
-	private:
-
-		bool reloadInternal();
-
-		std::atomic<bool> pending = { false };
-		std::atomic<bool> shouldRestart = { false };
-		std::atomic<bool> shouldReload = { false };
-	};
-#endif
-
-public:
-
-	SET_PROCESSOR_NAME("Convolution", "Convolution Reverb", "A convolution reverb effect.");
-
-	// ============================================================================================= Constructor / Destructor / enums
-
-	enum Parameters
-	{
-		DryGain = 0, ///< the gain of the unprocessed input
-		WetGain, ///< the gain of the convoluted input
-		Latency, ///< you can change the latency (unused)
-		ImpulseLength, ///< the Impulse length (deprecated, use the SampleArea of the AudioSampleBufferComponent to change the impulse response)
-		ProcessInput, ///< if this attribute is set, the engine will fade out in a short time and reset itself.
-		UseBackgroundThread, ///< if true, then the tail of the impulse response will be rendered on a background thread to save cycles on the audio thread.
-		Predelay, ///< delays the reverb tail by the given amount in milliseconds
-		HiCut, ///< applies a low pass filter to the impulse response
-		Damping, ///< applies a fade-out to the impulse response
-		FFTType, ///< the FFT implementation. It picks the best available but for some weird use cases you can force to use another one.
-		numEffectParameters
-	};
-
-	ConvolutionEffect(MainController *mc, const String &id);;
-
-	~ConvolutionEffect();
-	
-	// ============================================================================================= Convolution methods
-
-	void bufferWasLoaded() override
-	{
-		setImpulse(false);
+		reloadInternal();
 	}
-
-	void bufferWasModified() override
-	{
-		setImpulse(false);
-	}
-
-	void setImpulse(bool sync);
-
-	// ============================================================================================= MasterEffect methods
-
-	float getAttribute(int parameterIndex) const override;;
-	void setInternalAttribute(int parameterIndex, float newValue) override;;
-	float getDefaultValue(int parameterIndex) const override;
-
-	void restoreFromValueTree(const ValueTree &v) override;;
-	ValueTree exportAsValueTree() const override;
-
-	void prepareToPlay(double sampleRate, int samplesPerBlock) override;;
-	void applyEffect(AudioSampleBuffer &buffer, int startSample, int numSamples) override;;
-	bool hasTail() const override {return true; };
-
-	void voicesKilled() override;
-
-	int getNumChildProcessors() const override { return 0; };
-	Processor *getChildProcessor(int /*processorIndex*/) override { return nullptr; };
-	const Processor *getChildProcessor(int /*processorIndex*/) const override { return nullptr; };
-
-	ProcessorEditorBody *createEditor(ProcessorEditor *parentEditor)  override;
 
 	void nonRealtimeModeChanged(bool isNonRealtime) override
 	{
@@ -348,17 +248,22 @@ public:
 		convolverL->setUseBackgroundThread(!nonRealtime && useBackgroundThread);
 		convolverR->setUseBackgroundThread(!nonRealtime && useBackgroundThread);
 	}
-	
-private:
 
-	void handleAsyncUpdate()
-	{
-		reloadInternal();
-	}
+	virtual MultiChannelAudioBuffer& getImpulseBufferBase() = 0;
+	virtual const MultiChannelAudioBuffer& getImpulseBufferBase() const = 0;
+
+protected:
+
+	void resetBase();
+
+	void prepareBase(double sampleRate, int blockSize);
+	
+	void processBase(ProcessDataDyn& d);
 
 	SimpleReadWriteLock swapLock;
 
 	bool reloadInternal();
+
 	bool useBackgroundThread = false;
 	bool nonRealtime = false;
 	bool processingEnabled = true;
@@ -369,10 +274,7 @@ private:
 
 	double getResampleFactor() const
 	{
-		const auto renderingSampleRate = getSampleRate();
-		const auto bufferSampleRate = getSampleRateForLoadedFile();
-
-		return MultithreadedConvolver::getResampleFactor(renderingSampleRate, bufferSampleRate);
+		return MultithreadedConvolver::getResampleFactor(lastSampleRate, getImpulseBufferBase().sampleRate);
 	}
 
 	GainSmoother smoothedGainerWet;
@@ -403,7 +305,7 @@ private:
 	int latency;
 
 	float damping = 1.0f;
-	
+
 	float predelayMs = 0.0f;
 
 	ScopedPointer<MultithreadedConvolver> convolverL;
@@ -412,6 +314,8 @@ private:
 	double cutoffFrequency = 20000.0;
 
 	double lastSampleRate = 0.0;
+	int lastBlockSize = 0;
+
 	void calcPredelay();
 
 	/** Adds a exponential gain ramp to the impulse response. */
@@ -421,6 +325,84 @@ private:
 	static void applyHighFrequencyDamping(AudioSampleBuffer& buffer, int numSamples, double cutoffFrequency, double sampleRate);
 
 	void calcCutoff();
+
+private:
+
+	bool prepareCalledOnce = false;
+};
+
+
+/** @brief A convolution reverb using zero-latency convolution
+*	@ingroup effectTypes
+*
+*/
+class ConvolutionEffect: public MasterEffectProcessor,
+						 public AudioSampleProcessor,
+						 public MultiChannelAudioBuffer::Listener,
+						 public ConvolutionEffectBase
+{
+
+public:
+
+	SET_PROCESSOR_NAME("Convolution", "Convolution Reverb", "A convolution reverb effect.");
+
+	// ============================================================================================= Constructor / Destructor / enums
+
+	enum Parameters
+	{
+		DryGain = 0, ///< the gain of the unprocessed input
+		WetGain, ///< the gain of the convoluted input
+		Latency, ///< you can change the latency (unused)
+		ImpulseLength, ///< the Impulse length (deprecated, use the SampleArea of the AudioSampleBufferComponent to change the impulse response)
+		ProcessInput, ///< if this attribute is set, the engine will fade out in a short time and reset itself.
+		UseBackgroundThread, ///< if true, then the tail of the impulse response will be rendered on a background thread to save cycles on the audio thread.
+		Predelay, ///< delays the reverb tail by the given amount in milliseconds
+		HiCut, ///< applies a low pass filter to the impulse response
+		Damping, ///< applies a fade-out to the impulse response
+		FFTType, ///< the FFT implementation. It picks the best available but for some weird use cases you can force to use another one.
+		numEffectParameters
+	};
+
+	ConvolutionEffect(MainController *mc, const String &id);;
+
+	~ConvolutionEffect();
+	
+	// ============================================================================================= Convolution methods
+
+	void bufferWasLoaded() override
+	{
+		setImpulse(sendNotificationSync);
+	}
+
+	void bufferWasModified() override
+	{
+		setImpulse(sendNotificationSync);
+	}
+
+	MultiChannelAudioBuffer& getImpulseBufferBase() override { return getBuffer(); }
+	const MultiChannelAudioBuffer& getImpulseBufferBase() const override { return getBuffer(); }
+
+	// ============================================================================================= MasterEffect methods
+
+	float getAttribute(int parameterIndex) const override;;
+	void setInternalAttribute(int parameterIndex, float newValue) override;;
+	float getDefaultValue(int parameterIndex) const override;
+
+	void restoreFromValueTree(const ValueTree &v) override;;
+	ValueTree exportAsValueTree() const override;
+
+	void prepareToPlay(double sampleRate, int samplesPerBlock) override;;
+	void applyEffect(AudioSampleBuffer &buffer, int startSample, int numSamples) override;;
+	bool hasTail() const override {return true; };
+
+	void voicesKilled() override;
+
+	int getNumChildProcessors() const override { return 0; };
+	Processor *getChildProcessor(int /*processorIndex*/) override { return nullptr; };
+	const Processor *getChildProcessor(int /*processorIndex*/) const override { return nullptr; };
+
+	ProcessorEditorBody *createEditor(ProcessorEditor *parentEditor)  override;
+
 };
 
 
@@ -434,15 +416,34 @@ using namespace juce;
 namespace filters
 {
 
-struct convolution : public data::base
+struct convolution : public data::base,
+					 public ConvolutionEffectBase
 {
+	enum Parameters
+	{
+		Gate,
+		Predelay,
+		Damping,
+		HiCut,
+		Multithread,
+		numParameters
+	};
+
+	DEFINE_PARAMETERS
+	{
+		DEF_PARAMETER(Gate, convolution);
+		DEF_PARAMETER(Damping, convolution);
+		DEF_PARAMETER(HiCut, convolution);
+		DEF_PARAMETER(Predelay, convolution);
+	    DEF_PARAMETER(Multithread, convolution);
+	};
+	PARAMETER_MEMBER_FUNCTION;
+
 	SET_HISE_NODE_ID("convolution");
 	SN_GET_SELF_AS_OBJECT(convolution);
 	SN_DESCRIPTION("A convolution reverb node");
 
-	HISE_EMPTY_SET_PARAMETER;
 	HISE_EMPTY_HANDLE_EVENT;
-	HISE_EMPTY_CREATE_PARAM;
 	HISE_EMPTY_INITIALISE;
 
 	static constexpr bool isPolyphonic() { return false; }
@@ -450,20 +451,34 @@ struct convolution : public data::base
 
 	bool handleModulation(double& d) { return false; }
 
+	MultiChannelAudioBuffer& getImpulseBufferBase() override
+	{
+		auto b = dynamic_cast<MultiChannelAudioBuffer*>(externalData.obj);
+		jassert(b != nullptr);
+		return *b;
+	}
+
+	const MultiChannelAudioBuffer& getImpulseBufferBase() const override
+	{
+		auto b = dynamic_cast<const MultiChannelAudioBuffer*>(externalData.obj);
+		jassert(b != nullptr);
+		return *b;
+	}
+
 	void setExternalData(const snex::ExternalData& d, int index) override
 	{
 		base::setExternalData(d, index);
-		rebuildImpulse();
+		getImpulseBufferBase().setDisabledXYZProviders({ Identifier("SampleMap"), Identifier("SFZ") });
+		setImpulse(sendNotificationSync);
 	}
 
 	void prepare(PrepareSpecs specs)
 	{
 		DspHelpers::setErrorIfFrameProcessing(specs);
-
-		lastSpecs = specs;
-		rebuildImpulse();
+		prepareBase(specs.sampleRate, specs.blockSize);
 	}
 
+#if 0
 	void rebuildImpulse()
 	{
 		OwnedArray<MultithreadedConvolver> newConvolvers;
@@ -497,48 +512,116 @@ struct convolution : public data::base
 			}
 		}
 
+		for (auto c : newConvolvers)
+			c->setUseBackgroundThread(multithread);
+
 		{
 			SimpleReadWriteLock::ScopedWriteLock sl(impulseLock);
 			convolvers.swapWith(newConvolvers);
 		}
 	}
+#endif
 
 	void reset()
 	{
-		SimpleReadWriteLock::ScopedReadLock l(impulseLock);
-
-		for (auto c : convolvers)
-			c->cleanPipeline();
+		resetBase();
 	}
+
+	
 
 	template <typename ProcessDataType> void process(ProcessDataType& data)
 	{
-		SimpleReadWriteLock::ScopedReadLock l(impulseLock);
-
-		auto numToProcess = jmin(data.getNumChannels(), convolvers.size());
-
-		for (int i = 0; i < numToProcess; i++)
-		{
-			auto ptr = data[i].begin();
-			convolvers[i]->process(ptr, ptr, data.getNumSamples());
-		}
+		auto& dynData = data.template as<ProcessDataDyn>();
+		processBase(dynData);
 	}
 
 	template <typename FrameDataType> void processFrame(FrameDataType& data)
 	{
-		SimpleReadWriteLock::ScopedReadLock l(impulseLock);
+		jassertfalse;
+	}
 
-		auto numToProcess = jmin(data.size(), convolvers.size());
+	void setMultithread(double shouldBeMultithreaded)
+	{
+		useBackgroundThread = shouldBeMultithreaded > 0.5;
 
-		for (int i = 0; i < numToProcess; i++)
 		{
-			convolvers[i]->process(data.begin() + i, data.begin() + i, 1);
+			SimpleReadWriteLock::ScopedWriteLock sl(swapLock);
+			convolverL->setUseBackgroundThread(useBackgroundThread && !nonRealtime);
+			convolverR->setUseBackgroundThread(useBackgroundThread && !nonRealtime);
 		}
 	}
 
-	PrepareSpecs lastSpecs;
-	hise::SimpleReadWriteLock impulseLock;
-	OwnedArray<hise::MultithreadedConvolver> convolvers;
+	void setDamping(double targetSustainDb)
+	{
+		if (damping != targetSustainDb)
+		{
+			damping = Decibels::decibelsToGain(targetSustainDb);
+			setImpulse(sendNotificationAsync);
+		}
+	}
+
+	void setHiCut(double targetFreq)
+	{
+		if (cutoffFrequency != targetFreq)
+		{
+			cutoffFrequency = (double)targetFreq;
+			calcCutoff();
+		}
+	}
+
+	void setPredelay(double newDelay)
+	{
+		if (newDelay != predelayMs)
+		{
+			predelayMs = newDelay;
+			calcPredelay();
+		}
+	}
+
+	void setGate(double shouldBeEnabled)
+	{
+		processingEnabled = shouldBeEnabled >= 0.5;
+		enableProcessing(processingEnabled);
+	}
+
+	void createParameters(ParameterDataList& data)
+	{
+		{
+			DEFINE_PARAMETERDATA(convolution, Gate);
+			p.setParameterValueNames({ "On", "Off" });
+			p.setDefaultValue(1.0);
+			data.add(std::move(p));
+		}
+
+		{
+			DEFINE_PARAMETERDATA(convolution, Predelay);
+			p.setRange({ 0.0, 1000.0, 1.0 });
+			p.setDefaultValue(0.0);
+			data.add(std::move(p));
+		}
+
+		{
+			DEFINE_PARAMETERDATA(convolution, Damping);
+			p.setRange({ -100.0, 0.0, 0.1 });
+			p.setDefaultValue(0.0);
+			p.setSkewForCentre(-12.0);
+			data.add(std::move(p));
+		}
+
+		{
+			DEFINE_PARAMETERDATA(convolution, HiCut);
+			p.setRange({ 20.0, 20000.0, 1.0});
+			p.setDefaultValue(20000.0);
+			p.setSkewForCentre(1000.0);
+			data.add(std::move(p));
+		}
+
+		{
+			DEFINE_PARAMETERDATA(convolution, Multithread);
+			p.setParameterValueNames({ "On", "Off" });
+			data.add(std::move(p));
+		}
+	}
 };
 
 }

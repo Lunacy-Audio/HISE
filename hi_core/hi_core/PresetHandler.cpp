@@ -74,6 +74,8 @@ void UserPresetHelpers::saveUserPreset(ModulatorSynthChain *chain, const String&
     String existingNote;
 	StringArray existingTags;
     
+#if CONFIRM_PRESET_OVERWRITE
+
 	if (presetFile.existsAsFile() && PresetHandler::showYesNoWindow("Confirm overwrite", "Do you want to overwrite the preset (Press cancel to create a new user preset?"))
 	{
         existingNote = PresetBrowser::DataBaseHelpers::getNoteFromXml(presetFile);
@@ -81,6 +83,18 @@ void UserPresetHelpers::saveUserPreset(ModulatorSynthChain *chain, const String&
 
 		presetFile.deleteFile();
 	}
+
+#else
+
+	if (presetFile.existsAsFile())
+	{
+        existingNote = PresetBrowser::DataBaseHelpers::getNoteFromXml(presetFile);
+        existingTags = PresetBrowser::DataBaseHelpers::getTagsFromXml(presetFile);
+
+		presetFile.deleteFile();
+	}
+
+#endif
 	
 	if (!presetFile.existsAsFile())
 	{
@@ -629,6 +643,7 @@ String PresetHandler::getCustomName(const String &typeName, const String& thisMe
 #endif
     
 	nameWindow->getTextEditor("Name")->setSelectAllWhenFocused(true);
+	nameWindow->getTextEditor("Name")->grabKeyboardFocusAsync();
 
 	if(nameWindow->runModalLoop()) return nameWindow->getTextEditorContents("Name");
 	else return String();
@@ -919,7 +934,11 @@ juce::ValueTree ProjectHandler::getEmbeddedNetwork(const String& id)
 	{
 		if (auto xml = XmlDocument::parse(nf))
 		{
-			debugToConsole(getMainController()->getMainSynthChain(), "Load network " + nf.getFileName() + " from project folder");
+			if (!CompileExporter::isExportingFromCommandLine())
+			{
+				debugToConsole(getMainController()->getMainSynthChain(), "Load network " + nf.getFileName() + " from project folder");
+			}
+
 			return ValueTree::fromXml(*xml);
 		}
 	}
@@ -1351,9 +1370,7 @@ void FrontendHandler::checkAllSampleReferences()
 File FrontendHandler::getLicenseKey()
 {
 #if USE_FRONTEND
-
 	return getAppDataDirectory().getChildFile(getProjectName() + getLicenseKeyExtension());
-
 #else
 
 	return File();
@@ -1682,33 +1699,26 @@ PopupMenu PresetHandler::getAllSavedPresets(int minIndex, Processor *p)
 #else
 	
 	File directoryToScan = PresetHandler::getDirectory(p);
-	DirectoryIterator directoryIterator(directoryToScan, false, "*", File::TypesOfFileToFind::findFilesAndDirectories);
-
-	while(directoryIterator.next())
-	{
-		File directory = directoryIterator.getFile();
-
-		if (directory.isDirectory())
-		{
-			PopupMenu sub;
-			DirectoryIterator presetIterator(directory, false, "*.hip", File::TypesOfFileToFind::findFiles);
-
-			while(presetIterator.next())
-			{
-				File preset = presetIterator.getFile();
-
-				sub.addItem(minIndex++, preset.getFileNameWithoutExtension());
-			}
-
-			m.addSubMenu(directory.getFileName(), sub, true);
-
-		}
-		else if (directory.hasFileExtension(".hip"))
-		{
-			m.addItem(minIndex++, directory.getFileNameWithoutExtension());
-		}
-
-	}
+	
+    for(auto f: RangedDirectoryIterator(directoryToScan, false, "*", File::TypesOfFileToFind::findFilesAndDirectories))
+    {
+        File directory = f.getFile();
+        
+        if (directory.isDirectory())
+        {
+            PopupMenu sub;
+            
+            for(auto pf: RangedDirectoryIterator(directory, false, "*.hip", File::TypesOfFileToFind::findFiles))
+                sub.addItem(minIndex++, pf.getFile().getFileNameWithoutExtension());
+            
+            m.addSubMenu(directory.getFileName(), sub, true);
+            
+        }
+        else if (directory.hasFileExtension(".hip"))
+        {
+            m.addItem(minIndex++, directory.getFileNameWithoutExtension());
+        }
+    }
 
 #endif
     
@@ -1718,33 +1728,29 @@ PopupMenu PresetHandler::getAllSavedPresets(int minIndex, Processor *p)
 File PresetHandler::getPresetFileFromMenu(int menuIndexDelta, Processor *parent)
 {
 	File directory = getDirectory(parent);
-	DirectoryIterator it(directory, true, "*", File::findFilesAndDirectories);
-	DirectoryIterator directoryIterator(directory, false, "*", File::TypesOfFileToFind::findFilesAndDirectories);
-
+	
 	int i = 0;
 
-	while (directoryIterator.next())
-	{
-		File fileToCheck = directoryIterator.getFile();
-
-		if (fileToCheck.isDirectory())
-		{
-			DirectoryIterator presetIterator(fileToCheck, false, "*.hip", File::TypesOfFileToFind::findFiles);
-
-			while (presetIterator.next())
-			{
-				if (i == menuIndexDelta) return presetIterator.getFile();
-				i++;
-			}
-		}
-
-		else if (fileToCheck.hasFileExtension(".hip"))
-		{
-			if (i == menuIndexDelta) return directoryIterator.getFile();
-
-			i++;
-		}
-	}
+    for(auto de: RangedDirectoryIterator(directory, false, "*", File::TypesOfFileToFind::findFilesAndDirectories))
+    {
+        auto fileToCheck = de.getFile();
+        
+        if (fileToCheck.isDirectory())
+        {
+            for(auto pf: RangedDirectoryIterator(fileToCheck, false, "*.hip", File::TypesOfFileToFind::findFiles))
+            {
+                if (i == menuIndexDelta) return pf.getFile();
+                i++;
+            }
+        }
+        
+        else if (fileToCheck.hasFileExtension(".hip"))
+        {
+            if (i == menuIndexDelta) return fileToCheck;
+            i++;
+        }
+    }
+	
 
 	return File();
 }

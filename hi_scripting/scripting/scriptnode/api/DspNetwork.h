@@ -106,9 +106,18 @@ class ScriptnodeExceptionHandler
 
 public:
 
+	static void validateMidiProcessingContext(NodeBase* b);
+
 	bool isOk() const noexcept
 	{
 		return items.isEmpty();
+	}
+
+	void addCustomError(NodeBase* n, Error::ErrorCode c, const String& errorMessage)
+	{
+		Error e;
+		e.error = c;
+		addError(n, e, errorMessage);
 	}
 
 	void addError(NodeBase* n, Error e, const String& errorMessage = {})
@@ -133,6 +142,12 @@ public:
 
 		for (int i = 0; i < items.size(); i++)
 		{
+			if(items[i].node == nullptr)
+			{
+				items.remove(i--);
+				continue;
+			}
+
 			auto e = items[i].error.error;
 
 			auto isErrorCode = e == errorToRemove ||
@@ -167,6 +182,7 @@ public:
 		case Error::IllegalPolyphony: return "Can't use this node in a polyphonic network";
 		case Error::IllegalBypassConnection: return "Use a `container.soft_bypass` node";
 		case Error::CloneMismatch:	return "Clone container must have equal child nodes";
+		case Error::IllegalCompilation: return "Can't compile networks with this node. Uncheck the `AllowCompilation` flag to remove the error.";
 		case Error::CompileFail:	s << "Compilation error** at Line " << e.expected << ", Column " << e.actual; return s;
 		default:
 			break;
@@ -177,11 +193,11 @@ public:
 		return s;
 	}
 
-	String getErrorMessage(NodeBase* n) const
+	String getErrorMessage(NodeBase* n = nullptr) const
 	{
 		for (auto& i : items)
 		{
-			if (i.node == n)
+			if (i.node == n || n == nullptr)
 			{
 				return i.toString(customErrorMessage);
 			}
@@ -205,6 +221,7 @@ class SnexSource;
 /** A network of multiple DSP objects that are connected using a graph. */
 class DspNetwork : public ConstScriptingObject,
 				   public Timer,
+				   public AssignableObject,
 				   public ControlledObject,
 				   public NodeBase::Holder
 {
@@ -407,7 +424,7 @@ public:
 			SnexSourceCompileHandler(snex::ui::WorkbenchData* d, ProcessorWithScriptingContent* sp_);;
 
 			void processTestParameterEvent(int parameterIndex, double value) final override {};
-			void prepareTest(PrepareSpecs ps, const Array<snex::ui::WorkbenchData::TestData::ParameterEvent>& initialParameters) final override {};
+            Result prepareTest(PrepareSpecs ps, const Array<snex::ui::WorkbenchData::TestData::ParameterEvent>& initialParameters) final override { return Result::ok(); };
 			void processTest(ProcessDataDyn& data) final override {};
 
 			void run() override;
@@ -600,6 +617,27 @@ public:
 	StringArray getListOfUnusedNodeIds() const;
 	StringArray getFactoryList() const;
 
+	void assign(const int, var newValue) override { reportScriptError("Can't assign to this expression"); };
+
+	var getAssignedValue(int index) const override
+	{
+		return var(nodes[index].get());
+	}
+
+	int getCachedIndex(const var &indexExpression) const override
+	{
+		if (indexExpression.isString())
+		{
+			for (int i = 0; i < nodes.size(); i++)
+			{
+				if (nodes[i]->getId() == indexExpression.toString())
+					return i;
+			}
+		}
+
+		return (int)indexExpression;
+	}
+
 	NodeBase::Holder* getCurrentHolder() const;
 
 	void registerOwnedFactory(NodeFactory* ownedFactory);
@@ -642,6 +680,8 @@ public:
 
 	bool isPolyphonic() const { return isPoly; }
 
+	bool hasTail() const;
+
 	bool handleModulation(double& v)
 	{
 		if (isFrozen())
@@ -666,10 +706,21 @@ public:
 	/** Creates and returns a node with the given path (`factory.node`). If a node with the id already exists, it returns this node. */
 	var create(String path, String id);
 
+	/** Creates a node, names it automatically and adds it at the end of the given parent. */
+	var createAndAdd(String path, String id, var parent);
+
+	/** Creates multiple nodes from the given JSON object. */
+	var createFromJSON(var jsonData, var parent);
+
 	/** Returns a reference to the node with the given id. */
 	var get(var id) const;
 
-	/** Any scripting API call has to be checked using this method. */
+	/** Removes all nodes. */
+	void clear(bool removeNodesFromSignalChain, bool removeUnusedNodes);
+
+	/** Undo the last action. */
+	bool undo();
+
 	void checkValid() const
 	{
 		if (parentHolder == nullptr)
@@ -680,6 +731,9 @@ public:
 	{
 		return parentHolder->getDebuggedNetwork() == this;
 	}
+
+	/** Creates a test object for this network. */
+	var createTest(var testData);
 
 	/** Deletes the node if it is not in a signal path. */
 	bool deleteIfUnused(String id);
@@ -750,13 +804,13 @@ public:
 		int getNumParameters() const final override { return root->getNumParameters(); }
 		Identifier getParameterId(int index) const final override
 		{
-			return Identifier(root->getParameter(index)->getId());
+			return Identifier(root->getParameterFromIndex(index)->getId());
 		}
 
 		float getParameter(int index) const final override
 		{
 			if(isPositiveAndBelow(index, getNumParameters()))
-				return (float)root->getParameter(index)->getValue();
+				return (float)root->getParameterFromIndex(index)->getValue();
 
 			return 0.0f;
 		}
@@ -764,7 +818,7 @@ public:
 		void setParameter(int index, float newValue) final override
 		{
 			if(isPositiveAndBelow(index, getNumParameters()))
-				root->getParameter(index)->setValue((double)newValue);
+				root->getParameterFromIndex(index)->setValueAsync((double)newValue);
 		}
 
 		NodeBase::Ptr root;
@@ -799,12 +853,12 @@ public:
 
 	void changeNodeId(ValueTree& c, const String& oldId, const String& newId, UndoManager* um);
 
-	UndoManager* getUndoManager()
+	UndoManager* getUndoManager(bool returnIfPending=false)
 	{ 
 		if (!enableUndo)
 			return nullptr;
 
-		if (um.isPerformingUndoRedo())
+		if (!returnIfPending && um.isPerformingUndoRedo())
 			return nullptr;
 		else
 			return &um;
@@ -874,7 +928,16 @@ public:
 
 	ModValue& getNetworkModValue() { return networkModValue; }
 
+	void addPostInitFunction(const std::function<bool(void)>& f)
+	{
+		postInitFunctions.add(f);
+	}
+
+	void runPostInitFunctions();
+
 private:
+
+	Array<std::function<bool()>> postInitFunctions;
 
 	ModValue networkModValue;
 
@@ -979,19 +1042,21 @@ private:
 			return 0.0f;
 		};
 
-		~ProjectNodeHolder()
-		{
-			if (loaded)
-			{
-				n.callDestructor();
-			}
-		}
+		~ProjectNodeHolder();
 
 		bool isActive() const { return forwardToNode; }
 
 		void prepare(PrepareSpecs ps)
 		{
+			dll->clearError();
+
 			n.prepare(ps);
+
+			auto e = dll->getError();
+
+			if (!e.isOk())
+				throw e;
+
 			n.reset();
 		}
 
@@ -1153,7 +1218,9 @@ struct HostHelpers
 	}
 };
 
-#if USE_BACKEND
+
+#if !USE_FRONTEND
+
 struct DspNetworkListeners
 {
 	struct Base : public valuetree::AnyListener

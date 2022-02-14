@@ -109,9 +109,6 @@ void ModulatorSamplerSound::loadSampleFromValueTree(const ValueTree& sampleData,
 		{
 			int multimicIndex = isMultiMicSound ? sampleData.getParent().indexOf(sampleData) : 0;
 
-			if (sampleData.hasProperty("MonolithSplitIndex"))
-				multimicIndex = (int)sampleData.getProperty("MonolithSplitIndex");
-
 			soundArray.add(new StreamingSamplerSound(hmaf, multimicIndex, getId()));
 		}
 		else
@@ -231,7 +228,7 @@ juce::Range<int> ModulatorSamplerSound::getPropertyRange(const Identifier& id) c
 		auto sampleEnd = getPropertyValueWithDefault(SampleIds::SampleEnd);
 		auto loopStart = getPropertyValueWithDefault(SampleIds::LoopStart);
 		auto loopEnd = getPropertyValueWithDefault(SampleIds::LoopEnd);
-		auto startMod = getPropertyValueWithDefault(SampleIds::SampleStartMod);
+		//auto startMod = getPropertyValueWithDefault(SampleIds::SampleStartMod);
 		auto xfade = getPropertyValueWithDefault(SampleIds::LoopXFade);
 
 		int minValue, maxValue;
@@ -272,34 +269,6 @@ juce::Range<int> ModulatorSamplerSound::getPropertyRange(const Identifier& id) c
 
 		return { minValue, maxValue };
 	}
-#if 0
-		return firstSound->isLoopEnabled() ? Range<int>(0, jmin<int>((int)firstSound->getLoopStart() - (int)firstSound->getLoopCrossfade(), (int)(firstSound->getSampleEnd() - (int)firstSound->getSampleStartModulation()))) :
-			Range<int>(0, (int)firstSound->getSampleEnd() - (int)firstSound->getSampleStartModulation());
-	}
-	else if( id == SampleIds::SampleEnd)
-	{
-		const int sampleStartMinimum = (int)(firstSound->getSampleStart() + firstSound->getSampleStartModulation());
-		const int upperLimit = (int)firstSound->getLengthInSamples();
-
-		if (firstSound->isLoopEnabled())
-		{
-			const int lowerLimit = jmax<int>(sampleStartMinimum, (int)firstSound->getLoopEnd());
-			return Range<int>(lowerLimit, upperLimit);
-
-		}
-		else
-		{
-			const int lowerLimit = sampleStartMinimum;
-			return Range<int>(lowerLimit, upperLimit);
-
-		}
-	}
-	else if( id == SampleIds::SampleStartMod)		return Range<int>(0, (int)firstSound->getSampleLength());
-	
-	else if( id == SampleIds::LoopStart)			return Range<int>((int)firstSound->getSampleStart() + (int)firstSound->getLoopCrossfade(), (int)firstSound->getLoopEnd() - (int)firstSound->getLoopCrossfade());
-	else if( id == SampleIds::LoopEnd)				return Range<int>((int)firstSound->getLoopStart() + (int)firstSound->getLoopCrossfade(), (int)firstSound->getSampleEnd());
-	else if( id == SampleIds::LoopXFade)			return Range<int>(0, jmin<int>((int)(firstSound->getLoopStart() - firstSound->getSampleStart()), (int)firstSound->getLoopLength()));
-#endif
 	else if( id == SampleIds::UpperVelocityXFade)	return Range < int >(0, (int)getSampleProperty(SampleIds::HiVel) - ((int)getSampleProperty(SampleIds::LoVel) + lowerVeloXFadeValue));
 	else if( id == SampleIds::LowerVelocityXFade)	return Range < int >(0, (int)getSampleProperty(SampleIds::HiVel) - upperVeloXFadeValue - (int)getSampleProperty(SampleIds::LoVel));
 	else if( id == SampleIds::SampleState)			return Range<int>(0, (int)StreamingSamplerSound::numSampleStates - 1);
@@ -666,6 +635,15 @@ void ModulatorSamplerSound::selectSoundsBasedOnRegex(const String &regexWildcard
 			debugError(sampler, e.what());
 		}
 	}
+
+#if USE_BACKEND
+
+	SafeAsyncCall::call<ModulatorSampler>(*sampler, [](ModulatorSampler& s)
+	{
+		s.getSampleEditHandler()->setMainSelectionToLast();
+	});
+
+#endif
 }
 
 void ModulatorSamplerSound::updateInternalData(const Identifier& id, const var& newValueVar)
@@ -991,7 +969,7 @@ HlacMonolithInfo::Ptr ModulatorSamplerSoundPool::loadMonolithicData(const ValueT
 
 	clearUnreferencedMonoliths();
 	
-	loadedMonoliths.add(new MonolithInfoToUse(monolithicFiles));
+	loadedMonoliths.add(new HlacMonolithInfo(monolithicFiles));
 
 	auto hmaf = loadedMonoliths.getLast();
 
@@ -1777,15 +1755,20 @@ void ModulatorSamplerSound::EnvelopeTable::onComplexDataEvent(ComplexDataUIUpdat
 {
 	if (t != ComplexDataUIUpdaterBase::EventType::DisplayIndex)
 	{
-		auto propId = type == Type::GainMode ? SampleIds::GainTable : SampleIds::PitchTable;
+		Identifier propId;
+
+		if (type == Type::GainMode) propId = SampleIds::GainTable;
+		if (type == Type::PitchMode) propId = SampleIds::PitchTable;
+		if (type == Type::PanMode) propId = SampleIds::LowPassTable;
+
 		parent.setSampleProperty(propId, table.exportData());
-		startTimer(JUCE_LIVE_CONSTANT(200));
+		startTimer(JUCE_LIVE_CONSTANT_OFF(200));
 	}
 }
 
 void ModulatorSamplerSound::EnvelopeTable::rebuildBuffer()
 {
-	numElements = parent.getReferenceToSound(0)->getLengthInSamples() / DownsamplingFactor + 1;
+	numElements = (int)parent.getReferenceToSound(0)->getLengthInSamples() / DownsamplingFactor + 1;
 	sampleRange.setStart((int)parent.getSampleProperty(SampleIds::SampleStart));
 	sampleRange.setEnd((int)parent.getSampleProperty(SampleIds::SampleEnd));
 
@@ -1813,6 +1796,7 @@ void ModulatorSamplerSound::EnvelopeTable::rebuildBuffer()
 				case Type::PanMode:
 					v = getFreqValue(v);
 					break;
+                    default: break;
 				}
 			}
 		}

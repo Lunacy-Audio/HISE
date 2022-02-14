@@ -81,8 +81,6 @@ namespace control
 				if(this->getParameter().isConnected())
 					this->getParameter().call(v);
 
-				lastValue = v;
-
 				externalData.setDisplayedValue((double)index.getIndex(b.size()));
 			}
 		}
@@ -426,6 +424,181 @@ namespace control
 		FORWARD_PARAMETER_TO_MEMBER(resetter);
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(resetter);
+	};
+
+	struct MidiCCHelpers
+	{
+		enum class SpecialControllers
+		{
+			ModWheel = 1,
+			BreathControl = 2,
+			Volume = 7,
+			Expression = 11,
+			Sustain = 64,
+			Aftertouch = 128,
+			Pitchbend = 129,
+			Stroke = 130,
+			Release = 131
+		};
+
+		static bool isMPEProperty(int zeroBasedNumber)
+		{
+			return zeroBasedNumber == (int)SpecialControllers::Aftertouch ||
+				   zeroBasedNumber == (int)SpecialControllers::Stroke ||
+				   zeroBasedNumber == (int)SpecialControllers::Pitchbend ||
+				   zeroBasedNumber == (int)SpecialControllers::Release;
+		}
+
+		static HiseEvent::Type getTypeForNumber(int midiNumber)
+		{
+			switch (midiNumber)
+			{
+			case (int)SpecialControllers::Pitchbend:
+				return HiseEvent::Type::PitchBend;
+			case (int)SpecialControllers::Aftertouch:
+				return HiseEvent::Type::Aftertouch;
+			case (int)SpecialControllers::Stroke:
+				return HiseEvent::Type::NoteOn;
+			case (int)SpecialControllers::Release:
+				return HiseEvent::Type::NoteOff;
+			default:
+				return HiseEvent::Type::Controller;
+			}
+		}
+
+		static StringArray createMidiCCNames()
+		{
+			StringArray sa;
+
+			for (int i = 0; i < 132; i++)
+				sa.add(String("CC " + String(i)));
+
+			sa.set((int)SpecialControllers::ModWheel, "Modwheel");
+			sa.set((int)SpecialControllers::BreathControl, "Breath Control");
+			sa.set((int)SpecialControllers::Expression, "Expression");
+			sa.set((int)SpecialControllers::Sustain, "Sustain");
+			sa.set((int)SpecialControllers::Volume, "Volume");
+			sa.set((int)SpecialControllers::Aftertouch, "Aftertouch");
+			sa.set((int)SpecialControllers::Pitchbend, "Pitchbend");
+			sa.set((int)SpecialControllers::Stroke, "Stroke");
+			sa.set((int)SpecialControllers::Release, "Release");
+
+			return sa;
+		}
+	};
+
+	template <typename ParameterClass> struct midi_cc : 
+		public mothernode,
+		public pimpl::no_processing,
+		public pimpl::parameter_node_base<ParameterClass>
+	{
+		enum Parameters
+		{
+			CCNumber,
+			EnableMPE,
+			DefaultValue,
+		};
+
+		DEFINE_PARAMETERS
+		{
+			DEF_PARAMETER(CCNumber, midi_cc);
+			DEF_PARAMETER(EnableMPE, midi_cc);
+			DEF_PARAMETER(DefaultValue, midi_cc);
+		}
+		PARAMETER_MEMBER_FUNCTION;
+
+		SET_HISE_NODE_ID("midi_cc");
+		SN_GET_SELF_AS_OBJECT(midi_cc);
+		SN_PARAMETER_NODE_CONSTRUCTOR(midi_cc, ParameterClass);
+		SN_DESCRIPTION("sends a MIDI cc value");
+
+		void createParameters(ParameterDataList& data)
+		{
+			{
+				DEFINE_PARAMETERDATA(midi_cc, CCNumber);
+				auto sa = MidiCCHelpers::createMidiCCNames();
+				p.setParameterValueNames(sa);
+                p.setDefaultValue(1.0);
+				data.add(std::move(p));
+			}
+
+			{
+				DEFINE_PARAMETERDATA(midi_cc, EnableMPE);
+				p.setParameterValueNames({ "On", "Off" });
+				data.add(std::move(p));
+			}
+
+			{
+				DEFINE_PARAMETERDATA(midi_cc, DefaultValue);
+				data.add(std::move(p));
+			}
+		}
+
+		void prepare(PrepareSpecs ps)
+		{
+		}
+
+		void handleHiseEvent(HiseEvent& e)
+		{
+			auto thisType = e.getType();
+
+			if (thisType == expectedType)
+			{
+				double v = 0.0;
+
+				switch (thisType)
+				{
+				case HiseEvent::Type::PitchBend:
+					v = (double)e.getPitchWheelValue() / (8192.0 * 2.0);
+					break;
+				case HiseEvent::Type::Aftertouch:
+					v = (double)e.getNoteNumber() / 127.0;
+					break;
+				case HiseEvent::Type::Controller:
+					v = (double)e.getControllerValue() / 127.0;
+					break;
+				case HiseEvent::Type::NoteOn:
+					v = (double)e.getVelocity() / 127.0;
+					break;
+				case HiseEvent::Type::NoteOff:
+					v = (double)e.getVelocity() / 127.0;
+					break;
+                default:
+                    break;
+				}
+
+				if (this->getParameter().isConnected())
+					this->getParameter().call(v);
+			}
+		}
+
+		void setCCNumber(double v)
+		{
+			midiNumber = roundToInt(v);
+			expectedType = MidiCCHelpers::getTypeForNumber(midiNumber);
+		}
+
+		void setEnableMPE(double shouldBeEnabled)
+		{
+			enableMpe = shouldBeEnabled;
+		}
+
+		void setDefaultValue(double newDefaultValue)
+		{
+			defaultValue = newDefaultValue;
+
+			if (this->getParameter().isConnected())
+				this->getParameter().call(defaultValue);
+		}
+
+		double defaultValue = 1.0;
+
+		bool isInPolyphonicContext = false;
+		bool enableMpe = false;
+		int midiNumber = 1;
+		HiseEvent::Type expectedType = HiseEvent::Type::Controller;
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(midi_cc);
 	};
 
 	
@@ -891,6 +1064,85 @@ namespace control
 			mutable bool dirty = false;
 		};
 
+		struct logic_op
+		{
+			enum class LogicType
+			{
+				AND,
+				OR,
+				XOR,
+				numLogicTypes
+			};
+
+			SET_HISE_NODE_ID("logic_op");
+			SN_DESCRIPTION("Combines the (binary) input signals using a logic operator");
+
+			static constexpr bool isNormalisedModulation() { return true; }
+
+			bool operator==(const logic_op& other) const
+			{
+				return logicType == other.logicType && leftValue == other.leftValue && rightValue == other.rightValue;
+			}
+
+			double getValue() const
+			{
+				dirty = false;
+
+				switch (logicType)
+				{
+				case LogicType::AND: return leftValue && rightValue ? 1.0 : 0.0;
+				case LogicType::OR: return leftValue || rightValue ? 1.0 : 0.0;
+				case LogicType::XOR: return (leftValue || rightValue) && !(leftValue == rightValue) ? 1.0 : 0.0;
+                default: return 0.0;
+				}
+                
+                return 0.0;
+			}
+
+			template <int P> void setParameter(double v)
+			{
+				if constexpr (P == 0)
+					leftValue = v > 0.5;
+				if constexpr (P == 1)
+					rightValue = v > 0.5;
+				if constexpr (P == 2)
+					logicType = (LogicType)jlimit(0, 2, (int)v);
+
+				dirty = true;
+			}
+
+			template <typename NodeType> static void createParameters(ParameterDataList& data, NodeType& n)
+			{
+				{
+					parameter::data p("Left");
+					p.callback = parameter::inner<NodeType, 0>(n);
+					p.setRange({ 0.0, 1.0 });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Right");
+					p.callback = parameter::inner<NodeType, 1>(n);
+					p.setRange({ 0.0, 1.0 });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+				{
+					parameter::data p("Operator");
+					p.callback = parameter::inner<NodeType, 2>(n);
+					p.setParameterValueNames({ "AND", "OR", "XOR" });
+					p.setDefaultValue(0.0);
+					data.add(std::move(p));
+				}
+			}
+
+			bool leftValue = false;
+			bool rightValue = false;
+			LogicType logicType = LogicType::AND;
+			mutable bool dirty = false;
+
+		};
+
 		struct minmax
 		{
 			SET_HISE_NODE_ID("minmax");
@@ -903,7 +1155,7 @@ namespace control
 			double getValue() const 
 			{ 
 				dirty = false; 
-				auto v = range.convertFrom0to1(value); 
+				auto v = range.convertFrom0to1(value, true);
 				v = range.snapToLegalValue(v);
 				return v;
 			}
@@ -988,7 +1240,11 @@ namespace control
 
 			static constexpr bool isNormalisedModulation() { return true; }
 
-			double getValue() const { dirty = false; return value * mulValue + addValue; }
+			double getValue() const 
+			{ 
+				dirty = false; 
+				return jlimit(0.0, 1.0, value * mulValue + addValue); 
+			}
 
 			template <int P> void setParameter(double v)
 			{
@@ -1065,6 +1321,7 @@ namespace control
 
 			typed->sendPending();
 		}
+        PARAMETER_MEMBER_FUNCTION;
 
 		void sendPending()
 		{
@@ -1125,9 +1382,20 @@ namespace control
 	template <int NV, typename ParameterType> using pma = multi_parameter<NV, ParameterType, multilogic::pma>;
 	template <int NV, typename ParameterType> using bipolar = multi_parameter<NV, ParameterType, multilogic::bipolar>;
 	template <int NV, typename ParameterType> using minmax = multi_parameter<NV, ParameterType, multilogic::minmax>;
+	template <int NV, typename ParameterType> using logic_op = multi_parameter<NV, ParameterType, multilogic::logic_op>;
 
-	template <typename SmootherClass> struct smoothed_parameter: public control::pimpl::templated_mode
+	struct smoothed_parameter_base: public mothernode
 	{
+		virtual ~smoothed_parameter_base() {};
+		virtual smoothers::base* getSmootherObject() = 0;
+	};
+
+	template <int NV, typename SmootherClass> struct smoothed_parameter: public control::pimpl::templated_mode,
+                                                                         public polyphonic_base,
+																		 public smoothed_parameter_base
+	{
+		static constexpr int NumVoices = NV;
+
 		enum Parameters
 		{
 			Value,
@@ -1136,8 +1404,13 @@ namespace control
 		};
 
 		smoothed_parameter():
-			templated_mode(getStaticId(), "smoothers")
+          polyphonic_base(getStaticId(), false),
+          templated_mode(getStaticId(), "smoothers")
 		{
+            cppgen::CustomNodeProperties::setPropertyForObject(*this, PropertyIds::TemplateArgumentIsPolyphonic);
+            
+			static_assert(std::is_base_of<smoothers::base, SmootherClass>(), "Not a smoother class");
+			static_assert(SmootherClass::NumVoices == NumVoices, "Voice amount mismatch");
 		}
 
 		SET_HISE_NODE_ID("smoothed_parameter");
@@ -1162,7 +1435,7 @@ namespace control
 
 		static constexpr bool isNormalisedModulation() { return true; };
 
-		bool isPolyphonic() const { return false; };
+		static constexpr bool isPolyphonic() { return NumVoices > 1; };
 
 		template <typename ProcessDataType> void process(ProcessDataType& d)
 		{
@@ -1182,7 +1455,11 @@ namespace control
 		void reset()
 		{
 			value.reset();
-			modValue.setModValueIfChanged(value.get());
+
+			// Force the change flag to true in order to trigger the modulation for polyphonic
+			// contexts at voice start
+			modValue.setModValue(value.get());
+			//modValue.setModValueIfChanged(value.get());
 		}
 
 		void prepare(PrepareSpecs ps)
@@ -1225,6 +1502,8 @@ namespace control
 		{
 			value.setSmoothingTime(newSmoothingTime);
 		}
+
+		smoothers::base* getSmootherObject() override { return &value; }
 
 		SmootherClass value;
 

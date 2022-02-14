@@ -126,6 +126,9 @@ public:
 	/** Set a credentials object that can be embedded into each expansion. */
 	void setCredentials(var newCredentials);
 
+	/** Sets whether the installExpansionFromPackage function should install full dynamics. */
+	void setInstallFullDynamics(bool shouldInstallFullDynamics);
+
 	/** Sets a error function that will be executed. */
 	void setErrorFunction(var newErrorFunction);
 
@@ -415,6 +418,9 @@ public:
 	/** Returns a list of all available data files in the expansion. */
 	var getDataFileList() const;
 
+	/** Returns a list of all available user presets in the expansion. */
+	var getUserPresetList() const;
+
 	/** Returns the folder where this expansion looks for samples. */
 	var getSampleFolder();
 
@@ -479,6 +485,72 @@ public:
 	
 	bool projectExport = false;
 	WeakReference<Expansion> e;
+};
+
+
+struct ScriptUnlocker : public juce::OnlineUnlockStatus,
+					    public ControlledObject
+{
+	ScriptUnlocker(MainController* mc):
+		ControlledObject(mc)
+	{
+
+	}
+
+	struct RefObject : public ConstScriptingObject
+	{
+		RefObject(ProcessorWithScriptingContent* p);
+
+		~RefObject();
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Unlocker"); }
+
+		WeakReference<ScriptUnlocker> unlocker;
+
+		/** Checks if the registration went OK. */
+		var isUnlocked() const;
+
+		/** Sets a function that performs a product name check and expects to return true or false for a match. */
+		void setProductCheckFunction(var f);
+
+		/** This checks if there is a key file and applies it.  */
+		var loadKeyFile();
+
+		/** Writes the key data to the location. */
+		var writeKeyFile(const String& keyData);
+
+		/** Checks if the possibleKeyData might contain a key file. */
+		bool isValidKeyFile(var possibleKeyData);
+
+		/** Returns the user email that was used for the registration. */
+		String getUserEmail() const;
+
+		/** Returns the machine ID that is encoded into the license file. This does not look in the encrypted blob, but just parses the header string. */
+		String getRegisteredMachineId();
+
+		WeakCallbackHolder pcheck;
+
+		struct Wrapper;
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(RefObject);
+	};
+
+	String getProductID() override;
+	bool doesProductIDMatch(const String& returnedIDFromServer) override;
+	RSAKey getPublicKey() override;
+	void saveState(const String&) override;
+	String getState() override;
+	String getWebsiteName() override;
+	URL getServerAuthenticationURL() override;
+	String readReplyFromWebserver(const String& email, const String& password) override;
+
+	var loadKeyFile();
+	File getLicenseKeyFile();
+	WeakReference<RefObject> currentObject;
+
+	String registeredMachineId;
+
+	JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptUnlocker);
 };
 
 } // namespace hise

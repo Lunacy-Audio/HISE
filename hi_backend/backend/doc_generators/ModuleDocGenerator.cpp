@@ -283,7 +283,8 @@ juce::String HiseModuleDatabase::Resolver::getContent(const MarkdownLink& url)
 		auto f = url.getMarkdownFile(root);
 
 
-		if (!f.existsAsFile() && MessageManager::getInstance()->isThisTheMessageThread())
+		if (!f.existsAsFile() && MessageManager::getInstance()->isThisTheMessageThread() &&
+            !CompileExporter::isExportingFromCommandLine())
 		{
 			if (PresetHandler::showYesNoWindow("Create file", "Do you want to create a file for this module"))
 			{
@@ -514,12 +515,24 @@ hise::MarkdownDataBase::Item ItemGenerator::createRootItem(MarkdownDataBase& par
 	root.tocString = "ScriptNode";
 	root.c = Colour(CommonData::colour);
 
-	MarkdownDataBase::DirectoryItemGenerator mgen(rootDirectory.getChildFile("scriptnode/manual"), root.c);
+	{
+		MarkdownDataBase::DirectoryItemGenerator mgen(rootDirectory.getChildFile("scriptnode/manual"), root.c);
 
-	auto manual = mgen.createRootItem(parent);
-	manual.fillMetadataFromURL();
+		auto manual = mgen.createRootItem(parent);
+		manual.fillMetadataFromURL();
 
-	root.addChild(std::move(manual));
+		root.addChild(std::move(manual));
+	}
+
+	{
+		MarkdownDataBase::DirectoryItemGenerator mgen(rootDirectory.getChildFile("scriptnode/101"), root.c);
+
+		auto manual = mgen.createRootItem(parent);
+		manual.fillMetadataFromURL();
+
+		root.addChild(std::move(manual));
+	}
+	
 
     data->network->getScriptProcessor()->getMainController_()->setAllowFlakyThreading(true);
     
@@ -634,12 +647,9 @@ juce::String Resolver::getContent(const MarkdownLink& url)
 					content << "| ID | Range | Default | Description |" << nl;
 					content << "| --- | --- | --- | ------ |" << nl;
 
-					for (int i = 0; i < node->getNumParameters(); i++)
+					for (auto param: NodeBase::ParameterIterator(*node))
 					{
-						auto param = node->getParameter(i);
-
 						auto pId = param->getId();
-
 						auto pTree = param->data;
 
 						content << "| " << pId;

@@ -67,6 +67,11 @@ public:
 	virtual ModulatorType getModulatorType() const = 0;
 	virtual ~GlobalModulator();
 
+    void referenceShared(ExternalData::DataType, int) override
+    {
+        table = getTableUnchecked(0);
+    }
+    
 	Modulator *getOriginalModulator();
 	const Modulator *getOriginalModulator() const;
 	GlobalModulatorContainer *getConnectedContainer();
@@ -77,7 +82,7 @@ public:
 
 	StringArray getListOfAllModulatorsWithType();
 
-	void connectToGlobalModulator(const String &itemEntry);
+	bool connectToGlobalModulator(const String &itemEntry);
 
 	bool isConnected() const { return getConnectedContainer() != nullptr && getOriginalModulator() != nullptr; };
 
@@ -86,17 +91,21 @@ public:
 	void saveToValueTree(ValueTree &v) const;
 	void loadFromValueTree(const ValueTree &v);
 
+    void connectIfPending();
+    
 protected:
 
 	GlobalModulator(MainController *mc);
 
-	MidiTable* table;
+	SampleLookupTable* table;
 
 	bool useTable = false;
 	bool inverted = false;
 
 private:
 
+    String pendingConnection;
+    
 	WeakReference<Processor> connectedContainer;
 
 	WeakReference<Processor> originalModulator;
@@ -148,6 +157,12 @@ public:
 
 	ProcessorEditorBody *createEditor(ProcessorEditor *parentEditor)  override;
 
+    void prepareToPlay(double sampleRate, int blockSize) override
+    {
+        VoiceStartModulator::prepareToPlay(sampleRate, blockSize);
+        connectIfPending();
+    }
+    
 	void setInternalAttribute(int parameterIndex, float newValue) override;;
 
 	float getAttribute(int parameterIndex) const override;;
@@ -179,6 +194,12 @@ public:
 
 	ValueTree exportAsValueTree() const override;
 
+    void prepareToPlay(double sampleRate, int blockSize) override
+    {
+        VoiceStartModulator::prepareToPlay(sampleRate, blockSize);
+        connectIfPending();
+    }
+    
 	ProcessorEditorBody *createEditor(ProcessorEditor *parentEditor)  override;
 
 	void setInternalAttribute(int parameterIndex, float newValue) override;;
@@ -228,8 +249,9 @@ public:
 	/** sets the new target value if the controller number matches. */
 	void handleHiseEvent(const HiseEvent &/*m*/) override {};
 
-	virtual void prepareToPlay(double sampleRate, int samplesPerBlock) override
+	void prepareToPlay(double sampleRate, int samplesPerBlock) override
 	{
+        connectIfPending();
 		TimeVariantModulator::prepareToPlay(sampleRate, samplesPerBlock);
 	};
 	

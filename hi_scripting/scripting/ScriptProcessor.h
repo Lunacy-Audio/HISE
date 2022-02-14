@@ -374,7 +374,7 @@ public:
 		/** Returns the number of arguments specified in the constructor. */
 		int getNumArgs() const { return numArgs; }
 
-		void replaceContentAsync(String s)
+		void replaceContentAsync(String s, bool shouldBeAsync=true)
 		{
             
 #if USE_FRONTEND
@@ -382,11 +382,20 @@ public:
             // being resized...
             replaceAllContent(s);
 #else
-			// Makes sure that this won't be accessed during replacement...
-			
-			SpinLock::ScopedLockType sl(pendingLock);
-			pendingNewContent.swapWith(s);
-			notifier.notify();
+            {
+                // Makes sure that this won't be accessed during replacement...
+                SpinLock::ScopedLockType sl(pendingLock);
+                pendingNewContent.swapWith(s);
+            }
+            
+            if(shouldBeAsync)
+            {
+                notifier.notify();
+            }
+            else
+            {   
+                notifier.handleAsyncUpdate();
+            }
 #endif
 		}
 
@@ -411,8 +420,6 @@ public:
 				triggerAsyncUpdate();
 			}
 
-		private:
-
 			void handleAsyncUpdate() override
 			{
 				String text;
@@ -423,11 +430,8 @@ public:
 				}
 
                 parent.setDisableUndo(true);
-                
 				parent.replaceAllContent(text);
-                
                 parent.setDisableUndo(false);
-                
                 
 				parent.pendingNewContent = String();
 			}
@@ -890,6 +894,8 @@ public:
 
 	GlobalServer* getGlobalServer() { return globalServer.get(); }
 
+	CriticalSection& getLookAndFeelRenderLock();
+
 	void resume()
 	{
 		shouldWakeUp = true;
@@ -1015,6 +1021,8 @@ private:
 	Task::Type currentType;
 
 	CriticalSection scriptLock;
+
+	CriticalSection lookAndFeelRenderLock;
 
 	using CompilationTask = SuspendHelpers::Suspended<Task, SuspendHelpers::ScopedTicket>;
 	using CallbackTask = SuspendHelpers::Suspended<Task, SuspendHelpers::FreeTicket>;

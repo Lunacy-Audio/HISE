@@ -85,6 +85,8 @@ public:
 
 	static Array<Identifier> getGlobalApiClasses();
 
+	static PathStrokeType createPathStrokeType(var strokeType);
+
 #if USE_BACKEND
 
 	static String getValueType(const var &v);
@@ -124,12 +126,13 @@ namespace ScriptingObjects
 		float getMagnitude(int startSample, int numSamples)
 		{
 			jassertfalse;
+            return 1.0f;
 		}
 
 		/** Returns the RMS value in the given range. */
 		float getRMSLevel(int startSample, int numSamples)
 		{
-
+            return 1.0f;
 		}
 
 		/** Normalises the buffer to the given decibel value. */
@@ -147,7 +150,7 @@ namespace ScriptingObjects
 		/** Converts a buffer with up to 44100 samples to a Base64 string. */
 		String toBase64()
 		{
-
+            return {};
 		}
 
 		/** Loads the content from the Base64 string (and resizes the buffer if necessary). */
@@ -160,6 +163,7 @@ namespace ScriptingObjects
 		int indexOfPeak(int startSample, int numSamples)
 		{
 			jassertfalse;
+            return -1;
 		}
 
 		/** Returns an array with the min and max value in the given range. */
@@ -280,6 +284,21 @@ namespace ScriptingObjects
 		/** Returns the new directory created at the file location, if directory doesn't already exist */
 		var createDirectory(String directoryName);
 
+		/** Returns the size of the file in bytes. */
+		int64 getSize();
+		
+		/** Returns the number of bytes free on the drive that this file lives on. */
+		int64 getBytesFreeOnVolume();
+
+		/** Changes the execute-permissions of a file. */
+		bool setExecutePermission(bool shouldBeExecutable);
+
+		/** Launches the file as a process. */
+		bool startAsProcess(String parameters);
+		
+		/** Reads a file and generates the hash of its contents. */
+		String getHash();
+
 		/** Returns a String representation of that file. */
 		String toString(int formatType) const;
 		
@@ -304,6 +323,12 @@ namespace ScriptingObjects
 		/** Replaces the file content with the JSON data. */
 		bool writeObject(var jsonData);
 
+		/** Replaces the XML file with the JSON content (needs to be convertible). */
+		bool writeAsXmlFile(var jsonDataToBeXmled, String tagName);
+
+		/** Loads the XML file and tries to parse it as JSON object. */
+		var loadFromXmlFile();
+
 		/** Writes the given data (either a Buffer or Array of Buffers) to a audio file. */
 		bool writeAudioFile(var audioData, double sampleRate, int bitDepth);
 
@@ -321,6 +346,15 @@ namespace ScriptingObjects
 
 		/** Loads the encrypted object using the supplied RSA key pair. */
 		var loadEncryptedObject(String key);
+
+		/** Renames the file. */
+		bool rename(String newName);
+
+		/** Loads the given file as audio file. */
+		var loadAsAudioFile() const;
+
+		/** Returns a relative path from the given other file. */
+		String getRelativePathFrom(var otherFile);
 
 		/** Opens a Explorer / Finder window that points to the file. */
 		void show();
@@ -740,6 +774,42 @@ namespace ScriptingObjects
 
 		void setCallbackInternal(bool isDisplay, var f);
 
+        void linkToInternal(var o)
+        {
+            auto other = dynamic_cast<ScriptComplexDataReferenceBase*>(o.getObject());
+            
+            if(other == nullptr)
+            {
+                reportScriptError("Not a data object");
+                return;
+            }
+            
+            if(other->type != type)
+            {
+                reportScriptError("Type mismatch");
+                return;
+            }
+            
+            using PED = hise::ProcessorWithExternalData;
+            
+            if(auto pdst = holder.get())
+            {
+                if(auto psrc = other->holder.get())
+                {
+                    if(auto ex = psrc->getComplexBaseType(type, other->index))
+                    {
+                        complexObject->getUpdater().removeEventListener(this);
+
+						pdst->linkTo(type, *psrc, other->index, index);
+                        complexObject = holder->getComplexBaseType(type, index);
+                        complexObject->getUpdater().addEventListener(this);
+                    }
+                }
+            }
+            
+            return;
+        }
+        
 		WeakReference<ComplexDataUIBase> complexObject;
 
 		WeakCallbackHolder displayCallback;
@@ -757,7 +827,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptAudioFile(ProcessorWithScriptingContent* pwsc, int index, snex::ExternalDataHolder* otherHolder = nullptr);
+		ScriptAudioFile(ProcessorWithScriptingContent* pwsc, int index, ExternalDataHolder* otherHolder = nullptr);
 
 		// ============================================================================================================
 
@@ -795,6 +865,12 @@ namespace ScriptingObjects
 
 		// ============================================================================================================
 
+        /** Links this audio file to the other*/
+        void linkTo(var other)
+        {
+            linkToInternal(other);
+        }
+        
 	private:
 
 		MultiChannelAudioBuffer* getBuffer() { return static_cast<MultiChannelAudioBuffer*>(complexObject.get()); }
@@ -807,7 +883,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptRingBuffer(ProcessorWithScriptingContent* pwsc, int index, snex::ExternalDataHolder* other=nullptr);
+		ScriptRingBuffer(ProcessorWithScriptingContent* pwsc, int index, ExternalDataHolder* other=nullptr);
 
 		// ============================================================================================================
 
@@ -834,7 +910,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptTableData(ProcessorWithScriptingContent* pwsc, int index, snex::ExternalDataHolder* externalHolder=nullptr);
+		ScriptTableData(ProcessorWithScriptingContent* pwsc, int index, ExternalDataHolder* externalHolder=nullptr);
 
 		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
@@ -867,8 +943,16 @@ namespace ScriptingObjects
 		/** Sets the table points from a multidimensional array ([x0, y0, curve0], ...]). */
 		void setTablePointsFromArray(var pointList);
 
+        /** Makes this table refer to the given table. */
+        void linkTo(var otherTable)
+        {
+            linkToInternal(otherTable);
+        }
+        
 		// ============================================================================================================
 
+        
+        
 	private:
 
 		Table* getTable() { return static_cast<Table*>(complexObject.get()); }
@@ -883,7 +967,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptSliderPackData(ProcessorWithScriptingContent* pwsc, int dataIndex, snex::ExternalDataHolder* otherHolder=nullptr);
+		ScriptSliderPackData(ProcessorWithScriptingContent* pwsc, int dataIndex, ExternalDataHolder* otherHolder=nullptr);
 
 		~ScriptSliderPackData() {};
 
@@ -916,6 +1000,12 @@ namespace ScriptingObjects
 		/** Sets a callback that is being executed when a point is added / removed / changed. */
 		void setContentCallback(var contentFunction);
 
+        /** Links the sliderpack to the other slider pack. */
+        void linkTo(var other)
+        {
+            linkToInternal(other);
+        }
+        
 		// ============================================================================================================
 
 	private:
@@ -941,7 +1031,7 @@ namespace ScriptingObjects
 		String getDebugName() const override { return "Sample"; };
 		String getDebugValue() const override;
 
-		int getNumChildElements() const override { return (int)ModulatorSamplerSound::Property::numProperties; }
+		int getNumChildElements() const override { return (int)sampleIds.size() + (int)customObject.isObject(); }
 
 		DebugInformation* getChildElement(int index) override;
 
@@ -991,9 +1081,14 @@ namespace ScriptingObjects
 		/** Checks if the otherSample object refers to the same sample as this. */
 		bool refersToSameSample(var otherSample);
 
+		/** Returns an object that can hold additional properties. */
+		var getCustomProperties();
+
 		// ============================================================================================================
 
 	private:
+
+		var customObject;
 
 		ModulatorSampler* getSampler() const;
 
@@ -1301,6 +1396,9 @@ namespace ScriptingObjects
         
         /** Returns the ID of the attribute with the given index. */
         String getAttributeId(int index);
+				
+				/** Returns the index of the attribute with the given ID. */
+				int getAttributeIndex(String id);
         
 		/** Returns the number of attributes. */
 		int getNumAttributes() const;
@@ -1420,6 +1518,9 @@ namespace ScriptingObjects
         
         /** Returns the ID of the attribute with the given index. */
         String getAttributeId(int index);
+				
+				/** Returns the index of the attribute with the given ID. */
+				int getAttributeIndex(String id);
         
 		/** Returns the number of attributes. */
 		int getNumAttributes() const;
@@ -1621,6 +1722,9 @@ namespace ScriptingObjects
 
         /** Returns the attribute with the given index. */
         String getAttributeId(int index);
+				
+				/** Returns the index of the attribute with the given ID. */
+				int getAttributeIndex(String id);
 
 		/** Returns the number of attributes. */
 		int getNumAttributes() const;
@@ -1721,6 +1825,9 @@ namespace ScriptingObjects
         /** Returns the ID of the attribute with the given index. */
 		String getAttributeId(int index);
 		
+		/** Returns the index of the attribute with the given ID. */
+		int getAttributeIndex(String id);
+		
 		/** Bypasses the MidiProcessor. */
 		void setBypassed(bool shouldBeBypassed);
 		
@@ -1781,6 +1888,9 @@ namespace ScriptingObjects
 
         /** Returns the attribute with the given index. */
         String getAttributeId(int index);
+				
+				/** Returns the index of the attribute with the given ID. */
+				int getAttributeIndex(String id);
         
 		/** Returns the number of attributes. */
 		int getNumAttributes() const;
@@ -1852,7 +1962,7 @@ namespace ScriptingObjects
 	{
 	public:
 
-		ScriptDisplayBufferSource(ProcessorWithScriptingContent *p, ExternalDataHolder *h);
+		ScriptDisplayBufferSource(ProcessorWithScriptingContent *p, ProcessorWithExternalData *h);
 		~ScriptDisplayBufferSource() {};
 
 		// =============================================================================================
@@ -1921,6 +2031,79 @@ namespace ScriptingObjects
 		// ============================================================================================================
 	};
 
+
+	struct GlobalRoutingManagerReference : public ConstScriptingObject,
+										  public ControlledObject
+	{
+		GlobalRoutingManagerReference(ProcessorWithScriptingContent* sp);;
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("GlobalRoutingManager"); }
+
+		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
+
+		// =============================================================================================
+
+		/** Returns a scripted reference to the global cable (and creates a cable with this ID if it can't be found. */
+		var getCable(String cableId);
+
+		// =============================================================================================
+
+	private:
+
+		struct Wrapper;
+
+		var manager;
+	};
+
+	/** A wrapper around a global cable. */
+	struct GlobalCableReference : public ConstScriptingObject
+	{
+		GlobalCableReference(ProcessorWithScriptingContent* ps, var c);
+
+		~GlobalCableReference();
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("GlobalCable"); }
+
+		// =============================================================================================
+
+		/** Returns the value (converted to the input range). */
+		double getValue() const;
+
+		/** Returns the normalised value between 0...1 */
+		double getValueNormalised() const;
+
+		/** Sends the normalised value to all targets. */
+		void setValueNormalised(double normalisedInput);
+
+		/** Sends the value to all targets (after converting it from the input range. */
+		void setValue(double inputWithinRange);
+		
+		/** Set the input range using a min and max value (no steps / no skew factor). */
+		void setRange(double min, double max);
+
+		/** Set the input range using a min and max value and a mid point for skewing the range. */
+		void setRangeWithSkew(double min, double max, double midPoint);
+
+		/** Set the input range using a min and max value as well as a step size. */
+		void setRangeWithStep(double min, double max, double stepSize);
+
+		/** Registers a function that will be executed whenever a value is sent through the cable. */
+		void registerCallback(var callbackFunction, bool synchronous);
+
+		// =============================================================================================
+
+	private:
+
+		struct DummyTarget;
+		struct Wrapper;
+		struct Callback;
+
+		var cable;
+
+		ScopedPointer<DummyTarget> dummyTarget;
+		OwnedArray<Callback> callbacks;
+		scriptnode::InvertableParameterRange inputRange;
+	};
 
 	class TimerObject : public ConstScriptingObject,
 					    public ControlledObject

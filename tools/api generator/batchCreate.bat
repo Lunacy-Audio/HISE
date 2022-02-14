@@ -66,6 +66,9 @@ xcopy "xml\classhise_1_1_scripting_objects_1_1_scripting_slot_f_x.xml" "xml\sele
 xcopy "xml\classhise_1_1_scripting_objects_1_1_graphics_object.xml" "xml\selection"
 xcopy "xml\classhise_1_1_scripting_objects_1_1_path_object.xml" "xml\selection"
 
+xcopy "xml\structhise_1_1_scripting_objects_1_1_global_cable_reference.xml" "xml\selection"
+xcopy "xml\structhise_1_1_scripting_objects_1_1_global_routing_manager_reference.xml" "xml\selection"
+
 xcopy "xml\classhise_1_1_scripting_objects_1_1_scripted_midi_player.xml" "xml\selection"
 xcopy "xml\classhise_1_1_scripting_objects_1_1_timer_object.xml" "xml\selection"
 xcopy "xml\structhise_1_1_scripting_objects_1_1_script_download_object.xml" "xml\selection"
@@ -88,8 +91,11 @@ xcopy "xml\structhise_1_1_scripting_api_1_1_content_1_1_script_audio_waveform.xm
 xcopy "xml\classhise_1_1_script_user_preset_handler.xml" "xml\selection"
 
 
+xcopy "xml\structhise_1_1_script_unlocker_1_1_ref_object.xml" "xml\selection"
+
 
 xcopy "xml\classscriptnode_1_1_dsp_network.xml" "xml\selection"
+xcopy "xml\structscriptnode_1_1_script_network_test.xml" "xml\selection"
 xcopy "xml\classscriptnode_1_1_node_base.xml" "xml\selection"
 xcopy "xml\classscriptnode_1_1_connection_base.xml" "xml\selection"
 xcopy "xml\classscriptnode_1_1_node_base_1_1_parameter.xml" "xml\selection"
@@ -115,6 +121,8 @@ ren "xml\selection\structhise_1_1_scripting_objects_1_1_script_download_object.x
 ren "xml\selection\classhise_1_1_scripting_objects_1_1_script_file.xml" "File.xml"
 ren "xml\selection\classhise_1_1_scripting_api_1_1_file_system.xml" "FileSystem.xml"
 ren "xml\selection\classhise_1_1_scripting_api_1_1_server.xml" "Server.xml"
+
+
 
 ren "xml\selection\classhise_1_1_scripting_objects_1_1_scripting_modulator.xml" "Modulator.xml"
 ren "xml\selection\classhise_1_1_scripting_objects_1_1_midi_list.xml" "MidiList.xml"
@@ -169,13 +177,19 @@ ren "xml\selection\classhise_1_1_script_expansion_handler.xml" "ExpansionHandler
 ren "xml\selection\classhise_1_1_script_expansion_reference.xml" "Expansion.xml"
 
 ren "xml\selection\classscriptnode_1_1_dsp_network.xml" "DspNetwork.xml"
+ren "xml\selection\structscriptnode_1_1_script_network_test.xml" "NetworkTest.xml"
 ren "xml\selection\classscriptnode_1_1_node_base.xml" "Node.xml"
 ren "xml\selection\classscriptnode_1_1_connection_base.xml" "Connection.xml"
 ren "xml\selection\classscriptnode_1_1_node_base_1_1_parameter.xml" "Parameter.xml"
 
+ren "xml\selection\structhise_1_1_scripting_objects_1_1_global_cable_reference.xml" "GlobalCable.xml"
+ren "xml\selection\structhise_1_1_scripting_objects_1_1_global_routing_manager_reference.xml" "GlobalRoutingManager.xml"
+
 ren "xml\selection\structhise_1_1fixobj_1_1_array.xml" "FixObjectArray.xml"
 ren "xml\selection\structhise_1_1fixobj_1_1_factory.xml" "FixObjectFactory.xml"
 ren "xml\selection\structhise_1_1fixobj_1_1_stack.xml" "FixObjectStack.xml"
+
+ren "xml\selection\structhise_1_1_script_unlocker_1_1_ref_object.xml" "Unlocker.xml"
 
 ApiExtractor.exe xml\selection xml\selection
 

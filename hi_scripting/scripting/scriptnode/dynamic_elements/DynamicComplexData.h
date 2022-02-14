@@ -329,6 +329,7 @@ struct complex_ui_laf : public ScriptnodeComboBoxLookAndFeel,
 {
 	complex_ui_laf() = default;
 
+	void drawTableBackground(Graphics& g, TableEditor& te, Rectangle<float> area, double rulerPosition) override;
 	void drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float lineThickness) override;
 	void drawTablePoint(Graphics& g, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged) override;
 	void drawTableRuler(Graphics& g, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition) override;
@@ -389,7 +390,8 @@ template <class DynamicDataType, class DataType, class ComponentType, bool AddDr
 
 		//setSize(w, h + 41);
 
-		sourceHasChanged(nullptr, b->currentlyUsedData);
+		newSource = b->currentlyUsedData;
+		sourceChangedAsync();
 
 		if (AddDragger)
 			addAndMakeVisible(dragger = new ModulationSourceBaseComponent(updater));
@@ -540,6 +542,10 @@ template <class DynamicDataType, class DataType, class ComponentType, bool AddDr
 		}
 		
 		b.removeFromTop(3);
+
+		if (getEditorAsComponent() == nullptr)
+			return;
+
 		getEditorAsComponent()->setBounds(b);
 
 		refreshDashPath();
@@ -558,6 +564,9 @@ template <class DynamicDataType, class DataType, class ComponentType, bool AddDr
 
 	void paintOverChildren(Graphics& g) override
 	{
+		if (getObject() == nullptr)
+			return;
+
 		auto idx = getObject()->getIndex();
 
 		if (idx != -1)
@@ -577,12 +586,13 @@ template <class DynamicDataType, class DataType, class ComponentType, bool AddDr
 
 	static constexpr bool isDisplayBufferBase() { return std::is_same<ComponentType, RingBufferComponentBase>(); }
 
-	void sourceHasChanged(ComplexDataUIBase* oldSource, ComplexDataUIBase* newSource) override
+	void sourceChangedAsync()
 	{
-		ignoreUnused(oldSource);
+		if (newSource == nullptr)
+			return;
 
 		if constexpr (isDisplayBufferBase())
-			editor = dynamic_cast<SimpleRingBuffer*>(newSource)->getPropertyObject()->createComponent();
+			editor = dynamic_cast<SimpleRingBuffer*>(newSource.get())->getPropertyObject()->createComponent();
 		else
 			editor = new ComponentType();
 
@@ -605,6 +615,23 @@ template <class DynamicDataType, class DataType, class ComponentType, bool AddDr
 		}
 	}
 
+	void sourceHasChanged(ComplexDataUIBase* oldSource, ComplexDataUIBase* newSource_) override
+	{
+		ignoreUnused(oldSource);
+
+		newSource = newSource_;
+
+		WeakReference<editorT> safeThis(this);
+
+		auto f = [safeThis]()
+		{
+			if (safeThis.get() != nullptr)
+				safeThis->sourceChangedAsync();
+		};
+
+		MessageManager::callAsync(f);
+	}
+
 	static Component* createExtraComponent(void* obj, PooledUIUpdater* updater)
 	{
 		// must be casted to the derived class or you'll slice the object like a melon!!!
@@ -621,12 +648,15 @@ template <class DynamicDataType, class DataType, class ComponentType, bool AddDr
 	PooledUIUpdater* u;
 	PopupLookAndFeel plaf;
 	ComboBox slotSelector;
+	WeakReference<ComplexDataUIBase> newSource = nullptr;
 	ScopedPointer<ComponentType> editor;
 	ScopedPointer<Component> dragger;
 
 	float lastScaleFactor = 1.0f;
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(editorT);
+
+	JUCE_DECLARE_WEAK_REFERENCEABLE(editorT);
 };
 
 

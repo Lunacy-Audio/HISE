@@ -309,10 +309,12 @@ void PresetBrowserLookAndFeelMethods::drawPresetBrowserButtonBackground(Graphics
 	}
 }
 
-void PresetBrowserLookAndFeelMethods::drawListItem(Graphics& g, int columnIndex, int, const String& itemName, Rectangle<int> position, bool rowIsSelected, bool deleteMode)
+void PresetBrowserLookAndFeelMethods::drawListItem(Graphics& g, int columnIndex, int, const String& itemName, Rectangle<int> position, bool rowIsSelected, bool deleteMode, bool hover)
 {
-	g.setGradientFill(ColourGradient(highlightColour.withAlpha(0.3f), 0.0f, 0.0f,
-		highlightColour.withAlpha(0.2f), 0.0f, (float)position.getHeight(), false));
+	float alphaBoost = hover ? 0.1f : 0.0f;
+
+	g.setGradientFill(ColourGradient(highlightColour.withAlpha(0.3f + alphaBoost), 0.0f, 0.0f,
+		highlightColour.withAlpha(0.2f + alphaBoost), 0.0f, (float)position.getHeight(), false));
 
 	if (rowIsSelected)
 		g.fillRect(position);
@@ -676,12 +678,10 @@ expHandler(mc->getExpansionHandler())
 	presetColumn->tagCacheNeedsRebuilding();
 	presetColumn->setAllowRecursiveFileSearch(true);
 
-	bankColumn->setNewRootDirectory(rootFile);
-
 	addAndMakeVisible(saveButton = new TextButton("Save Preset"));
 	saveButton->addListener(this);
 
-    addAndMakeVisible(manageButton = new TextButton(HiseDeviceSimulator::isMobileDevice() ? "Sync" : "More"));
+  addAndMakeVisible(manageButton = new TextButton(HiseDeviceSimulator::isMobileDevice() ? "Sync" : "More"));
 	manageButton->addListener(this);
 
 	setSize(width, height);
@@ -693,6 +693,8 @@ expHandler(mc->getExpansionHandler())
 		rootFile = e->getSubDirectory(FileHandlerBase::UserPresets);
 		currentlySelectedExpansion = e;
 	}
+	
+	bankColumn->setNewRootDirectory(rootFile);
 
 	rebuildAllPresets();
 
@@ -765,6 +767,47 @@ hise::PresetBrowserLookAndFeelMethods& PresetBrowser::getPresetBrowserLookAndFee
 		return *o;
 
 	return laf;
+}
+
+Point<int> PresetBrowser::getMouseHoverInformation() const
+{
+	Point<int> p(-9000, -9000);
+
+	auto mp = getMouseXYRelative();
+
+
+
+	auto setIfHover = [&](PresetBrowserColumn* c)
+	{
+		if (c == nullptr)
+			return false;
+
+		if (!c->isVisible())
+			return false;
+
+		if(c->getBoundsInParent().contains(mp))
+		{
+			auto lp = c->getLocalPoint(this, mp);
+			p = { c->getColumnIndex(), c->getIndexForPosition(lp) };
+			return true;
+		};
+
+		return false;
+	};
+
+	if (setIfHover(expansionColumn))
+		return p;
+
+	if (setIfHover(bankColumn))
+		return p;
+
+	if (setIfHover(categoryColumn))
+		return p;
+
+	if (setIfHover(presetColumn))
+		return p;
+	
+	return p;
 }
 
 void PresetBrowser::presetChanged(const File& newPreset)
@@ -863,6 +906,9 @@ void PresetBrowser::resized()
 
 	const bool showCloseButton = closeButton->isVisible();
 
+	if (searchBarBounds.size() == 4)
+		searchBar->setBounds((int)searchBarBounds[0], (int)searchBarBounds[1], (int)searchBarBounds[2], (int)searchBarBounds[3]);
+		
 	if (showCloseButton)
 	{
 
@@ -877,7 +923,9 @@ void PresetBrowser::resized()
 
 		saveButton->setBounds(ar.removeFromRight(100));
 		manageButton->setBounds(ar.removeFromLeft(100));
-		searchBar->setBounds(ar);
+		
+		if (searchBarBounds.size() != 4)
+			searchBar->setBounds(ar);
 
 		y += 40;
 
@@ -887,19 +935,34 @@ void PresetBrowser::resized()
 		Rectangle<int> ar(3, 3 + 3, getWidth() - 6, 30);
 
 
+		bool somethingInTopRow = false;
+
 		saveButton->setBounds(ar.removeFromRight(100));
 		manageButton->setBounds(ar.removeFromLeft(100));
-
 		favoriteButton->setVisible(showFavoritesButton);
 
-		if(showFavoritesButton)
-			favoriteButton->setBounds(ar.removeFromLeft(30));
+		
 
+		if (showFavoritesButton)
+		{
+			if (favoriteButtonBounds.size() != 4)
+				favoriteButton->setBounds(ar.removeFromLeft(30));
+			else 
+				favoriteButton->setBounds((int)favoriteButtonBounds[0], (int)favoriteButtonBounds[1], (int)favoriteButtonBounds[2], (int)favoriteButtonBounds[3]);
+		}
 
 		ar.removeFromLeft(10);
 
-		searchBar->setBounds(ar);
-		y += 40;
+		if (searchBarBounds.size() != 4)
+			searchBar->setBounds(ar);
+
+		somethingInTopRow |= saveButton->isVisible();
+		somethingInTopRow |= manageButton->isVisible();
+		somethingInTopRow |= showFavoritesButton;
+		somethingInTopRow |= searchBar->getHeight() > 0;
+
+		if(somethingInTopRow)
+			y += 40;
 	}
 
 	int x = 3;
@@ -1109,15 +1172,57 @@ void PresetBrowser::setShowNotesLabel(bool shouldBeShown)
 	}
 }
 
-void PresetBrowser::setShowEditButtons(bool showEditButtons)
+void PresetBrowser::setShowEditButtons(int buttonId, bool show)
+{	
+	if (expansionColumn != nullptr)
+		expansionColumn->setShowButtons(buttonId, show);
+
+	bankColumn->setShowButtons(buttonId, show);
+	categoryColumn->setShowButtons(buttonId, show);
+	presetColumn->setShowButtons(buttonId, show);
+	
+	if (buttonId == 0)
+		tagList->setShowEditButton(show);
+}
+
+void PresetBrowser::setButtonsInsideBorder(bool inside)
 {
 	if (expansionColumn != nullptr)
-		expansionColumn->setShowButtons(showEditButtons);
+		expansionColumn->setButtonsInsideBorder(inside);
 
-	bankColumn->setShowButtons(showEditButtons);
-	categoryColumn->setShowButtons(showEditButtons);
-	presetColumn->setShowButtons(showEditButtons);
-	tagList->setShowEditButton(showEditButtons);
+	bankColumn->setButtonsInsideBorder(inside);
+	categoryColumn->setButtonsInsideBorder(inside);
+	presetColumn->setButtonsInsideBorder(inside);
+}
+
+void PresetBrowser::setEditButtonOffset(int offset)
+{
+	if (expansionColumn != nullptr)
+		expansionColumn->setEditButtonOffset(offset);
+
+	bankColumn->setEditButtonOffset(offset);
+	categoryColumn->setEditButtonOffset(offset);
+	presetColumn->setEditButtonOffset(offset);
+}
+
+void PresetBrowser::setListAreaOffset(Array<var> offset)
+{	
+	if (expansionColumn != nullptr)
+		expansionColumn->setListAreaOffset(offset);
+
+	bankColumn->setListAreaOffset(offset);
+	categoryColumn->setListAreaOffset(offset);
+	presetColumn->setListAreaOffset(offset);
+}
+
+void PresetBrowser::setColumnRowPadding(Array<var> padding)
+{	
+	if (expansionColumn != nullptr)
+		expansionColumn->setRowPadding((double)padding[0]);
+
+	bankColumn->setRowPadding((double)padding[1]);
+	categoryColumn->setRowPadding((double)padding[2]);
+	presetColumn->setRowPadding((double)padding[3]);
 }
 
 void PresetBrowser::setShowCloseButton(bool shouldShowButton)
@@ -1167,6 +1272,9 @@ void PresetBrowser::showLoadedPreset()
 		File category = f.getParentDirectory();
 		File bank = category.getParentDirectory();
 
+		if (numColumns == 2)
+			bank = category;
+
 		bankColumn->setSelectedFile(bank, dontSendNotification);
 		categoryColumn->setNewRootDirectory(bank);
 		categoryColumn->setSelectedFile(category, dontSendNotification);
@@ -1206,12 +1314,28 @@ void PresetBrowser::setOptions(const Options& newOptions)
 	setNumColumns(newOptions.numColumns);
 	columnWidthRatios.clear();
 	columnWidthRatios.addArray(newOptions.columnWidthRatios);
+	
+	searchBarBounds.clear();
+	searchBarBounds.addArray(newOptions.searchBarBounds);
 
+	favoriteButtonBounds.clear();
+	favoriteButtonBounds.addArray(newOptions.favoriteButtonBounds);
+	
 	setShowButton(0, newOptions.showFolderButton);
 	setShowButton(1, newOptions.showSaveButtons);
-	setShowEditButtons(newOptions.showEditButtons);
+	setShowEditButtons(0, newOptions.showEditButtons);
+	setShowEditButtons(1, newOptions.showAddButton);
+	setShowEditButtons(2, newOptions.showRenameButton);
+	setShowEditButtons(3, newOptions.showDeleteButton);
+	setButtonsInsideBorder(newOptions.buttonsInsideBorder);
+	setEditButtonOffset(newOptions.editButtonOffset);
+	setListAreaOffset(newOptions.listAreaOffset);
+	setColumnRowPadding(newOptions.columnRowPadding);
 	setShowNotesLabel(newOptions.showNotesLabel);
 	setShowFavorites(newOptions.showFavoriteIcons);
+
+	if (expansionColumn != nullptr)
+		expansionColumn->update();
 
 	searchBar->update();
 	bankColumn->update();
@@ -1258,7 +1382,9 @@ void PresetBrowser::selectionChanged(int columnIndex, int /*rowIndex*/, const Fi
 		bankColumn->setModel(new PresetBrowserColumn::ColumnListModel(this, 0, this), rootFile);
 		bankColumn->setNewRootDirectory(rootFile);
 		categoryColumn->setModel(new PresetBrowserColumn::ColumnListModel(this, 1, this), rootFile);
-
+		categoryColumn->setNewRootDirectory(currentCategoryFile);
+		presetColumn->setNewRootDirectory(File());
+		
 		auto pc = new PresetBrowserColumn::ColumnListModel(this, 2, this);
 		pc->setDisplayDirectories(false);
 		presetColumn->setModel(pc, rootFile);

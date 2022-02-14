@@ -42,14 +42,7 @@ struct ScreenshotListener
 
 		CachedImageBuffer(Rectangle<int> sb) :
 			data(Image::RGB, sb.getWidth(), sb.getHeight(), true)
-		{
-
-		}
-
-		~CachedImageBuffer()
-		{
-			int x = 0;
-		}
+		{}
 
 		Image data;
 	};
@@ -104,17 +97,17 @@ namespace ScriptingObjects
 
 		enum class BlendMode
 		{
-			_GL_ZERO = GL_ZERO, //< (0, 0, 0, 0)
-			_GL_ONE = GL_ONE, //< (1, 1, 1, 1)
-			_GL_SRC_COLOR = GL_SRC_COLOR, //< (Rs / kR, Gs / kG, Bs / kB, As / kA)
-			_GL_ONE_MINUS_SRC_COLOR = GL_ONE_MINUS_SRC_COLOR, //< (1, 1, 1, 1) - (Rs / kR, Gs / kG, Bs / kB, As / kA)
-			_GL_DST_COLOR = GL_DST_COLOR, //< (Rd / kR, Gd / kG, Bd / kB, Ad / kA)
-			_GL_ONE_MINUS_DST_COLOR = GL_ONE_MINUS_DST_COLOR,  //< (1, 1, 1, 1) - (Rd / kR, Gd / kG, Bd / kB, Ad / kA)
-			_GL_SRC_ALPHA = GL_SRC_ALPHA, //< (As / kA, As / kA, As / kA, As / kA)
-			_GL_ONE_MINUS_SRC_ALPHA = GL_ONE_MINUS_SRC_ALPHA, //< (1, 1, 1, 1) - (As / kA, As / kA, As / kA, As / kA)
-			_GL_DST_ALPHA = GL_DST_ALPHA, //< (Ad / kA, Ad / kA, Ad / kA, Ad / kA)
-			_GL_ONE_MINUS_DST_ALPHA = GL_ONE_MINUS_DST_ALPHA, //< (1, 1, 1, 1) - (Ad / kA, Ad / kA, Ad / kA, Ad / kA)
-			_GL_SRC_ALPHA_SATURATE = GL_SRC_ALPHA_SATURATE,
+			_GL_ZERO = juce::gl::GL_ZERO, //< (0, 0, 0, 0)
+			_GL_ONE = juce::gl::GL_ONE, //< (1, 1, 1, 1)
+			_GL_SRC_COLOR = juce::gl::GL_SRC_COLOR, //< (Rs / kR, Gs / kG, Bs / kB, As / kA)
+			_GL_ONE_MINUS_SRC_COLOR = juce::gl::GL_ONE_MINUS_SRC_COLOR, //< (1, 1, 1, 1) - (Rs / kR, Gs / kG, Bs / kB, As / kA)
+			_GL_DST_COLOR = juce::gl::GL_DST_COLOR, //< (Rd / kR, Gd / kG, Bd / kB, Ad / kA)
+			_GL_ONE_MINUS_DST_COLOR = juce::gl::GL_ONE_MINUS_DST_COLOR,  //< (1, 1, 1, 1) - (Rd / kR, Gd / kG, Bd / kB, Ad / kA)
+			_GL_SRC_ALPHA = juce::gl::GL_SRC_ALPHA, //< (As / kA, As / kA, As / kA, As / kA)
+			_GL_ONE_MINUS_SRC_ALPHA = juce::gl::GL_ONE_MINUS_SRC_ALPHA, //< (1, 1, 1, 1) - (As / kA, As / kA, As / kA, As / kA)
+			_GL_DST_ALPHA = juce::gl::GL_DST_ALPHA, //< (Ad / kA, Ad / kA, Ad / kA, Ad / kA)
+			_GL_ONE_MINUS_DST_ALPHA = juce::gl::GL_ONE_MINUS_DST_ALPHA, //< (1, 1, 1, 1) - (Ad / kA, Ad / kA, Ad / kA, Ad / kA)
+			_GL_SRC_ALPHA_SATURATE = juce::gl::GL_SRC_ALPHA_SATURATE,
 			numBlendModes = 11 // needs to be set manually...
 		};
 
@@ -144,6 +137,9 @@ namespace ScriptingObjects
 
 		/** If this is enabled, the shader will create a buffered image of the last rendering result. */
 		void setEnableCachedBuffer(bool shouldEnableBuffer);
+
+		/** Adds a preprocessor definition before the code and recompiles the shader (Empty string removes all preprocessors). */
+		void setPreprocessor(String preprocessorString, var value);
 
 		// ===========================================================================
 
@@ -245,6 +241,8 @@ namespace ScriptingObjects
 
 	private:
 
+		NamedValueSet preprocessors;
+
 		bool screenshotPending = false;
 		static bool renderingScreenShot;
 
@@ -312,6 +310,9 @@ namespace ScriptingObjects
 
 		/** Returns the area ([x, y, width, height]) that the path is occupying with the scale factor applied. */
 		var getBounds(var scaleFactor);
+
+		/** Creates a fillable path using the provided strokeData (with optional dot. */
+		var createStrokedPath(var strokeData, var dotData);
 
 		// ============================================================================================================
 
@@ -405,6 +406,9 @@ namespace ScriptingObjects
 
 		/** Draws a text with the given alignment (see the Label alignment property). */
 		void drawAlignedText(String text, var area, String alignment);
+		
+		/** Tries to draw a text string inside a given space. */
+		void drawFittedText(String text, var area, String alignment, int maxLines, float scale);
 
 		/** Sets the current gradient via an array [Colour1, x1, y1, Colour2, x2, y2] */
 		void setGradientFill(var gradientData);
@@ -492,6 +496,8 @@ namespace ScriptingObjects
 	{
 	public:
 
+		
+
 		struct Laf : public GlobalHiseLookAndFeel,
 			public PresetBrowserLookAndFeelMethods,
 			public TableEditor::LookAndFeelMethods,
@@ -508,7 +514,9 @@ namespace ScriptingObjects
 				ControlledObject(mc)
 			{}
 
-			ScriptedLookAndFeel* get()
+			virtual ~Laf() {};
+
+			virtual ScriptedLookAndFeel* get()
 			{
 				return dynamic_cast<ScriptedLookAndFeel*>(getMainController()->getCurrentScriptLookAndFeel());
 			}
@@ -564,9 +572,10 @@ namespace ScriptingObjects
 			void drawColumnBackground(Graphics& g, Rectangle<int> listArea, const String& emptyText) override;
 			void drawTag(Graphics& g, bool blinking, bool active, bool selected, const String& name, Rectangle<int> position) override;
 			void drawModalOverlay(Graphics& g, Rectangle<int> area, Rectangle<int> labelArea, const String& title, const String& command) override;
-			void drawListItem(Graphics& g, int columnIndex, int, const String& itemName, Rectangle<int> position, bool rowIsSelected, bool deleteMode) override;
+			void drawListItem(Graphics& g, int columnIndex, int, const String& itemName, Rectangle<int> position, bool rowIsSelected, bool deleteMode, bool hover) override;
 			void drawSearchBar(Graphics& g, Rectangle<int> area) override;
 
+			void drawTableBackground(Graphics& g, TableEditor& te, Rectangle<float> area, double rulerPosition) override;
 			void drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float lineThickness) override;
 			void drawTablePoint(Graphics& g, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged) override;
 			void drawTableRuler(Graphics& g, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition) override;
@@ -596,12 +605,22 @@ namespace ScriptingObjects
 
 			static bool addParentFloatingTile(Component& c, DynamicObject* obj);
 
+			static void setColourOrBlack(DynamicObject* obj, const Identifier& id, Component& c, int colourId);
+
 			JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Laf);
+		};
+
+		struct LocalLaf : public Laf
+		{
+			LocalLaf(ScriptedLookAndFeel* l);;
+			ScriptedLookAndFeel* get() override;
+			
+			WeakReference<ScriptedLookAndFeel> weakLaf;
 		};
 
 		struct Wrapper;
 
-		ScriptedLookAndFeel(ProcessorWithScriptingContent* sp);
+		ScriptedLookAndFeel(ProcessorWithScriptingContent* sp, bool isGlobal);
 
 		~ScriptedLookAndFeel();
 
@@ -620,7 +639,7 @@ namespace ScriptingObjects
 
 		// ========================================================================================
 
-		bool callWithGraphics(Graphics& g_, const Identifier& functionname, var argsObject);
+		bool callWithGraphics(Graphics& g_, const Identifier& functionname, var argsObject, Component* c);
 
 		var callDefinedFunction(const Identifier& name, var* args, int numArgs);
 
@@ -688,6 +707,7 @@ namespace ScriptingObjects
 			String prettyName;
 		};
 
+		const bool wasGlobal;
 		Array<NamedImage> loadedImages;
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptedLookAndFeel);

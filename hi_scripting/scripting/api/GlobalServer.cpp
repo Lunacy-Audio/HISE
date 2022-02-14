@@ -108,6 +108,10 @@ juce::URL GlobalServer::getWithParameters(String subURL, var parameters)
 		for (auto& p : d->getProperties())
 			url = url.withParameter(p.name.toString(), p.value.toString());
 	}
+    else if (parameters.isString())
+    {
+        url = url.withPOSTData(parameters.toString());
+    }
 
 	return url;
 }
@@ -219,14 +223,11 @@ void GlobalServer::WebThread::run()
 
 					auto r = JSON::parse(response, args[1]);
 
-					if (!r.wasOk())
+					if (!r.wasOk() || response.isEmpty())
 					{
-						args[0] = 500;
-						args[1] = var(new DynamicObject());
-						args[1].getDynamicObject()->setProperty("error", r.getErrorMessage());
+						args[1] = response;
+						job->responseObj = args[1];
 					}
-
-					job->responseObj = args[1];
 
 					job->f.call(args);
 

@@ -33,12 +33,13 @@
 namespace hise { using namespace juce;
 
 GlobalModulator::GlobalModulator(MainController *mc):
-	LookupTableProcessor(mc, 1, false),
+	LookupTableProcessor(mc, 1),
 	originalModulator(nullptr),
 	connectedContainer(nullptr),
 	useTable(false)
 {
-	table = getMidiTable();
+    referenceShared(ExternalData::DataType::Table, 0);
+	
 
 	ModulatorSynthChain *chain = mc->getMainSynthChain();
 
@@ -108,10 +109,32 @@ const GlobalModulatorContainer * GlobalModulator::getConnectedContainer() const
 	return dynamic_cast<const GlobalModulatorContainer*>(connectedContainer.get());
 }
 
+void GlobalModulator::connectIfPending()
+{
+    if(pendingConnection.isNotEmpty())
+    {
+        auto ok = connectToGlobalModulator(pendingConnection);
+        
+        if(ok)
+            pendingConnection = {};
+    }
+}
+
 void GlobalModulator::processorChanged(EventType /*t*/, Processor* /*p*/)
 {
 	// Just send a regular update message to update the GUI
 	dynamic_cast<Processor*>(this)->sendChangeMessage();
+}
+
+bool isParent(Processor* p, Processor* possibleParent)
+{
+    if(p == nullptr)
+        return false;
+    
+    if(p == possibleParent)
+        return true;
+    
+    return isParent(p->getParentProcessor(false), possibleParent);
 }
 
 StringArray GlobalModulator::getListOfAllModulatorsWithType()
@@ -120,13 +143,29 @@ StringArray GlobalModulator::getListOfAllModulatorsWithType()
 
 	ModulatorSynthChain *rootChain = dynamic_cast<Modulator*>(this)->getMainController()->getMainSynthChain();
 
-	Processor::Iterator<Processor> iter(rootChain, false);
+	Processor::Iterator<Processor> iter(rootChain, true);
 
 	Processor *p;
 
+    auto masterEffectChain = rootChain->getChildProcessor(ModulatorSynth::EffectChain);
+    auto masterGainChain = rootChain->getChildProcessor(ModulatorSynth::GainModulation);
+    
+    
 	while ((p = iter.getNextProcessor()) != nullptr)
 	{
-		if (p == dynamic_cast<Processor*>(this)) return list; // Don't search beyond the GlobalModulator itself...
+        DBG(p->getId());
+        
+        // Don't search beyond the GlobalModulator itself...
+		if (p == dynamic_cast<Processor*>(this))
+        {
+            // But only if it's not in the root FX / gain mod chain
+            auto isParentOfRootFX = isParent(p, masterEffectChain);
+            auto isParentOfRootGainMod = isParent(p, masterGainChain);
+            
+            if(!isParentOfRootFX && !isParentOfRootGainMod)
+                return list;
+        }
+            
 
 		GlobalModulatorContainer *c = dynamic_cast<GlobalModulatorContainer*>(p);
 
@@ -156,7 +195,7 @@ StringArray GlobalModulator::getListOfAllModulatorsWithType()
 	return list;
 }
 
-void GlobalModulator::connectToGlobalModulator(const String &itemEntry)
+bool GlobalModulator::connectToGlobalModulator(const String &itemEntry)
 {
 	if (itemEntry.isNotEmpty())
 	{
@@ -186,8 +225,11 @@ void GlobalModulator::connectToGlobalModulator(const String &itemEntry)
 			}
 		}
 
-		jassert(isConnected());
+        // return false if the connection can't be established (yet)
+        return isConnected();
 	}
+    
+    return true;
 }
 
 String GlobalModulator::getItemEntryFor(const GlobalModulatorContainer *c, const Processor *p)
@@ -215,7 +257,12 @@ void GlobalModulator::loadFromValueTree(const ValueTree &v)
 
 	loadTable(table, "TableData");
 
-	connectToGlobalModulator(v.getProperty("Connection"));
+    auto id = v.getProperty("Connection").toString();
+    
+	if(!connectToGlobalModulator(id))
+        pendingConnection = id;
+    else
+        pendingConnection = {};
 }
 
 GlobalVoiceStartModulator::GlobalVoiceStartModulator(MainController *mc, const String &id, int numVoices, Modulation::Mode m) :
@@ -288,8 +335,7 @@ float GlobalVoiceStartModulator::calculateVoiceStartValue(const HiseEvent &m)
 
 		if (useTable)
 		{
-			const int index = (int)((float)globalValue * 127.0f);
-			globalValue = table->get(index, sendNotificationAsync);
+			globalValue = table->getInterpolatedValue((double)globalValue, sendNotificationAsync);
 		}
 
 		return inverted ? 1.0f - globalValue : globalValue;
@@ -366,8 +412,7 @@ float GlobalStaticTimeVariantModulator::calculateVoiceStartValue(const HiseEvent
 
 		if (useTable)
 		{
-			const int index = (int)((float)globalValue * 127.0f);
-			globalValue = table->get(index, sendNotificationAsync);
+			globalValue = table->getInterpolatedValue((double)globalValue, sendNotificationAsync);
 		}
 
 		return inverted ? 1.0f - globalValue : globalValue;
@@ -451,9 +496,7 @@ void GlobalTimeVariantModulator::calculateBlock(int startSample, int numSamples)
                 
                 while (--numSamples >= 0)
                 {
-                    const int tableIndex = (int)(data[i++] * 127.0f);
-                    
-                    internalBuffer.setSample(0, startSample++, table->get(tableIndex, dontSendNotification));
+                    internalBuffer.setSample(0, startSample++, table->getInterpolatedValue(data[i++], dontSendNotification));
                 }
                 
                 invertBuffer(startSample, numSamples);

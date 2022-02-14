@@ -232,6 +232,9 @@ public:
 		/** Converts milli seconds to samples */
 		double getSamplesForMilliSeconds(double milliSeconds) const;;
 
+		/** Returns the tempo name for the given index */
+		String getTempoName(int tempoIndex);
+
 		/** Converts samples to quarter beats using the current tempo. */
 		double getQuarterBeatsForSamples(double samples);
 
@@ -312,12 +315,18 @@ public:
 		/** Creates a reference to the DSP network of another script processor. */
 		var getDspNetworkReference(String processorId, String id);
 
+		/** Returns a reference to the global routing manager. */
+		var getGlobalRoutingManager();
+
 		/** Creates a background task that can execute heavyweight functions. */
 		var createBackgroundTask(String name);
 
         /** Creates a fix object factory using the data layout. */
         var createFixObjectFactory(var layoutDescription);
         
+		/** Creates a reference to the script license manager. */
+		var createLicenseUnlocker();
+
 		/** Sends an allNotesOff message at the next buffer. */
 		void allNotesOff();
 
@@ -348,8 +357,14 @@ public:
 		/** Returns the millisecond value for the supplied tempo (HINT: Use "TempoSync" mode from Slider!) */
 		double getMilliSecondsForTempo(int tempoIndex) const;;
 
-    /** launches the given URL in the system's web browser. */
-    void openWebsite(String url);
+		/** launches the given URL in the system's web browser. */
+		void openWebsite(String url);
+
+		/** Copies the given text to the clipboard. */
+		void copyToClipboard(String textToCopy);
+
+		/** Returns the clipboard content. */
+		String getClipboardContent();
 
 		/** Creates a list of all available expansions. */
 		var getExpansionList();
@@ -455,6 +470,12 @@ public:
 
 		/** Returns true if running as VST / AU / AAX plugin. */
 		bool isPlugin() const;
+
+		/** Returns true if the project is running inside HISE. You can use this during development to simulate different environments. */
+		bool isHISE();
+
+		/** Forces a full (asynchronous) reload of all samples (eg. after the sample directory has changed). */
+		void reloadAllSamples();
 
 		/** Returns the preload progress from 0.0 to 1.0. Use this to display some kind of loading icon. */
 		double getPreloadProgress();
@@ -654,6 +675,9 @@ public:
 		/** Returns enabled state of midi channel (0 = All channels). */
 		bool isMidiChannelEnabled(int index);
 
+		/** Returns an array of the form [width, height]. */
+		var getUserDesktopSize();
+
 		// ============================================================================================================
 
 	private:
@@ -802,6 +826,9 @@ public:
         
         /** Returns the ID of the attribute with the given index. */
 		String getAttributeId(int index);
+
+		/** Returns the index of the attribute with the given ID. */
+		int getAttributeIndex(String id);
 
         /** Sets a attribute to the given value. */
         void setAttribute(int index, var newValue);
@@ -1144,6 +1171,9 @@ public:
 		/** Throws an error message if the value is not an object or array. */
 		void assertIsObjectOrArray(var value);
 
+		/** Throws an error message if the value is a string. */
+		void assertNoString(var value);
+
 		/** Throws an error message if the value is not a legal number (eg. string or array or infinity or NaN). */
 		void assertLegalNumber(var value);
 
@@ -1466,6 +1496,12 @@ public:
 
 		/** Returns a unique machine ID that can be used to identify the computer. */
 		String getSystemId();
+		
+		/**  Convert a file size in bytes to a neat string description. */
+		String descriptionOfSizeInBytes(int bytes);
+
+		/** Returns the number of free bytes on the volume of a given folder. */
+		int64 getBytesFreeOnVolume(var folder);
 
 		// ========================================================= End of API calls
 

@@ -53,6 +53,8 @@ template <class P, typename... Ts> using oversample8x = wrap::oversample<8,   co
 template <class P, typename... Ts> using oversample16x = wrap::oversample<16, container::chain<P, Ts...>, init::oversample>;
 template <class P, typename... Ts> using modchain = wrap::control_rate<chain<P, Ts...>>;
 
+template <class P, typename... Ts> using oversample = wrap::oversample<-1,   container::chain<P, Ts...>, init::oversample>;
+
 }
 #endif
 
@@ -509,8 +511,9 @@ template <class ShaperType> struct snex_shaper
 	template <int P> static void setParameterStatic(void* obj, double v)
 	{
 		auto t = static_cast<snex_shaper<ShaperType>*>(obj);
-		t->shaper.setParameter<P>(v);
+		t->shaper.template setParameter<P>(v);
 	}
+    PARAMETER_MEMBER_FUNCTION;
 
 	HISE_EMPTY_CREATE_PARAM;
 };
@@ -869,12 +872,15 @@ public:
 	void setGate(double v)
 	{
 		auto shouldBeOn = (int)(v > 0.5);
-		v = (double)shouldBeOn;
 
 		for (auto& d : voiceData)
 		{
+			auto shouldReset = shouldBeOn && !d.enabled;
+
+			if (shouldReset)
+				d.uptime = 0.0;
+
 			d.enabled = shouldBeOn;
-			d.uptime *= v;
 		}
 	}
 
@@ -938,6 +944,342 @@ public:
 
 template class oscillator<1>;
 template class oscillator<NUM_POLYPHONIC_VOICES>;
+
+template <int NV> struct file_player : public data::base,
+                                       public polyphonic_base
+{
+    static constexpr int NumVoices = NV;
+
+    SET_HISE_NODE_ID("file_player");
+    SN_GET_SELF_AS_OBJECT(file_player);
+
+    enum class PlaybackModes
+    {
+        Static,
+        SignalInput,
+        MidiFreq
+    };
+
+    enum class Parameters
+    {
+        PlaybackMode,
+        Gate,
+        RootFrequency,
+        FreqRatio
+    };
+
+    DEFINE_PARAMETERS
+    {
+        DEF_PARAMETER(PlaybackMode, file_player);
+        DEF_PARAMETER(Gate, file_player);
+        DEF_PARAMETER(RootFrequency, file_player);
+        DEF_PARAMETER(FreqRatio, file_player);
+    }
+    PARAMETER_MEMBER_FUNCTION;
+
+    static constexpr bool isPolyphonic() { return NumVoices > 1; }
+
+    HISE_EMPTY_INITIALISE;
+    HISE_EMPTY_MOD;
+    SN_DESCRIPTION("A simple file player with multiple playback modes");
+
+    file_player(): polyphonic_base(getStaticId()) {};
+    
+    void prepare(PrepareSpecs specs)
+    {
+        lastSpecs = specs;
+
+        auto fileSampleRate = this->externalData.sampleRate;
+
+        if (lastSpecs.sampleRate > 0.0)
+            globalRatio = fileSampleRate / lastSpecs.sampleRate;
+
+        state.prepare(specs);
+        currentXYZSample.prepare(specs);
+
+
+        reset();
+    }
+
+    void reset()
+    {
+        for (auto& s : state)
+        {
+            if (mode != PlaybackModes::MidiFreq)
+            {
+                auto& cd = *currentXYZSample.begin();
+
+                HiseEvent e(HiseEvent::Type::NoteOn, 64, 1, 1);
+
+                if (this->externalData.getStereoSample(cd, e))
+                    s.uptimeDelta = cd.getPitchFactor();
+
+                
+
+                s.uptime = 0.0;
+            }
+        }
+    }
+
+    void setExternalData(const snex::ExternalData& d, int index) override
+    {
+        base::setExternalData(d, index);
+
+        if(lastSpecs)
+            prepare(lastSpecs);
+
+        for (OscData& s : state)
+        {
+            s.uptime = 0.0;
+            s.uptimeDelta = 0.0;
+        }
+
+        reset();
+    }
+
+    PolyData<StereoSample, NUM_POLYPHONIC_VOICES> currentXYZSample;
+
+    StereoSample& getCurrentAudioSample()
+    {
+        return currentXYZSample.get();
+    }
+
+    template <int C> void processFix(ProcessData<C>& data)
+    {
+        if (auto dt = DataTryReadLock(this))
+        {
+            auto& s = getCurrentAudioSample();
+
+            if (!externalData.isEmpty() && !s.data[0].isEmpty())
+            {
+                auto fd = data.toFrameData();
+
+                
+                auto maxIndex = (double)s.data[0].size();
+
+                if (mode == PlaybackModes::SignalInput)
+                {
+                    auto pos = jlimit(0.0, 1.0, (double)data[0][0]);
+                    externalData.setDisplayedValue(pos * maxIndex);
+
+                    while (fd.next())
+                        processWithSignalInput(fd.toSpan());
+                }
+                else
+                {
+
+                    using IndexType = index::unscaled<double, index::looped<0>>;
+
+                    IndexType i(state.get().uptime);
+                    i.setLoopRange(s.loopRange[0], s.loopRange[1]);
+                    auto uptime = i.getIndex(maxIndex, 0);
+                    externalData.setDisplayedValue(uptime);
+
+                    while (fd.next())
+                        processWithPitchRatio(fd.toSpan());
+                }
+            }
+            else if (mode == PlaybackModes::SignalInput)
+            {
+                for (auto& ch : data)
+                {
+                    auto b = data.toChannelData(ch);
+                        FloatVectorOperations::clear(b.begin(), b.size());
+                }
+            };
+        }
+    }
+
+    template <typename ProcessDataType> void process(ProcessDataType& data) noexcept
+    {
+        if constexpr (!ProcessDataType::hasCompileTimeSize())
+        {
+            if (data.getNumChannels() == 2)
+                processFix(data.template as<ProcessData<2>>());
+            if (data.getNumChannels() == 1)
+                processFix(data.template as<ProcessData<1>>());
+        }
+        else
+        {
+            processFix(data);
+        }
+    }
+
+    template <int C> void processWithSignalInput(span<float, C>& data)
+    {
+        using IndexType = index::normalised<float, index::clamped<0, true>>;
+        using InterpolatorType = index::lerp<IndexType>;
+
+        auto s = data[0];
+
+        InterpolatorType ip(s);
+
+        auto fd = getCurrentAudioSample()[ip];
+
+        for (int i = 0; i < data.size(); i++)
+            data[i] = fd[i];
+    }
+
+    template <int C> void processWithPitchRatio(span<float, C>& data)
+    {
+        using IndexType = index::unscaled<double, index::looped<0>>;
+        using InterpolatorType = index::lerp<IndexType>;
+
+        OscData& s = state.get();
+
+        if (s.uptimeDelta != 0)
+        {
+            auto uptime = s.tick();
+
+            auto& cs = getCurrentAudioSample();
+
+            InterpolatorType ip(uptime * globalRatio);
+            ip.setLoopRange(cs.loopRange[0], cs.loopRange[1]);
+
+            auto fd = cs[ip];
+
+            data += fd;
+        }
+    }
+
+    template <typename FrameDataType> void processFrame(FrameDataType& data) noexcept
+    {
+        if (auto dt = DataTryReadLock(this))
+        {
+            auto& cd = getCurrentAudioSample().data;
+            int numSamples = cd[0].size();
+
+            switch (mode)
+            {
+            case PlaybackModes::SignalInput:
+            {
+                if (numSamples == 0)
+                    data = 0.0f;
+                else
+                {
+                    if (frameUpdateCounter++ >= 1024)
+                    {
+                        frameUpdateCounter = 0;
+                        auto pos = jlimit(0.0, 1.0, (double)data[0]);
+                        externalData.setDisplayedValue(pos * (double)(numSamples));
+                    }
+
+                    processWithSignalInput(data);
+                }
+
+                break;
+            }
+            case PlaybackModes::Static:
+            case PlaybackModes::MidiFreq:
+            {
+                if (frameUpdateCounter++ >= 1024)
+                {
+                    frameUpdateCounter = 0;
+                    externalData.setDisplayedValue(hmath::fmod(state.get().uptime * globalRatio, (double)numSamples));
+                }
+
+                processWithPitchRatio(data);
+                break;
+            }
+            }
+        }
+    }
+
+    void handleHiseEvent(HiseEvent& e)
+    {
+        if (mode == PlaybackModes::MidiFreq)
+        {
+            auto& s = state.get();
+
+            if (e.isNoteOn())
+            {
+                auto& cd = getCurrentAudioSample();
+
+                if (this->externalData.getStereoSample(cd, e))
+                    s.uptimeDelta = cd.getPitchFactor();
+                else
+                    s.uptimeDelta = e.getFrequency() / rootFreq;
+
+                s.uptime = 0.0;
+            }
+        }
+    }
+
+    void setPlaybackMode(double v)
+    {
+        mode = (PlaybackModes)(int)v;
+
+        reset();
+    }
+
+    void setRootFrequency(double rv)
+    {
+        rootFreq = jlimit(20.0, 8000.0, rv);
+    }
+
+    void setFreqRatio(double fr)
+    {
+        for (OscData& s : state)
+            s.multiplier = fr;
+    }
+
+    void setGate(double v)
+    {
+        bool on = v > 0.5;
+
+        if (on)
+        {
+            for (OscData& s : state)
+            {
+                s.uptimeDelta = 1.0;
+                s.uptime = 0.0;
+            }
+        }
+        else
+        {
+            for (OscData& s : state)
+                s.uptimeDelta = 0.0;
+        }
+    }
+
+    void createParameters(ParameterDataList& d)
+    {
+        {
+            DEFINE_PARAMETERDATA(file_player, PlaybackMode);
+            p.setParameterValueNames({ "Static", "Signal in", "MIDI" });
+            d.add(p);
+        }
+        {
+            DEFINE_PARAMETERDATA(file_player, Gate);
+            p.setRange({ 0.0, 1.0, 1.0 });
+            p.setDefaultValue(1.0f);
+            d.add(p);
+        }
+        {
+            DEFINE_PARAMETERDATA(file_player, RootFrequency);
+            p.setRange({ 20.0, 2000.0 });
+            p.setDefaultValue(440.0);
+            d.add(p);
+        }
+        {
+            DEFINE_PARAMETERDATA(file_player, FreqRatio);
+            p.setRange({ 0.0, 2.0, 0.01 });
+            p.setDefaultValue(1.0f);
+            d.add(p);
+        }
+    }
+
+private:
+
+    double globalRatio = 1.0;
+    double rootFreq = 440.0;
+
+    int frameUpdateCounter = 0;
+    PlaybackModes mode;
+
+    PolyData<OscData, NumVoices> state;
+    PrepareSpecs lastSpecs;
+};
 
 class fm : public HiseDspBase
 {
@@ -1148,7 +1490,7 @@ DEFINE_EXTERN_NODE_TEMPLATE(gain, gain_poly, gain_impl);
 
 
 
-template <int NV> class smoother_impl : public HiseDspBase
+template <int NV> class smoother: public mothernode
 {
 public:
 
@@ -1160,29 +1502,31 @@ public:
 
 	DEFINE_PARAMETERS
 	{
-		DEF_PARAMETER(SmoothingTime, smoother_impl);
-		DEF_PARAMETER(DefaultValue, smoother_impl);
+		DEF_PARAMETER(SmoothingTime, smoother);
+		DEF_PARAMETER(DefaultValue, smoother);
 	}
+	PARAMETER_MEMBER_FUNCTION;
 
 	static constexpr int NumVoices = NV;
 
 	SET_HISE_POLY_NODE_ID("smoother");
-	SN_GET_SELF_AS_OBJECT(smoother_impl);
+	SN_GET_SELF_AS_OBJECT(smoother);
 	SN_DESCRIPTION("Smoothes the input signal using a low pass filter");
 
-	smoother_impl();
+	smoother() {};
 
 	HISE_EMPTY_INITIALISE;
+	HISE_EMPTY_MOD;
     
-	void createParameters(ParameterDataList& data) override
+	void createParameters(ParameterDataList& data)
 	{
 		{
-			DEFINE_PARAMETERDATA(smoother_impl, DefaultValue);
+			DEFINE_PARAMETERDATA(smoother, DefaultValue);
 			p.setDefaultValue(0.0);
 			data.add(std::move(p));
 		}
 		{
-			DEFINE_PARAMETERDATA(smoother_impl, SmoothingTime);
+			DEFINE_PARAMETERDATA(smoother, SmoothingTime);
 			p.setRange({ 0.0, 2000.0, 0.1 });
 			p.setSkewForCentre(100.0);
 			p.setDefaultValue(100.0);
@@ -1192,12 +1536,11 @@ public:
 
 	void prepare(PrepareSpecs ps) 
 	{
-		modValue.prepare(ps);
-		smoother.prepare(ps);
+		smoothers.prepare(ps);
 		auto sr = ps.sampleRate;
 		auto sm = smoothingTimeMs;
 
-		for (auto& s : smoother)
+		for (auto& s : smoothers)
 		{
 			s.prepareToPlay(sr);
 			s.setSmoothingTime((float)sm);
@@ -1208,25 +1551,18 @@ public:
 	{
 		auto d = defaultValue;
 
-		for (auto& s : smoother)
+		for (auto& s : smoothers)
 			s.resetToValue(d, 0.0);
 	}
 
 	template <typename FrameDataType> void processFrame(FrameDataType& data)
 	{
-		data[0] = smoother.get().smooth(data[0]);
-		modValue.get().setModValue(smoother.get().getDefaultValue());
+		data[0] = smoothers.get().smooth(data[0]);
 	}
 
 	template <typename ProcessDataType> void process(ProcessDataType& data)
 	{
-		smoother.get().smoothBuffer(data[0].data, data.getNumSamples());
-		modValue.get().setModValue(smoother.get().getDefaultValue());
-	}
-
-	bool handleModulation(double& value)
-	{
-		return modValue.get().getChangedValue(value);
+		smoothers.get().smoothBuffer(data[0].data, data.getNumSamples());
 	}
 
 	void handleHiseEvent(HiseEvent& e)
@@ -1239,7 +1575,7 @@ public:
 	{
 		smoothingTimeMs = newSmoothingTime;
 
-		for (auto& s : smoother)
+		for (auto& s : smoothers)
 			s.setSmoothingTime((float)newSmoothingTime);
 	}
 
@@ -1249,17 +1585,14 @@ public:
 
 		auto d = defaultValue; auto sm = smoothingTimeMs;
 
-		for (auto& s : smoother)
+		for (auto& s : smoothers)
 			s.resetToValue((float)d, (float)sm);
 	}
 
 	double smoothingTimeMs = 100.0;
 	float defaultValue = 0.0f;
-	PolyData<hise::Smoother, NumVoices> smoother;
-	PolyData<ModValue, NumVoices> modValue;
+	PolyData<hise::Smoother, NumVoices> smoothers;
 };
-
-DEFINE_EXTERN_NODE_TEMPLATE(smoother, smoother_poly, smoother_impl);
 
 
 template <typename T> struct snex_osc_base: public mothernode

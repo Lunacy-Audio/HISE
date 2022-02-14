@@ -170,6 +170,7 @@ public:
      
 		virtual bool shouldClosePath() const { return true; }
 
+		virtual void drawTableBackground(Graphics& g, TableEditor& te, Rectangle<float> area, double rulerPosition);
 		virtual void drawTablePath(Graphics& g, TableEditor& te, Path& p, Rectangle<float> area, float lineThickness);
 		virtual void drawTablePoint(Graphics& g, TableEditor& te, Rectangle<float> tablePoint, bool isEdge, bool isHover, bool isDragged);
 		virtual void drawTableRuler(Graphics& g, TableEditor& te, Rectangle<float> area, float lineThickness, double rulerPosition);
@@ -530,13 +531,15 @@ private:
 
 		void paint(Graphics &g);
 		
+		double getValue() {return value;}
+		
 		void setIndex(float newIndex)
 		{
 			if (newIndex != value)
 			{
 				value = newIndex;
 
-				repaint();
+				SafeAsyncCall::repaint(this);
 			}
 		};
 
@@ -781,21 +784,7 @@ private:
 		for(int i = 0; i < drag_points.size(); i++)	newPoints.add(drag_points[i]->getGraphPoint());
 
 		if(editedTable.get() != nullptr) 
-			editedTable->setGraphPoints(newPoints, drag_points.size());
-
-		if(refreshLookUpTable)
-		{
-			if(editedTable.get() != nullptr) 
-				editedTable->fillLookUpTable();
-		}
-
-		for (auto l : editListeners)
-		{
-			if (l.get() != nullptr)
-			{
-				l->tableUpdated();
-			}
-		}
+			editedTable->setGraphPoints(newPoints, drag_points.size(), refreshLookUpTable);
 	};
 
 	int snapXValueToGrid(int x) const;
@@ -813,7 +802,7 @@ private:
 
 	WeakReference<Table> editedTable;
 
-	MidiTable dummyTable;
+	SampleLookupTable dummyTable;
 
 	float lastRightDragValue = 0.0f;
 	
@@ -900,8 +889,10 @@ private:
 	Array<float> snapValues;
 
     //==============================================================================
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (TableEditor)
-		void showTouchOverlay();
+	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(TableEditor)
+	JUCE_DECLARE_WEAK_REFERENCEABLE(TableEditor);
+
+	void showTouchOverlay();
 
 	void updateTouchOverlayPosition();
 

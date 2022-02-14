@@ -229,7 +229,7 @@ void OnlineUnlockStatus::load()
     MemoryBlock mb;
     mb.fromBase64Encoding (getState());
 
-    if (mb.getSize() > 0)
+    if (! mb.isEmpty())
         status = ValueTree::readFromGZIPData (mb.getData(), mb.getSize());
     else
         status = ValueTree (stateTagName);
@@ -280,6 +280,8 @@ char OnlineUnlockStatus::MachineIDUtilities::getPlatformPrefix()
     return 'W';
    #elif JUCE_LINUX
     return 'L';
+   #elif JUCE_BSD
+    return 'B';
    #elif JUCE_IOS
     return 'I';
    #elif JUCE_ANDROID
@@ -312,14 +314,24 @@ void OnlineUnlockStatus::MachineIDUtilities::addMACAddressesToList (StringArray&
         ids.add (getEncodedIDString (address.toString()));
 }
 
+#ifndef JUCE_CREATE_DUMMY_MACHINE_IDS
+#define JUCE_CREATE_DUMMY_MACHINE_IDS 0
+#endif
+
 StringArray OnlineUnlockStatus::MachineIDUtilities::getLocalMachineIDs()
 {
+#if JUCE_CREATE_DUMMY_MACHINE_IDS
+	StringArray sa;
+	sa.add("DUMMYID1234");
+	return sa;
+#else
     auto identifiers = SystemStats::getDeviceIdentifiers();
 
     for (auto& identifier : identifiers)
         identifier = getEncodedIDString (identifier);
 
     return identifiers;
+#endif
 }
 
 StringArray OnlineUnlockStatus::getLocalMachineIDs()
@@ -378,8 +390,8 @@ bool OnlineUnlockStatus::applyKeyFile (String keyFileContent)
 
 static bool canConnectToWebsite (const URL& url)
 {
-    std::unique_ptr<InputStream> in (url.createInputStream (false, nullptr, nullptr, String(), 2000, nullptr));
-    return in != nullptr;
+    return url.createInputStream (URL::InputStreamOptions (URL::ParameterHandling::inAddress)
+                                        .withConnectionTimeoutMs (2000)) != nullptr;
 }
 
 static bool areMajorWebsitesAvailable()

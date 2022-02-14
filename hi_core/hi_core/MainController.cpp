@@ -233,6 +233,8 @@ void MainController::clearPreset()
 		mc->getScriptComponentEditBroadcaster()->getUndoManager().clearUndoHistory();
 		mc->getControlUndoManager()->clearUndoHistory();
 
+		mc->setGlobalRoutingManager(nullptr);
+
 		BACKEND_ONLY(mc->getJavascriptThreadPool().getGlobalServer()->setInitialised());
 		mc->getMainSynthChain()->reset();
 		mc->globalVariableObject->clear();
@@ -318,6 +320,13 @@ void MainController::loadPresetInternal(const ValueTree& v)
 			skipCompilingAtPresetLoad = true;
 			getSampleManager().setCurrentPreloadMessage("Building modules...");
 			synthChain->restoreFromValueTree(v);
+            
+            Processor::Iterator<GlobalModulator> gi(synthChain, false);
+            
+            while(auto m = gi.getNextProcessor())
+                m->connectIfPending();
+            
+            
 			skipCompilingAtPresetLoad = false;
 
 			getSampleManager().setCurrentPreloadMessage("Compiling scripts...");
@@ -983,8 +992,6 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 		if (numToPlay > 0)
 		{
-            int numChannels = previewBuffer.getNumChannels();
-            
             for(int i = 0; i < multiChannelBuffer.getNumChannels(); i++)
             {
                 if(isPositiveAndBelow(i, previewBuffer.getNumChannels()))
@@ -1727,28 +1734,6 @@ void MainController::SampleManager::handleNonRealtimeState()
 			nrt->nonRealtimeModeChanged(isNonRealtime());
 
 		internalsSetToNonRealtime = isNonRealtime();
-	}
-}
-
-void MainController::KillStateHandler::callLater(const std::function<void()>& f)
-{
-	auto t = KillStateHandler::getCurrentThread();
-
-	if (t == SampleLoadingThread)
-	{
-		mc->getSampleManager().addDeferredFunction(mc->getMainSynthChain(), [f](Processor* p)
-		{
-			f();
-			return SafeFunctionCall::OK;
-		});
-	}
-	if (t == MessageThread)
-	{
-		MessageManager::callAsync(f);
-	}
-	if (t == ScriptingThread)
-	{
-		jassertfalse;
 	}
 }
 

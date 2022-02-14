@@ -184,6 +184,10 @@ void ProcessorWithScriptingContent::controlCallback(ScriptingApi::Content::Scrip
 		}
 
 	}
+	else if (component->isConnectedToGlobalCable())
+	{
+		component->sendGlobalCableValue(controllerValue);
+	}
 	else
 	{
 		int callbackIndex = getControlCallbackIndex();
@@ -561,7 +565,7 @@ void FileChangeListener::addFileContentToValueTree(ValueTree externalScriptFiles
 }
 
 JavascriptProcessor::JavascriptProcessor(MainController *mc) :
-	ProcessorWithDynamicExternalData(mc, true),
+	ProcessorWithDynamicExternalData(mc),
 	mainController(mc),
 	scriptEngine(new HiseJavascriptEngine(this)),
 	lastCompileWasOK(false),
@@ -1279,7 +1283,7 @@ void JavascriptProcessor::restoreInterfaceData(ValueTree propertyData)
 
 String JavascriptProcessor::Helpers::resolveIncludeStatements(String& x, Array<File>& includedFiles, const JavascriptProcessor* p)
 {
-	String regex("include\\(\"([\\w\\s]+\\.\\w+)\"\\);");
+	String regex("include\\(\"([/\\w\\s]+\\.\\w+)\"\\);");
 	StringArray results = RegexFunctions::search(regex, x, 0);
 	StringArray fileNames = RegexFunctions::search(regex, x, 1);
 	StringArray includedContents;
@@ -1446,19 +1450,16 @@ bool JavascriptProcessor::parseSnippetsFromString(const String &x, bool clearUnd
 
 		String code = codeToCut.fromLastOccurrenceOf(filter, true, false);
 
-		s->replaceContentAsync(code);
+        // If this is true, we're loading the preset and don't care about multithreading
+        auto shouldBeAsync = !clearUndoHistory;
+        
+		s->replaceContentAsync(code, shouldBeAsync);
 
 		codeToCut = codeToCut.upToLastOccurrenceOf(filter, false, false);
         
-        if(clearUndoHistory)
-        {
-            s->getUndoManager().clearUndoHistory();
-        }
 	}
 
 	getSnippet(0)->replaceContentAsync(codeToCut);
-
-	debugToConsole(dynamic_cast<Processor*>(this), "All callbacks sucessfuly parsed");
 
 	return true;
 }
@@ -1772,6 +1773,8 @@ Result JavascriptThreadPool::executeQueue(const Task::Type& t, PendingCompilatio
 
 		while (lowPriorityQueue.pop(lpt))
 		{
+			ScopedLock sl(lookAndFeelRenderLock);
+
 			jassert(!lpt.getFunction().isHiPriority());
 
 			if (alreadyCompiled(lpt))
@@ -1823,6 +1826,11 @@ void JavascriptThreadPool::killVoicesAndExtendTimeOut(JavascriptProcessor* jp, i
 	{
 		engine->extendTimeout(milliseconds);
 	}
+}
+
+juce::CriticalSection& JavascriptThreadPool::getLookAndFeelRenderLock()
+{
+	return lookAndFeelRenderLock;
 }
 
 void JavascriptThreadPool::pushToQueue(const Task::Type& t, JavascriptProcessor* p, const Task::Function& f)

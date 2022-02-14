@@ -818,6 +818,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_0(Engine, getCpuUsage);
 	API_METHOD_WRAPPER_0(Engine, getNumVoices);
 	API_METHOD_WRAPPER_0(Engine, getMemoryUsage);
+	API_METHOD_WRAPPER_1(Engine, getTempoName);
 	API_METHOD_WRAPPER_1(Engine, getMilliSecondsForTempo);
 	API_METHOD_WRAPPER_1(Engine, getSamplesForMilliSeconds);
 	API_METHOD_WRAPPER_1(Engine, getMilliSecondsForSamples);
@@ -879,6 +880,8 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_2(Engine, doubleToString);
 	API_METHOD_WRAPPER_0(Engine, getOS);	
 	API_METHOD_WRAPPER_0(Engine, isPlugin);
+	API_METHOD_WRAPPER_0(Engine, isHISE);
+	API_VOID_METHOD_WRAPPER_0(Engine, reloadAllSamples);
 	API_METHOD_WRAPPER_0(Engine, getPreloadProgress);
 	API_METHOD_WRAPPER_0(Engine, getPreloadMessage);
 	API_METHOD_WRAPPER_0(Engine, getDeviceType);
@@ -921,8 +924,14 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_0(Engine, getLatencySamples);
 	API_METHOD_WRAPPER_2(Engine, getDspNetworkReference);
 	API_METHOD_WRAPPER_1(Engine, getSystemTime);
+	API_METHOD_WRAPPER_0(Engine, createLicenseUnlocker);
+	API_METHOD_WRAPPER_0(Engine, getGlobalRoutingManager);
 	API_METHOD_WRAPPER_1(Engine, loadAudioFileIntoBufferArray);
+	API_METHOD_WRAPPER_0(Engine, getClipboardContent);
+	API_VOID_METHOD_WRAPPER_1(Engine, copyToClipboard);
 };
+
+
 
 ScriptingApi::Engine::Engine(ProcessorWithScriptingContent *p) :
 ScriptingObject(p),
@@ -936,6 +945,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_0(getCpuUsage);
 	ADD_API_METHOD_0(getNumVoices);
 	ADD_API_METHOD_0(getMemoryUsage);
+	ADD_API_METHOD_1(getTempoName);
 	ADD_API_METHOD_1(getMilliSecondsForTempo);
 	ADD_API_METHOD_1(getSamplesForMilliSeconds);
 	ADD_API_METHOD_1(getMilliSecondsForSamples);
@@ -1017,6 +1027,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_1(createAndRegisterTableData);
 	ADD_API_METHOD_1(createAndRegisterAudioFile);
 	ADD_API_METHOD_1(createAndRegisterRingBuffer);
+	ADD_API_METHOD_0(getGlobalRoutingManager);
 	ADD_API_METHOD_1(loadFont);
 	ADD_API_METHOD_2(loadFontAs);
 	ADD_API_METHOD_1(loadAudioFileIntoBufferArray);
@@ -1041,6 +1052,11 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_3(showYesNoWindow);
 	ADD_API_METHOD_3(showMessageBox);
 	ADD_API_METHOD_1(getSystemTime);
+	ADD_API_METHOD_0(createLicenseUnlocker);
+	ADD_API_METHOD_0(getClipboardContent);
+	ADD_API_METHOD_1(copyToClipboard);
+	ADD_API_METHOD_0(isHISE);
+	ADD_API_METHOD_0(reloadAllSamples);
 }
 
 
@@ -1146,7 +1162,10 @@ bool ScriptingApi::Engine::setMinimumSampleRate(double minimumSampleRate)
 double ScriptingApi::Engine::getSampleRate() const { return const_cast<MainController*>(getProcessor()->getMainController())->getMainSynthChain()->getSampleRate(); }
 double ScriptingApi::Engine::getSamplesForMilliSeconds(double milliSeconds) const { return (milliSeconds / 1000.0) * getSampleRate(); }
 
-
+String ScriptingApi::Engine::getTempoName(int tempoIndex)
+{
+	return hise::TempoSyncer::getTempoName(tempoIndex);
+}
 
 double ScriptingApi::Engine::getQuarterBeatsForSamples(double samples)
 {
@@ -1300,6 +1319,41 @@ bool ScriptingApi::Engine::isPlugin() const
 	return true;
 #endif
 #endif
+}
+
+bool ScriptingApi::Engine::isHISE()
+{
+#if USE_BACKEND
+	return true;
+#else
+	return false;
+#endif
+}
+
+void ScriptingApi::Engine::reloadAllSamples()
+{
+	auto f = [](Processor* p)
+	{
+		Processor::Iterator<ModulatorSampler> iter(p);
+
+		while (auto s = iter.getNextProcessor())
+			s->reloadSampleMap();
+
+		return SafeFunctionCall::OK;
+	};
+
+	auto mc = getScriptProcessor()->getMainController_();
+	
+#if USE_BACKEND
+	mc->getSampleManager().getProjectHandler().checkSubDirectories();
+#else
+	mc->getSampleManager().getProjectHandler().checkAllSampleReferences();
+#endif
+
+	
+
+
+	mc->getKillStateHandler().killVoicesAndCall(mc->getMainSynthChain(), f, MainController::KillStateHandler::SampleLoadingThread);
 }
 
 double ScriptingApi::Engine::getPreloadProgress()
@@ -1464,7 +1518,7 @@ var ScriptingApi::Engine::createGlobalScriptLookAndFeel()
 		return var(sc);
 	else
 	{
-		auto slaf = new ScriptingObjects::ScriptedLookAndFeel(getScriptProcessor());
+		auto slaf = new ScriptingObjects::ScriptedLookAndFeel(getScriptProcessor(), true);
 		return var(slaf);
 	}
 }
@@ -1472,6 +1526,11 @@ var ScriptingApi::Engine::createGlobalScriptLookAndFeel()
 var ScriptingApi::Engine::createFixObjectFactory(var layoutData)
 {
     return var(new fixobj::Factory(getScriptProcessor(), layoutData));
+}
+
+juce::var ScriptingApi::Engine::createLicenseUnlocker()
+{
+	return var(new ScriptUnlocker::RefObject(getScriptProcessor()));
 }
 
 var ScriptingApi::Engine::createFFT()
@@ -1541,6 +1600,11 @@ var ScriptingApi::Engine::getDspNetworkReference(String processorId, String id)
 	}
 
 	return var();
+}
+
+juce::var ScriptingApi::Engine::getGlobalRoutingManager()
+{
+	return var(new ScriptingObjects::GlobalRoutingManagerReference(getScriptProcessor()));
 }
 
 var ScriptingApi::Engine::createBackgroundTask(String name)
@@ -1614,6 +1678,16 @@ void ScriptingApi::Engine::openWebsite(String url)
     {
         reportScriptError("not a valid URL");
     }
+}
+
+void ScriptingApi::Engine::copyToClipboard(String textToCopy)
+{
+	SystemClipboard::copyTextToClipboard(textToCopy);
+}
+
+String ScriptingApi::Engine::getClipboardContent()
+{
+	return SystemClipboard::getTextFromClipboard();
 }
 
 var ScriptingApi::Engine::getExpansionList()
@@ -1695,6 +1769,7 @@ struct ScriptingApi::Settings::Wrapper
 	API_METHOD_WRAPPER_1(Settings, isMidiInputEnabled);
 	API_VOID_METHOD_WRAPPER_2(Settings, toggleMidiChannel);
 	API_METHOD_WRAPPER_1(Settings, isMidiChannelEnabled);
+	API_METHOD_WRAPPER_0(Settings, getUserDesktopSize);
 };
 
 ScriptingApi::Settings::Settings(ProcessorWithScriptingContent* s) :
@@ -1733,6 +1808,19 @@ ScriptingApi::Settings::Settings(ProcessorWithScriptingContent* s) :
 	ADD_API_METHOD_1(isMidiInputEnabled);
 	ADD_API_METHOD_2(toggleMidiChannel);
 	ADD_API_METHOD_1(isMidiChannelEnabled);
+	ADD_API_METHOD_0(getUserDesktopSize);
+}
+
+var ScriptingApi::Settings::getUserDesktopSize()
+{
+	auto area = Desktop::getInstance().getDisplays().getMainDisplay().userArea;
+
+	Array<var> desktopSize;
+
+	desktopSize.add(area.getWidth());
+	desktopSize.add(area.getHeight());
+
+	return desktopSize;
 }
 
 double ScriptingApi::Settings::getZoomLevel() const
@@ -2299,7 +2387,7 @@ var ScriptingApi::Engine::loadAudioFileIntoBufferArray(String audioFileReference
 {
 	PoolReference ref(getScriptProcessor()->getMainController_(), audioFileReference, FileHandlerBase::AudioFiles);
 
-	auto pool = getScriptProcessor()->getMainController_()->getActiveFileHandler()->pool.get();
+	auto pool = getScriptProcessor()->getMainController_()->getCurrentFileHandler().pool.get();
 
 	if (auto e = getScriptProcessor()->getMainController_()->getExpansionHandler().getExpansionForWildcardReference(ref.getReferenceString()))
 	{
@@ -2626,6 +2714,7 @@ struct ScriptingApi::Sampler::Wrapper
     API_METHOD_WRAPPER_0(Sampler, getNumAttributes);
     API_METHOD_WRAPPER_1(Sampler, getAttribute);
     API_METHOD_WRAPPER_1(Sampler, getAttributeId);
+		API_METHOD_WRAPPER_1(Sampler, getAttributeIndex);
 	API_VOID_METHOD_WRAPPER_1(Sampler, setUseStaticMatrix);
     API_METHOD_WRAPPER_1(Sampler, loadSampleForAnalysis);
 	API_METHOD_WRAPPER_1(Sampler, loadSfzFile);
@@ -2675,6 +2764,7 @@ sampler(sampler_)
 	ADD_API_METHOD_0(getNumAttributes);
     ADD_API_METHOD_1(getAttribute);
     ADD_API_METHOD_1(getAttributeId);
+		ADD_API_METHOD_1(getAttributeIndex);
     ADD_API_METHOD_2(setAttribute);
 	ADD_API_METHOD_1(isNoteNumberMapped);
     ADD_API_METHOD_1(loadSampleForAnalysis);
@@ -3774,6 +3864,16 @@ String ScriptingApi::Sampler::getAttributeId(int parameterIndex)
     return String();
 }
 
+int ScriptingApi::Sampler::getAttributeIndex(String parameterId)
+{
+    ModulatorSampler *s = static_cast<ModulatorSampler*>(sampler.get());
+
+    if (checkValidObject())
+        return s->getParameterIndexForIdentifier(parameterId);
+
+    return -1;
+}
+
 void ScriptingApi::Sampler::setAttribute(int index, var newValue)
 {
     ModulatorSampler *s = static_cast<ModulatorSampler*>(sampler.get());
@@ -4719,9 +4819,9 @@ hise::ScriptingObjects::ScriptDisplayBufferSource* ScriptingApi::Synth::getDispl
 
 	if (getScriptProcessor()->objectsCanBeCreated())
 	{
-		Processor::Iterator<ExternalDataHolder> it(owner);
+		Processor::Iterator<ProcessorWithExternalData> it(owner);
 
-		while (ExternalDataHolder *eh = it.getNextProcessor())
+		while (auto eh = it.getNextProcessor())
 		{
 			if (dynamic_cast<Processor*>(eh)->getId() == name)
 			{
@@ -5204,6 +5304,7 @@ struct ScriptingApi::Console::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Console, assertIsDefined);
 	API_VOID_METHOD_WRAPPER_1(Console, assertIsObjectOrArray);
 	API_VOID_METHOD_WRAPPER_1(Console, assertLegalNumber);
+	API_VOID_METHOD_WRAPPER_1(Console, assertNoString);
 	API_VOID_METHOD_WRAPPER_0(Console, breakInDebugger);
 	API_VOID_METHOD_WRAPPER_0(Console, blink);
 };
@@ -5227,12 +5328,15 @@ startTime(0.0)
 	ADD_API_METHOD_1(assertLegalNumber);
 
 	ADD_API_METHOD_0(breakInDebugger);
+	ADD_API_METHOD_1(assertNoString);
 }
 
 
 
 void ScriptingApi::Console::print(var x)
 {
+	
+
 #if USE_BACKEND
 
 	AudioThreadGuard::Suspender suspender;
@@ -5242,6 +5346,8 @@ void ScriptingApi::Console::print(var x)
     jp->addInplaceDebugValue(id, lineNumber, x.toString());
     
 	debugToConsole(getProcessor(), x);
+#else
+	DBG(x.toString());
 #endif
 }
 
@@ -5393,6 +5499,14 @@ void ScriptingApi::Console::assertIsObjectOrArray(var value)
 	if (!(value.isObject() || value.isArray()))
 	{
 		reportScriptError("Assertion failure: value is not object or array. Type: " + VarTypeHelpers::getVarType(value));
+	}
+}
+
+void ScriptingApi::Console::assertNoString(var value)
+{
+	if (value.isString())
+	{
+		reportScriptError("Assertion failure: " + value.toString());
 	}
 }
 
@@ -5602,43 +5716,43 @@ ApiClass(139)
 int ScriptingApi::Colours::withAlpha(int colour, float alpha)
 {
 	Colour c((uint32)colour);
-	return (int)c.withAlpha(alpha).getARGB();
+	return (int)c.withAlpha(jlimit(0.0f, 1.0f, alpha)).getARGB();
 }
 
 int ScriptingApi::Colours::withHue(int colour, float hue)
 {
 	Colour c((uint32)colour);
-	return (int)c.withHue(hue).getARGB();
+	return (int)c.withHue(jlimit(0.0f, 1.0f, hue)).getARGB();
 }
 
 int ScriptingApi::Colours::withSaturation(int colour, float saturation)
 {
 	Colour c((uint32)colour);
-	return (int)c.withSaturation(saturation).getARGB();
+	return (int)c.withSaturation(jlimit(0.0f, 1.0f, saturation)).getARGB();
 }
 
 int ScriptingApi::Colours::withBrightness(int colour, float brightness)
 {
 	Colour c((uint32)colour);
-	return (int)c.withBrightness(brightness).getARGB();
+	return (int)c.withBrightness(jlimit(0.0f, 1.0f, brightness)).getARGB();
 }
 
 int ScriptingApi::Colours::withMultipliedAlpha(int colour, float factor)
 {
 	Colour c((uint32)colour);
-	return (int)c.withMultipliedAlpha(factor).getARGB();
+	return (int)c.withMultipliedAlpha(jmax(0.0f, factor)).getARGB();
 }
 
 int ScriptingApi::Colours::withMultipliedSaturation(int colour, float factor)
 {
 	Colour c((uint32)colour);
-	return (int)c.withMultipliedSaturation(factor).getARGB();
+	return (int)c.withMultipliedSaturation(jmax(0.0f, factor)).getARGB();
 }
 
 int ScriptingApi::Colours::withMultipliedBrightness(int colour, float factor)
 {
 	Colour c((uint32)colour);
-	return (int)c.withMultipliedBrightness(factor).getARGB();
+	return (int)c.withMultipliedBrightness(jmax(0.0f, factor)).getARGB();
 }
 
 var ScriptingApi::Colours::toVec4(int colour)
@@ -5716,9 +5830,11 @@ struct ScriptingApi::FileSystem::Wrapper
 	API_METHOD_WRAPPER_3(FileSystem, findFiles);
 	API_METHOD_WRAPPER_3(FileSystem, findDirectories);
 	API_METHOD_WRAPPER_0(FileSystem, getSystemId);
+	API_METHOD_WRAPPER_1(FileSystem, descriptionOfSizeInBytes);
 	API_METHOD_WRAPPER_1(FileSystem, fromAbsolutePath);
 	API_VOID_METHOD_WRAPPER_4(FileSystem, browse);
 	API_VOID_METHOD_WRAPPER_2(FileSystem, browseForDirectory);
+	API_METHOD_WRAPPER_1(FileSystem, getBytesFreeOnVolume);
 };
 
 ScriptingApi::FileSystem::FileSystem(ProcessorWithScriptingContent* pwsc):
@@ -5741,9 +5857,11 @@ ScriptingApi::FileSystem::FileSystem(ProcessorWithScriptingContent* pwsc):
 	ADD_API_METHOD_3(findFiles);
 	ADD_API_METHOD_3(findDirectories);
 	ADD_API_METHOD_0(getSystemId);
+	ADD_API_METHOD_1(descriptionOfSizeInBytes);
 	ADD_API_METHOD_4(browse);
 	ADD_API_METHOD_2(browseForDirectory);
 	ADD_API_METHOD_1(fromAbsolutePath);
+	ADD_API_METHOD_1(getBytesFreeOnVolume);
 }
 
 ScriptingApi::FileSystem::~FileSystem()
@@ -5807,6 +5925,11 @@ var ScriptingApi::FileSystem::findDirectories(var directory, String wildcard, bo
 	return l;
 }
 
+String ScriptingApi::FileSystem::descriptionOfSizeInBytes(int bytes)
+{
+	return File::descriptionOfSizeInBytes(bytes);
+};
+
 void ScriptingApi::FileSystem::browse(var startFolder, bool forSaving, String wildcard, var callback)
 {
 	File f;
@@ -5834,6 +5957,20 @@ void ScriptingApi::FileSystem::browseForDirectory(var startFolder, var callback)
 String ScriptingApi::FileSystem::getSystemId()
 {
 	return OnlineUnlockStatus::MachineIDUtilities::getLocalMachineIDs()[0];
+}
+
+int64 ScriptingApi::FileSystem::getBytesFreeOnVolume(var folder)
+{
+	File f;
+
+	if (folder.isInt())
+		f = getFile((SpecialLocations)(int)folder);
+	else if (auto sf = dynamic_cast<ScriptingObjects::ScriptFile*>(folder.getObject()))
+		f = sf->f;
+
+	auto numBytes = f.getBytesFreeOnVolume();
+
+	return numBytes;
 }
 
 void ScriptingApi::FileSystem::browseInternally(File f, bool forSaving, bool isDirectory, String wildcard, var callback)
@@ -5869,6 +6006,7 @@ void ScriptingApi::FileSystem::browseInternally(File f, bool forSaving, bool isD
 		if (a.isObject())
 		{
 			WeakCallbackHolder cb(p_, callback, 1);
+			cb.setHighPriority();
 			cb.call(&a, 1);
 		}
 	};
@@ -5882,7 +6020,7 @@ juce::File ScriptingApi::FileSystem::getFile(SpecialLocations l)
 
 	switch (l)
 	{
-	case Samples:	f = getMainController()->getActiveFileHandler()->getSubDirectory(FileHandlerBase::Samples);
+	case Samples:	f = getMainController()->getCurrentFileHandler().getSubDirectory(FileHandlerBase::Samples);
 		break;
 	case Expansions: return getMainController()->getExpansionHandler().getExpansionFolder();
 #if USE_BACKEND
