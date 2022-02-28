@@ -52,6 +52,7 @@ namespace juce
     X (glGetUniformLocation) \
     X (glGetAttribLocation) \
     X (glVertexAttribPointer) \
+    X (glVertexAttribDivisor) \
     X (glEnableVertexAttribArray) \
     X (glDisableVertexAttribArray) \
     X (glUniform1f) \

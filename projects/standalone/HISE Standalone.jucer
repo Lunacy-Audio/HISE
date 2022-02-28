@@ -3,7 +3,7 @@
 <JUCERPROJECT id="jUHBuI" name="HISE Standalone" projectType="guiapp" version="2.1.0"
               bundleIdentifier="com.hartinstruments.HISEStandalone" includeBinaryInAppConfig="1"
               companyName="Hart Instruments" companyWebsite="http://hise.audio"
-              companyCopyright="Hart Instruments" displaySplashScreen="0" reportAppUsage="0"
+              companyCopyright="Hart Instruments" displaySplashScreen="1" reportAppUsage="0"
               splashScreenColour="Dark" cppLanguageStandard="17" jucerFormatVersion="1">
   <MAINGROUP id="yomWt4" name="HISE Standalone">
     <GROUP id="{577963C7-1A49-BB2A-D701-52DC7A5895F7}" name="Source">
