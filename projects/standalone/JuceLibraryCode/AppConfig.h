@@ -39,14 +39,14 @@
 // BEGIN SECTION A
 
 #ifndef JUCE_DISPLAY_SPLASH_SCREEN
- #define JUCE_DISPLAY_SPLASH_SCREEN 0
+ #define JUCE_DISPLAY_SPLASH_SCREEN 1
 #endif
 
 // END SECTION A
 
 #define JUCE_USE_DARK_SPLASH_SCREEN 1
 
-#define JUCE_PROJUCER_VERSION 0x60008
+#define JUCE_PROJUCER_VERSION 0x60105
 
 //==============================================================================
 #define JUCE_MODULE_AVAILABLE_hi_backend                  1
@@ -118,8 +118,12 @@
  #define   USE_COPY_PROTECTION 0
 #endif
 
+#ifndef    USE_SCRIPT_COPY_PROTECTION
+ //#define USE_SCRIPT_COPY_PROTECTION 0
+#endif
+
 #ifndef    USE_IPP
- #define   USE_IPP 0
+ #define   USE_IPP 1
 #endif
 
 #ifndef    USE_VDSP_FFT
@@ -192,6 +196,10 @@
 
 #ifndef    READ_ONLY_FACTORY_PRESETS
  //#define READ_ONLY_FACTORY_PRESETS 0
+#endif
+
+#ifndef    CONFIRM_PRESET_OVERWRITE
+ //#define CONFIRM_PRESET_OVERWRITE 1
 #endif
 
 #ifndef    ENABLE_CONSOLE_OUTPUT
@@ -438,6 +446,10 @@
  //#define JUCE_FORCE_DEBUG 0
 #endif
 
+#ifndef    JUCE_ENABLE_AUDIO_GUARD
+ //#define JUCE_ENABLE_AUDIO_GUARD 0
+#endif
+
 #ifndef    JUCE_LOG_ASSERTIONS
  //#define JUCE_LOG_ASSERTIONS 0
 #endif
@@ -476,10 +488,6 @@
 
 #ifndef    JUCE_ENABLE_ALLOCATION_HOOKS
  //#define JUCE_ENABLE_ALLOCATION_HOOKS 0
-#endif
-
-#ifndef    JUCE_ENABLE_AUDIO_GUARD
- //#define JUCE_ENABLE_AUDIO_GUARD 0
 #endif
 
 //==============================================================================
