@@ -87,6 +87,7 @@ var CustomSettingsWindowPanel::toDynamicObject() const
 	SET(CustomSettingsWindow::Properties::ClearMidiCC);
 	SET(CustomSettingsWindow::Properties::SampleLocation);
 	SET(CustomSettingsWindow::Properties::DebugMode);
+	SET(CustomSettingsWindow::Properties::UseOpenGL);
 
 	storePropertyInObject(obj, (int)CustomSettingsWindow::Properties::ScaleFactorList, var(window->scaleFactorList));
 

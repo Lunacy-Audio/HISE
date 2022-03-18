@@ -878,7 +878,8 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_2(Engine, matchesRegex);
 	API_METHOD_WRAPPER_2(Engine, getRegexMatches);
 	API_METHOD_WRAPPER_2(Engine, doubleToString);
-	API_METHOD_WRAPPER_0(Engine, getOS);	
+	API_METHOD_WRAPPER_0(Engine, getOS);
+	API_METHOD_WRAPPER_0(Engine, getSystemStats);
 	API_METHOD_WRAPPER_0(Engine, isPlugin);
 	API_METHOD_WRAPPER_0(Engine, isHISE);
 	API_VOID_METHOD_WRAPPER_0(Engine, reloadAllSamples);
@@ -1005,6 +1006,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_2(doubleToString);
 	ADD_API_METHOD_1(getMasterPeakLevel);
 	ADD_API_METHOD_0(getOS);
+	ADD_API_METHOD_0(getSystemStats);
 	ADD_API_METHOD_0(getDeviceType);
 	ADD_API_METHOD_0(getDeviceResolution);
 	ADD_API_METHOD_0(isPlugin);
@@ -1122,6 +1124,13 @@ void ScriptingApi::Engine::loadFontAs(String fileName, String fontId)
 {
 
 #if USE_BACKEND
+
+	if (FullInstrumentExpansion::isEnabled(getProcessor()->getMainController()))
+	{
+		// Already loaded???
+		if (auto e = FullInstrumentExpansion::getCurrentFullExpansion(getProcessor()->getMainController()))
+			return;
+	}
 
 	const String absolutePath = GET_PROJECT_HANDLER(getProcessor()).getFilePath(fileName, ProjectHandler::SubDirectories::Images);
 	File f(absolutePath);
@@ -1288,6 +1297,28 @@ String ScriptingApi::Engine::getOS()
 #else
 	return "OSX";
 #endif
+}
+
+var ScriptingApi::Engine::getSystemStats()
+{
+	auto obj = new DynamicObject();
+	
+	obj->setProperty("OperatingSystemName", SystemStats::getOperatingSystemName());
+	obj->setProperty("OperatingSystem64Bit", SystemStats::isOperatingSystem64Bit());
+	obj->setProperty("LogonName", SystemStats::getLogonName());
+	obj->setProperty("FullUserName", SystemStats::getFullUserName());
+	obj->setProperty("ComputerName", SystemStats::getComputerName());
+	obj->setProperty("UserLanguage", SystemStats::getUserLanguage());
+	obj->setProperty("UserRegion", SystemStats::getUserRegion());
+	obj->setProperty("DisplayLanguage", SystemStats::getDisplayLanguage());
+	obj->setProperty("NumCpus", SystemStats::getNumCpus());
+	obj->setProperty("NumPhysicalCpus", SystemStats::getNumPhysicalCpus());
+	obj->setProperty("CpuSpeedInMegahertz", SystemStats::getCpuSpeedInMegahertz());
+	obj->setProperty("CpuVendor", SystemStats::getCpuVendor());
+	obj->setProperty("CpuModel", SystemStats::getCpuModel());
+	obj->setProperty("MemorySizeInMegabytes", SystemStats::getMemorySizeInMegabytes());
+
+	return obj;
 }
 
 String ScriptingApi::Engine::getDeviceType()
@@ -1752,6 +1783,7 @@ struct ScriptingApi::Settings::Wrapper
 	API_METHOD_WRAPPER_0(Settings, getAvailableDeviceNames);
 	API_METHOD_WRAPPER_0(Settings, getCurrentAudioDevice);
 	API_VOID_METHOD_WRAPPER_1(Settings, setAudioDevice);
+	
 	API_METHOD_WRAPPER_0(Settings, getAvailableOutputChannels);
 	API_METHOD_WRAPPER_0(Settings, getCurrentOutputChannel);
 	API_VOID_METHOD_WRAPPER_1(Settings, setOutputChannel);
@@ -1770,6 +1802,9 @@ struct ScriptingApi::Settings::Wrapper
 	API_VOID_METHOD_WRAPPER_2(Settings, toggleMidiChannel);
 	API_METHOD_WRAPPER_1(Settings, isMidiChannelEnabled);
 	API_METHOD_WRAPPER_0(Settings, getUserDesktopSize);
+	API_METHOD_WRAPPER_0(Settings, isOpenGLEnabled);
+	API_VOID_METHOD_WRAPPER_1(Settings, setEnableOpenGL);
+	API_VOID_METHOD_WRAPPER_1(Settings, setEnableDebugMode);
 };
 
 ScriptingApi::Settings::Settings(ProcessorWithScriptingContent* s) :
@@ -1809,6 +1844,9 @@ ScriptingApi::Settings::Settings(ProcessorWithScriptingContent* s) :
 	ADD_API_METHOD_2(toggleMidiChannel);
 	ADD_API_METHOD_1(isMidiChannelEnabled);
 	ADD_API_METHOD_0(getUserDesktopSize);
+	ADD_API_METHOD_0(isOpenGLEnabled);
+	ADD_API_METHOD_1(setEnableOpenGL);
+	ADD_API_METHOD_1(setEnableDebugMode);
 }
 
 var ScriptingApi::Settings::getUserDesktopSize()
@@ -1822,6 +1860,22 @@ var ScriptingApi::Settings::getUserDesktopSize()
 
 	return desktopSize;
 }
+
+bool ScriptingApi::Settings::isOpenGLEnabled() const
+{
+	return driver->useOpenGL;
+}
+
+void ScriptingApi::Settings::setEnableOpenGL(bool shouldBeEnabled)
+{
+	driver->useOpenGL = shouldBeEnabled;
+}
+
+void ScriptingApi::Settings::setEnableDebugMode(bool shouldBeEnabled)
+{
+	shouldBeEnabled ? mc->getDebugLogger().startLogging() : mc->getDebugLogger().stopLogging();	
+}
+
 
 double ScriptingApi::Settings::getZoomLevel() const
 {
@@ -3636,6 +3690,7 @@ var ScriptingApi::Sampler::loadSfzFile(var sfzFile)
 			{
 				auto delta = Time::getMillisecondCounter();
 				auto v = imp.importSfzFile();
+				v.setProperty("ID", "CustomSFZ", nullptr);
 				delta = Time::getMillisecondCounter() - delta;
 				dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine()->extendTimeout(delta);
 
@@ -6136,6 +6191,16 @@ void ScriptingApi::Server::callWithPOST(String subURL, var parameters, var callb
 	if (HiseJavascriptEngine::isJavascriptFunction(callback))
 	{
 		GlobalServer::PendingCallback::Ptr p = new GlobalServer::PendingCallback(getScriptProcessor(), callback);
+        
+        const bool isNotAFile = !subURL.containsChar('.');
+        const bool trailingSlashMissing = !subURL.endsWithChar('/');
+        
+        if(isNotAFile && trailingSlashMissing)
+        {
+            // We need to append a slash in order to prevent redirecting to a GET call
+            subURL << '/';
+        }
+        
 		p->url = getWithParameters(subURL, parameters);
 		p->isPost = true;
 		globalServer.addPendingCallback(p);
@@ -6161,7 +6226,7 @@ var ScriptingApi::Server::downloadFile(String subURL, var parameters, var target
 
 		if(urlToUse.isWellFormed())
 		{
-			ScriptingObjects::ScriptDownloadObject::Ptr p = new ScriptingObjects::ScriptDownloadObject(getScriptProcessor(), urlToUse, sf->f, callback);
+			ScriptingObjects::ScriptDownloadObject::Ptr p = new ScriptingObjects::ScriptDownloadObject(getScriptProcessor(), urlToUse, globalServer.getExtraHeader(), sf->f, callback);
 			return globalServer.addDownload(p);
 		}
 	}

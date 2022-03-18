@@ -461,6 +461,9 @@ public:
 
 		/** Returns the current operating system ("OSX", "LINUX", or ("WIN"). */
 		String getOS();
+		
+		/** Returns info about the current hardware and OS configuration. */
+		var getSystemStats();
 				
 		/** Returns the mobile device that this software is running on. */
 		String getDeviceType();
@@ -677,6 +680,15 @@ public:
 
 		/** Returns an array of the form [width, height]. */
 		var getUserDesktopSize();
+
+		/** Returns whether OpenGL is enabled or not. The return value might be out of sync with the actual state (after you changed this setting until the next reload). */
+		bool isOpenGLEnabled() const;
+
+		/** Enable OpenGL. This setting will be applied the next time the interface is rebuild. */
+		void setEnableOpenGL(bool shouldBeEnabled);
+		
+		/** Enables or disables debug logging */
+		void setEnableDebugMode(bool shouldBeEnabled);
 
 		// ============================================================================================================
 

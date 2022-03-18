@@ -2399,7 +2399,7 @@ ScriptCreatedComponentWrapper * ScriptingApi::Content::ScriptTable::createCompon
 	return new ScriptCreatedComponentWrappers::TableWrapper(content, this, index);
 }
 
-float ScriptingApi::Content::ScriptTable::getTableValue(int inputValue)
+float ScriptingApi::Content::ScriptTable::getTableValue(float inputValue)
 {
 	if (auto t = getCachedTable())
 	{
@@ -2524,8 +2524,12 @@ ScriptCreatedComponentWrapper * ScriptingApi::Content::ScriptSliderPack::createC
 
 void ScriptingApi::Content::ScriptSliderPack::setSliderAtIndex(int index, double newValue)
 {
-	if(auto d = getCachedSliderPack())
-		d->setValue(index, (float)newValue, sendNotification);
+	if (auto d = getCachedSliderPack())
+	{
+		value = index;
+		d->setValue(index, (float)newValue, dontSendNotification);
+		d->getUpdater().sendDisplayChangeMessage((float)index, sendNotificationAsync);
+	}
 }
 
 double ScriptingApi::Content::ScriptSliderPack::getSliderValueAt(int index)
@@ -2548,7 +2552,8 @@ void ScriptingApi::Content::ScriptSliderPack::setAllValues(double newValue)
 			d->setValue(i, (float)newValue, dontSendNotification);
 		}
 
-		d->getUpdater().sendContentChangeMessage(sendNotificationAsync, -1);
+		value = -1;
+		d->getUpdater().sendDisplayChangeMessage(-1.0f, sendNotificationAsync, true);
 	}
 }
 
@@ -2636,14 +2641,21 @@ void ScriptingApi::Content::ScriptSliderPack::setValue(var newValue)
 {
 	ScriptComponent::setValue(newValue);
 
+	value = newValue;
+
 	if (auto array = newValue.getArray())
 	{
-		if(auto d = getCachedSliderPack())
-			d->swapData(*array);
+		if (auto d = getCachedSliderPack())
+			d->swapData(*array, dontSendNotification);
+	}
+	else if (auto b = newValue.getBuffer())
+	{
+		if (auto d = getCachedSliderPack())
+			d->swapData(newValue, dontSendNotification);
 	}
 	else
 	{
-		logErrorAndContinue("You must call setValue() with an array for Slider Packs");
+		logErrorAndContinue("You must call setValue() with an array or Buffer for Slider Packs");
 	}
 }
 
@@ -2677,6 +2689,21 @@ void ScriptingApi::Content::ScriptSliderPack::setWidthArray(var normalizedWidths
 var ScriptingApi::Content::ScriptSliderPack::registerAtParent(int pIndex)
 {
 	return registerComplexDataObjectAtParent(pIndex);
+}
+
+void ScriptingApi::Content::ScriptSliderPack::onComplexDataEvent(ComplexDataUIUpdaterBase::EventType t, var data)
+{
+	if (t == ComplexDataUIUpdaterBase::EventType::ContentChange)
+	{
+		auto sliderIndex = (int)data;
+		value = sliderIndex;;
+		changed();
+	}
+}
+
+void ScriptingApi::Content::ScriptSliderPack::changed()
+{
+	getScriptProcessor()->controlCallback(this, value);
 }
 
 struct ScriptingApi::Content::ScriptAudioWaveform::Wrapper
