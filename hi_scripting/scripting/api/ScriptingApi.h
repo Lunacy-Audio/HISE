@@ -388,6 +388,9 @@ public:
 		/** Writes author in preset XML */
 		void setAuthorForPreset(var file, String authorName);
 
+		/** Parses version from presetXML */
+		String getVersionFromPreset(var file);
+
 		/** Returns a list of all available user presets as relative path. */
 		var getUserPresetList() const;
 
