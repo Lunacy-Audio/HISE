@@ -196,6 +196,7 @@ struct ScriptingObjects::ScriptFile::Wrapper
 	API_METHOD_WRAPPER_0(ScriptFile, isDirectory);
 	API_METHOD_WRAPPER_1(ScriptFile, moveFileTo);
 	API_METHOD_WRAPPER_1(ScriptFile, copyFileTo);
+	API_METHOD_WRAPPER_0(ScriptFile, hasWriteAccess);
 	API_METHOD_WRAPPER_1(ScriptFile, writeObject);
 	API_METHOD_WRAPPER_2(ScriptFile, writeAsXmlFile);
 	API_METHOD_WRAPPER_0(ScriptFile, loadFromXmlFile);
@@ -252,6 +253,7 @@ ScriptingObjects::ScriptFile::ScriptFile(ProcessorWithScriptingContent* p, const
 	ADD_API_METHOD_1(moveFileTo);
 	ADD_API_METHOD_1(copyFileTo);
 	ADD_API_METHOD_0(deleteFileOrDirectory);
+	ADD_API_METHOD_0(hasWriteAccess);
 	ADD_API_METHOD_1(writeObject);
 	ADD_API_METHOD_1(writeString);
 	ADD_API_METHOD_2(writeEncryptedObject);
@@ -314,6 +316,12 @@ String ScriptingObjects::ScriptFile::getHash()
 {
 	return SHA256(f).toHexString();
 };
+
+bool ScriptingObjects::ScriptFile::hasWriteAccess()
+{
+	return f.hasWriteAccess();
+};
+
 
 String ScriptingObjects::ScriptFile::toString(int formatType) const
 {
