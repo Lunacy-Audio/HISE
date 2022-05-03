@@ -294,8 +294,6 @@ private:
 		var getObject();
 
 		double getProgress();
-		
-		double getTotalProgress();
 
 		ScriptExpansionHandler& parent;
 

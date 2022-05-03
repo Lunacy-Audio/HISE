@@ -64,7 +64,7 @@ public:
 
 	static constexpr int NumVoices = NV;
 
-	SN_POLY_NODE_ID(FilterType::getFilterTypeId());
+	SET_HISE_POLY_NODE_ID(FilterType::getFilterTypeId());
 
 	FilterNodeBase() :
 		polyphonic_base(getStaticId(), false)
@@ -73,8 +73,8 @@ public:
 	SN_GET_SELF_AS_OBJECT(FilterNodeBase);
 	SN_DESCRIPTION("A filter node");
 
-	SN_EMPTY_HANDLE_EVENT;
-	SN_EMPTY_INITIALISE;
+	HISE_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_INITIALISE;
 
 	void createParameters(ParameterDataList& parameters);
 	void prepare(PrepareSpecs ps);
@@ -135,7 +135,7 @@ public:
 		DEF_PARAMETER(Mode, FilterNodeBase);
 		DEF_PARAMETER(Enabled, FilterNodeBase);
 	}
-	SN_PARAMETER_MEMBER_FUNCTION;
+	PARAMETER_MEMBER_FUNCTION;
 	
 
 	PolyData<FilterObject, NumVoices> filter;
@@ -179,11 +179,11 @@ template <int NV> struct fir_impl : public AudioFileNodeBase
 
 	static constexpr int NumVoices = NV;
 
-	SN_NODE_ID("fir");
+	SET_HISE_NODE_ID("fir");
 	SN_GET_SELF_AS_OBJECT(fir_impl);
 
-	SN_EMPTY_SET_PARAMETER;
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_SET_PARAMETER;
+	HISE_EMPTY_HANDLE_EVENT;
 
 	fir_impl();;
 
@@ -259,7 +259,7 @@ template <int NV> struct fir_impl : public AudioFileNodeBase
 			f.reset();
 	}
 
-	SN_EMPTY_MOD;
+	HISE_EMPTY_MOD;
 
 	template <typename ProcessDataType> void process(ProcessDataType& d)
 	{

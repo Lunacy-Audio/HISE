@@ -595,13 +595,12 @@ struct HiseJavascriptEngine::RootObject::StringClass : public DynamicObject
 		setMethod("charAt", charAt);
 		setMethod("charCodeAt", charCodeAt);
 		setMethod("fromCharCode", fromCharCode);
-		setMethod("replace", replace);
+        setMethod("replace", replace);
 		setMethod("split", split);
 		setMethod("splitCamelCase", splitCamelCase);
 		setMethod("lastIndexOf", lastIndexOf);
 		setMethod("toLowerCase", toLowerCase);
 		setMethod("toUpperCase", toUpperCase);
-		setMethod("capitalize", capitalize);
 		setMethod("parseAsJSON", parseAsJSON);
 		setMethod("trim", trim);
 		setMethod("concat", concat);
@@ -626,11 +625,12 @@ struct HiseJavascriptEngine::RootObject::StringClass : public DynamicObject
 	static var indexOf(Args a)       { return a.thisObject.toString().indexOf(getString(a, 0)); }
 	static var lastIndexOf(Args a)		 { return a.thisObject.toString().lastIndexOf(getString(a, 0)); }
 	static var charCodeAt(Args a)    { return (int)a.thisObject.toString()[getInt(a, 0)]; }
-	static var replace(Args a)       { return a.thisObject.toString().replace(getString(a, 0), getString(a, 1)); }
+    static var replace(Args a)       { return a.thisObject.toString().replace(getString(a, 0), getString(a, 1)); }
 	static var charAt(Args a)        { int p = getInt(a, 0); return a.thisObject.toString().substring(p, p + 1); }
 	static var parseAsJSON(Args a)   { return JSON::parse(a.thisObject.toString()); }	
 	static var toUpperCase(Args a) { return a.thisObject.toString().toUpperCase(); };
 	static var toLowerCase(Args a) { return a.thisObject.toString().toLowerCase(); };
+
 	static var trim(Args a) { return a.thisObject.toString().trim(); };
 
 	static var getTrailingIntValue(Args a) { return a.thisObject.toString().getTrailingIntValue(); }
@@ -817,9 +817,6 @@ public:
 
 	/** Converts a string to uppercase letters. */
 	String toUpperCase() { return String(); }
-	
-	/** Converts a string to start case (first letter of every word is uppercase). */
-	String capitalize() { return String(); }
 
 	/** Splits the string at uppercase characters (so MyValue becomes ["My", "Value"]. */
 	Array splitCamelCase();

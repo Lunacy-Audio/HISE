@@ -322,7 +322,7 @@ template <typename DataType, CloneProcessType ProcessType>
 			typed->setCloneProcessType(v);
 	}
 
-	SN_PARAMETER_MEMBER_FUNCTION;
+	PARAMETER_MEMBER_FUNCTION;
 
 	void initialise(NodeBase* n)
 	{

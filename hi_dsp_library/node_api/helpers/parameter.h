@@ -635,7 +635,7 @@ template <class... Parameters> struct list: public advanced_tuple<Parameters...>
 	}
 
 	// the dynamic list needs to be initialised with the value tree
-	SN_EMPTY_INITIALISE;
+	HISE_EMPTY_INITIALISE;
 
 	template <int P> void call(double v)
 	{

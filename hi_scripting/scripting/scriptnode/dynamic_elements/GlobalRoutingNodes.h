@@ -86,7 +86,7 @@ struct GlobalSendNode : public GlobalRoutingNodeBase
 {
 	GlobalSendNode(DspNetwork* n, ValueTree d);;
 
-	SN_NODE_ID("global_send");
+	SET_HISE_NODE_ID("global_send");
 
 	static NodeBase* createNode(DspNetwork* n, ValueTree d)
 	{
@@ -123,7 +123,7 @@ struct GlobalCableNode : public ModulationSourceNode,
 	GlobalCableNode(DspNetwork* n, ValueTree d);;
 	~GlobalCableNode();
 
-	SN_NODE_ID("global_cable");
+	SET_HISE_NODE_ID("global_cable");
 
 	static NodeBase* createNode(DspNetwork* n, ValueTree d);
 

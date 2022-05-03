@@ -41,7 +41,7 @@ using namespace snex::Types;
 namespace fx
 {
 
-template <int V> class sampleandhold : public polyphonic_base
+template <int V> class sampleandhold_impl : public HiseDspBase
 {
 public:
 
@@ -53,19 +53,18 @@ public:
 
 	DEFINE_PARAMETERS
 	{
-		DEF_PARAMETER(Counter, sampleandhold);
+		DEF_PARAMETER(Counter, sampleandhold_impl);
 	}
-	SN_PARAMETER_MEMBER_FUNCTION;
 
 	static constexpr int NumVoices = V;
 
-	SN_POLY_NODE_ID("sampleandhold");
-	SN_GET_SELF_AS_OBJECT(sampleandhold);
+	SET_HISE_POLY_NODE_ID("sampleandhold");
+	SN_GET_SELF_AS_OBJECT(sampleandhold_impl);
 	SN_DESCRIPTION("A sample and hold effect node");
 
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
-	sampleandhold();
+	sampleandhold_impl();
 
 	void initialise(NodeBase* n);
 	void prepare(PrepareSpecs ps);
@@ -81,7 +80,7 @@ public:
 			for (auto c : d)
             {
                 auto b = d.toChannelData(c);
-				hmath::vmovs(b, v.currentValues[i++]);
+				hmath::vset(b, v.currentValues[i++]);
             }
 
 			v.counter -= d.getNumSamples();
@@ -116,7 +115,7 @@ public:
 
 	
 	bool handleModulation(double&) noexcept { return false; };
-	void createParameters(ParameterDataList& data);
+	void createParameters(ParameterDataList& data) override;
 
 	void setCounter(double value);
 
@@ -148,58 +147,40 @@ private:
 	int lastChannelAmount = NUM_MAX_CHANNELS;
 };
 
-template <typename T> static void getBitcrushedValue(T& data, float bitDepth, bool bipolar)
+DEFINE_EXTERN_NODE_TEMPLATE(sampleandhold, sampleandhold_poly, sampleandhold_impl);
+
+template <typename T> static void getBitcrushedValue(T& data, float bitDepth)
 {
 	const float invStepSize = hmath::pow(2.0f, bitDepth);
 	const float stepSize = 1.0f / invStepSize;
 
-    if(bipolar)
-    {
-        for(auto& s: data)
-        {
-            if(s > 0.0f)
-                s = stepSize * floor(s * invStepSize);
-            else
-                s = stepSize * ceil(s * invStepSize);
-        }
-    }
-    else
-    {
-        for(auto& s: data)
-        {
-            s = (stepSize * ceil(s * invStepSize)) - 0.5 * stepSize;
-        }
-    }
-    
-	
+	for(auto& s: data)
+		s = (stepSize * ceil(s * invStepSize) - 0.5f * stepSize);
 }
 
-template <int V> class bitcrush : public polyphonic_base
+template <int V> class bitcrush_impl : public HiseDspBase
 {
 public:
 
 	enum class Parameters
 	{
-		BitDepth,
-        Mode
+		BitDepth
 	};
 
 	DEFINE_PARAMETERS
 	{
-		DEF_PARAMETER(BitDepth, bitcrush);
-        DEF_PARAMETER(Mode, bitcrush);
+		DEF_PARAMETER(BitDepth, bitcrush_impl);
 	}
-	SN_PARAMETER_MEMBER_FUNCTION;
 
 	static constexpr int NumVoices = V;
 
-	SN_POLY_NODE_ID("bitcrush");
-	SN_GET_SELF_AS_OBJECT(bitcrush);
+	SET_HISE_POLY_NODE_ID("bitcrush");
+	SN_GET_SELF_AS_OBJECT(bitcrush_impl);
 	SN_DESCRIPTION("A bitcrusher effect node");
 
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
-	bitcrush();
+	bitcrush_impl();
 
 	void initialise(NodeBase* n);
 	void prepare(PrepareSpecs ps);
@@ -210,37 +191,34 @@ public:
 		for (auto ch : d)
 		{
 			auto b = d.toChannelData(ch);
-			getBitcrushedValue(b, bitDepth.get(), bipolar);
+			getBitcrushedValue(b, bitDepth.get());
 		}
 			
 	}
 
 	template <typename FrameDataType> void processFrame(FrameDataType& data)
 	{
-		getBitcrushedValue(data, bitDepth.get(), bipolar);
+		getBitcrushedValue(data, bitDepth.get());
 	}
 
 
 	void reset() noexcept;;
 	bool handleModulation(double&) noexcept;;
-	void createParameters(ParameterDataList& data);
+	void createParameters(ParameterDataList& data) override;
 
 	void setBitDepth(double newBitDepth);
-    
-    void setMode(double newMode);
 
 private:
 
 	PolyData<float, NumVoices> bitDepth;
-    bool bipolar = false;
 };
 
-template <int NV> class phase_delay : public polyphonic_base
+template <int V> class phase_delay_impl : public HiseDspBase
 {
 public:
 
 
-	static constexpr int NumVoices = NV;
+	static constexpr int NumVoices = V;
 	using Delays = span<PolyData<AllpassDelay, NumVoices>, 2>;
 
 	enum class Parameters
@@ -250,16 +228,15 @@ public:
 
 	DEFINE_PARAMETERS
 	{
-		DEF_PARAMETER(Frequency, phase_delay);
+		DEF_PARAMETER(Frequency, phase_delay_impl);
 	}
-	SN_PARAMETER_MEMBER_FUNCTION;
 
-	SN_POLY_NODE_ID("phase_delay");
-	SN_GET_SELF_AS_OBJECT(phase_delay);
+	SET_HISE_POLY_NODE_ID("phase_delay");
+	SN_GET_SELF_AS_OBJECT(phase_delay_impl);
 	SN_DESCRIPTION("A phase delay for comb filtering");
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
-	phase_delay();
+	phase_delay_impl();
 
 	void initialise(NodeBase* n);
 	void prepare(PrepareSpecs ps);
@@ -288,13 +265,17 @@ public:
 	void reset() noexcept;;
 	
 	bool handleModulation(double&) noexcept;;
-	void createParameters(ParameterDataList& data);
+	void createParameters(ParameterDataList& data) override;
 
 	void setFrequency(double frequency);
 
 	Delays delays;
 	double sr = 44100.0;
 };
+
+DEFINE_EXTERN_NODE_TEMPLATE(phase_delay, phase_delay_poly, phase_delay_impl);
+
+DEFINE_EXTERN_NODE_TEMPLATE(bitcrush, bitcrush_poly, bitcrush_impl);
 
 class reverb : public HiseDspBase
 {
@@ -314,15 +295,15 @@ public:
 		DEF_PARAMETER(Width, reverb);
 		DEF_PARAMETER(Size, reverb);
 	}
-	SN_PARAMETER_MEMBER_FUNCTION;
+	PARAMETER_MEMBER_FUNCTION;
 
-	SN_NODE_ID("reverb");
+	SET_HISE_NODE_ID("reverb");
 	SN_GET_SELF_AS_OBJECT(reverb);
 	SN_DESCRIPTION("The default JUCE reverb implementation");
 
 	bool isPolyphonic() const { return false; }
 
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
 	reverb();
 
@@ -382,12 +363,11 @@ public:
 	{
 		DEF_PARAMETER(Position, haas);
 	}
-    SN_PARAMETER_MEMBER_FUNCTION;
 
-	SN_POLY_NODE_ID("haas");
+	SET_HISE_POLY_NODE_ID("haas");
 	SN_GET_SELF_AS_OBJECT(haas);
 	SN_DESCRIPTION("A Haas effect (simulate stereo position using delay)");
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
 	void createParameters(ParameterDataList& data) override;
 	void prepare(PrepareSpecs ps);

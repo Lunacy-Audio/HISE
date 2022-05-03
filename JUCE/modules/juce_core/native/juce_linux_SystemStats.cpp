@@ -204,7 +204,7 @@ String SystemStats::getUserLanguage()
 
     return {};
    #else
-    return getLocaleValue (_NL_ADDRESS_LANG_AB);
+    return getLocaleValue (_NL_IDENTIFICATION_LANGUAGE);
    #endif
 }
 

@@ -187,7 +187,7 @@ class extra_mod : public hise_mod_base
 {
 public:
 
-	SN_NODE_ID("extra_mod");
+	SET_HISE_NODE_ID("extra_mod");
 	SN_GET_SELF_AS_OBJECT(extra_mod);
 
 	extra_mod()
@@ -268,7 +268,7 @@ class pitch_mod : public hise_mod_base
 {
 public:
 
-	SN_NODE_ID("pitch_mod");
+	SET_HISE_NODE_ID("pitch_mod");
 	SN_GET_SELF_AS_OBJECT(pitch_mod);
 
 	pitch_mod()
@@ -363,7 +363,7 @@ class global_mod : public hise_mod_base
 {
 public:
 
-	SN_NODE_ID("global_mod");
+	SET_HISE_NODE_ID("global_mod");
 	SN_GET_SELF_AS_OBJECT(global_mod);
 
 	global_mod()

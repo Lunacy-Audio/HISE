@@ -41,61 +41,6 @@ using namespace snex;
 using namespace snex::Types;
 
 
-namespace interpolators
-{
-
-using linear = juce::Interpolators::Linear;
-using cubic = juce::Interpolators::CatmullRom;
-using none = juce::Interpolators::ZeroOrderHold;
-
-struct dynamic
-{
-    enum class Types
-    {
-        Cubic,
-        Linear,
-        None,
-        numTypes
-    };
-    
-    void process(double ratio, float* inp, float* out, int numOut, int numIn, bool wrap)
-    {
-        switch(currentType)
-        {
-            case Types::Cubic: c.process(ratio, inp, out, numOut, numIn, false); break;
-            case Types::Linear: l.process(ratio, inp, out, numOut, numIn, false); break;
-            case Types::None: n.process(ratio, inp, out, numOut, numIn, false); break;
-            case Types::numTypes:
-            default: break;
-        }
-    }
-    
-    void setType(Types nt)
-    {
-        currentType = nt;
-        reset();
-    }
-    
-    void reset()
-    {
-        switch(currentType)
-        {
-            case Types::Cubic: c.reset(); break;
-            case Types::Linear: l.reset(); break;
-            case Types::None: n.reset(); break;
-            case Types::numTypes:
-            default: break;
-        }
-    }
-    
-    Types currentType = Types::Cubic;
-    
-    cubic c;
-    linear l;
-    none n;
-};
-
-}
 
 namespace scriptnode_initialisers
 {
@@ -133,18 +78,18 @@ template <int ChannelAmount> struct frame
 {
 	static void prepare(void* obj, prototypes::prepare f, const PrepareSpecs& ps)
 	{
-		auto ps_ = ps.withNumChannelsT<ChannelAmount>().withBlockSize(1, true);
+		auto ps_ = ps.withNumChannelsT<ChannelAmount>().withBlockSize(1);
 		f(obj, &ps_);
 	}
 };
 
 template <int BlockSize> struct fix_block
 {
-	SN_EMPTY_INITIALISE;
+	HISE_EMPTY_INITIALISE;
 
 	static void prepare(void* obj, prototypes::prepare f, const PrepareSpecs& ps)
 	{
-		auto ps_ = ps.withBlockSizeT<BlockSize>(true);
+		auto ps_ = ps.withBlockSizeT<BlockSize>();
 		f(obj, &ps_);
 	}
 
@@ -265,8 +210,6 @@ public:
 
 	static Identifier getStaticId() { return T::getStaticId(); }
 
-	static constexpr int getFixChannelAmount() { return NumChannels; };
-
 	/** Forwards the callback to its wrapped object. */
 	void initialise(NodeBase* n)
 	{
@@ -347,12 +290,12 @@ public:
 
 	init() : obj(), i(obj) {};
 
-	SN_DEFAULT_PREPARE(T);
-	SN_DEFAULT_RESET(T);
-	SN_DEFAULT_HANDLE_EVENT(T);
-	SN_DEFAULT_PROCESS_FRAME(T);
-	SN_DEFAULT_PROCESS(T);
-	SN_DEFAULT_MOD(T);
+	HISE_DEFAULT_PREPARE(T);
+	HISE_DEFAULT_RESET(T);
+	HISE_DEFAULT_HANDLE_EVENT(T);
+	HISE_DEFAULT_PROCESS_FRAME(T);
+	HISE_DEFAULT_PROCESS(T);
+	HISE_DEFAULT_MOD(T);
 
 	void initialise(NodeBase* n)
 	{
@@ -420,89 +363,6 @@ private:
 	T obj;
 };
 
-template <class T> class sidechain
-{
-public:
-    
-    SN_OPAQUE_WRAPPER(sidechain, T);
-    
-    void prepare(PrepareSpecs ps)
-    {
-        if(ps.blockSize == 1)
-        {
-            sideChainBuffer.setSize(0);
-        }
-        else
-        {
-            auto numChannels = ps.numChannels;
-            auto numSamples = ps.blockSize;
-            auto numElements = numChannels * numSamples;
-
-            if (numElements > sideChainBuffer.size())
-                sideChainBuffer.setSize(numElements);
-        }
-        
-        ps.numChannels *= 2;
-        obj.prepare(ps);
-    }
-    
-    SN_DEFAULT_INIT(T);
-    SN_DEFAULT_RESET(T);
-    SN_DEFAULT_HANDLE_EVENT(T);
-    SN_DEFAULT_MOD(T);
-    
-    template <typename ProcessDataType> void process(ProcessDataType& data)
-    {
-        auto numChannels = data.getNumChannels();
-        auto numSamples = data.getNumSamples();
-        
-        auto ptrs = (float**)alloca(sizeof(float*) * numChannels * 2);
-        auto sourcePtrs = data.getRawChannelPointers();
-        
-        for(int i = 0; i < numChannels; i++)
-        {
-            ptrs[i] = sourcePtrs[i];
-            ptrs[i + numChannels] = sideChainBuffer.begin() + i * numSamples;
-            FloatVectorOperations::clear(ptrs[i + numChannels], numSamples);
-        }
-        
-        if constexpr(ProcessDataType::hasCompileTimeSize())
-        {
-            constexpr int NumChannelsWithSidechain = ProcessDataType::getNumFixedChannels() * 2;
-            ProcessData<NumChannelsWithSidechain> doubleData(ptrs, numSamples, numChannels);
-            doubleData.copyNonAudioDataFrom(data);
-            obj.process(doubleData);
-        }
-        else
-        {
-            ProcessDataDyn doubleData(ptrs, numSamples, numChannels * 2);
-            doubleData.copyNonAudioDataFrom(data);
-            obj.process(doubleData);
-        }
-        
-    }
-    
-    template <typename FrameDataType> void processFrame(FrameDataType& data)
-    {
-        jassertfalse;
-    }
-    
-    void createParameters(ParameterDataList& d)
-    {
-        if constexpr (prototypes::check::createParameters<typename T::ObjectType>::value)
-            this->obj.createParameters(d);
-    }
-
-    void setExternalData(const ExternalData& s, int i)
-    {
-        if constexpr (prototypes::check::setExternalData<typename T::ObjectType>::value)
-            this->obj.setExternalData(s, i);
-    }
-    
-    T obj;
-    heap<float> sideChainBuffer;
-};
-
 template <class T> class event
 {
 public:
@@ -510,34 +370,19 @@ public:
 	SN_OPAQUE_WRAPPER(event, T);
 
 	constexpr OPTIONAL_BOOL_CLASS_FUNCTION(isPolyphonic);
+	OPTIONAL_BOOL_CLASS_FUNCTION(isProcessingHiseEvent);
 
-	static constexpr bool isProcessingHiseEvent() { return true; };
-
-	SN_DEFAULT_INIT(T);
-	SN_DEFAULT_PREPARE(T);
-	SN_DEFAULT_RESET(T);
-	SN_DEFAULT_HANDLE_EVENT(T);
-	SN_DEFAULT_PROCESS_FRAME(T);
-
-	
+	HISE_DEFAULT_INIT(T);
+	HISE_DEFAULT_PREPARE(T);
+	HISE_DEFAULT_RESET(T);
+	HISE_DEFAULT_HANDLE_EVENT(T);
+	HISE_DEFAULT_PROCESS_FRAME(T);
 
 	template <typename ProcessDataType> void process(ProcessDataType& data)
 	{
         auto p = prototypes::static_wrappers<T>::template process<ProcessDataType>;
 		auto e = prototypes::static_wrappers<T>::handleHiseEvent;
 		static_functions::event::process<ProcessDataType>(this, p, e, data);
-	}
-
-	void createParameters(ParameterDataList& d)
-	{
-		if constexpr (prototypes::check::createParameters<typename T::ObjectType>::value)
-			this->obj.createParameters(d);
-	}
-
-	void setExternalData(const ExternalData& s, int i)
-	{
-		if constexpr (prototypes::check::setExternalData<typename T::ObjectType>::value)
-			this->obj.setExternalData(s, i);
 	}
 
 	T obj;
@@ -554,13 +399,13 @@ public:
 	constexpr OPTIONAL_BOOL_CLASS_FUNCTION(isPolyphonic);
 	OPTIONAL_BOOL_CLASS_FUNCTION(isProcessingHiseEvent);
 
-	SN_DEFAULT_INIT(T);
-	SN_DEFAULT_PREPARE(T);
-	SN_DEFAULT_RESET(T);
-	SN_DEFAULT_MOD(T);
-	SN_DEFAULT_HANDLE_EVENT(T);
-	SN_DEFAULT_PROCESS_FRAME(T);
-	SN_DEFAULT_PROCESS(T);
+	HISE_DEFAULT_INIT(T);
+	HISE_DEFAULT_PREPARE(T);
+	HISE_DEFAULT_RESET(T);
+	HISE_DEFAULT_MOD(T);
+	HISE_DEFAULT_HANDLE_EVENT(T);
+	HISE_DEFAULT_PROCESS_FRAME(T);
+	HISE_DEFAULT_PROCESS(T);
 
 	constexpr auto& getParameter() { return obj.getParameter(); };
 
@@ -575,7 +420,7 @@ public:
 	{
 		this->obj.template setParameter<P>(v);
 	}
-	SN_FORWARD_PARAMETER_TO_MEMBER(no_data)
+	FORWARD_PARAMETER_TO_MEMBER(no_data)
 
 	T obj;
 };
@@ -633,8 +478,8 @@ template <int NumChannels, class T> class frame
 {
 public:
 
-	SN_GET_SELF_OBJECT(obj);
-	SN_GET_WRAPPED_OBJECT(obj);
+	GET_SELF_OBJECT(obj);
+	GET_WRAPPED_OBJECT(obj);
 
 	using FixProcessType = snex::Types::ProcessData<NumChannels>;
 	using FrameType = snex::Types::span<float, NumChannels>;
@@ -677,26 +522,19 @@ private:
 
 struct oversample_base
 {
-	static constexpr int MaxOversamplingExponent = 4; // => 16x oversampling (2^4).
-
 	using Oversampler = juce::dsp::Oversampling<float>;
 
 	oversample_base(int factor) :
-		oversamplingFactor(jmax(1, factor))
+		oversamplingFactor(factor)
 	{};
 
     virtual ~oversample_base() {};
     
-	
-
     void rebuildOversampler()
     {
         if(originalBlockSize == 0)
             return;
         
-		if (oversamplingFactor == -1)
-			return;
-
         ScopedPointer<Oversampler> newOverSampler;
         
         newOverSampler = new Oversampler(numChannels, (int)std::log2(oversamplingFactor), Oversampler::FilterType::filterHalfBandPolyphaseIIR, false);
@@ -704,20 +542,20 @@ struct oversample_base
         if (originalBlockSize > 0)
             newOverSampler->initProcessing(originalBlockSize);
 
-		oversampler.swapWith(newOverSampler);
+        {
+            hise::SimpleReadWriteLock::ScopedReadLock sl(lock);
+            oversampler.swapWith(newOverSampler);
+        }
     }
     
 	void prepare(PrepareSpecs ps)
 	{
-		SimpleReadWriteLock::ScopedWriteLock sl(this->lock);
-
-		originalSpecs = ps;
-
 		if (ps.voiceIndex != nullptr && ps.voiceIndex->isEnabled())
 		{
 			scriptnode::Error::throwError(Error::IllegalPolyphony);
 			return;
 		}
+            
         
         originalBlockSize = ps.blockSize;
         numChannels = ps.numChannels;
@@ -731,26 +569,14 @@ struct oversample_base
         rebuildOversampler();
 	}
 
-	int getOverSamplingFactor() const
-	{
-		return oversamplingFactor;
-	}
     
-    void setOversamplingFactor(int factorExponent)
+    void setOversamplingFactor(int factor)
     {
-		SimpleReadWriteLock::ScopedWriteLock sl(this->lock);
-
-		factorExponent = jlimit(0, MaxOversamplingExponent, factorExponent);
-
-		oversamplingFactor = std::pow(2, factorExponent);
-
-		if(originalSpecs)
-			prepare(originalSpecs);
+        oversamplingFactor = factor;
+        rebuildOversampler();
     }
     
 protected:
-
-	PrepareSpecs originalSpecs;
 
 	hise::SimpleReadWriteLock lock;
 
@@ -765,159 +591,6 @@ protected:
 };
 
 
-
-
-template <class T, class InterpolatorType> class repitch
-{
-	static constexpr int MaxDownsampleFactor = 2;
-    
-    InterpolatorType up[2];
-    InterpolatorType down[2];
-    
-public:
-    
-    repitch()
-    {};
-    
-    SN_SELF_AWARE_WRAPPER(repitch, T);
-  
-    // Forward the get calls to the wrapped container
-    template <int arg> constexpr auto& get() noexcept { return this->obj.template get<arg>(); }
-    template <int arg> constexpr const auto& get() const noexcept { return this->obj.template get<arg>(); }
-
-    template <int P> void setParameter(double newValue)
-    {
-        if constexpr(P == 0)
-            this->setRepitchFactor(newValue);
-        if constexpr(P == 1)
-            this->setInterpolation(newValue);
-    }
-    SN_FORWARD_PARAMETER_TO_MEMBER(repitch);
-    
-    void setRepitchFactor(double newRatio)
-    {
-        SimpleReadWriteLock::ScopedMultiWriteLock sl(lock);
-        ratio = jlimit(0.5, 2.0, newRatio);
-        invRatio = 1.0 / ratio;
-    }
-    
-    void setInterpolation(double newValue)
-    {
-        if constexpr(std::is_same<InterpolatorType, interpolators::dynamic>())
-        {
-            SimpleReadWriteLock::ScopedMultiWriteLock sl(lock);
-            auto t = (interpolators::dynamic::Types)(int)newValue;
-            
-            up[0].setType(t);
-            up[1].setType(t);
-            down[0].setType(t);
-            down[1].setType(t);
-        }
-    }
-    
-    template <int C> void processFixed(ProcessData<C>& data)
-    {
-        int numInternalSamples = (int)hmath::round((double)data.getNumSamples() / ratio);
-
-		double realRatio = (double)numInternalSamples / (double)data.getNumSamples();
-		auto invRealRatio = 1.0 / realRatio;
-
-        auto d = ProcessDataHelpers<C>::makeChannelData(buffer, numInternalSamples);
-        ProcessData<C> internalData(d.begin(), numInternalSamples);
-
-        for(int i = 0; i < C; i++)
-        {
-            auto inp = data[i];
-            auto out = internalData[i];
-            down[i].process(invRealRatio, inp.begin(), out.begin(), out.size(), inp.size(), false);
-        }
-        
-        this->obj.process(internalData);
-        
-        for(int i = 0; i < C; i++)
-        {
-            auto inp = internalData[i];
-            auto out = data[i];
-            up[i].process(realRatio, inp.begin(), out.begin(), out.size(), inp.size(), false);
-        }
-    }
-    
-    template <typename ProcessDataType> void process(ProcessDataType& data)
-    {
-        if(auto sl = SimpleReadWriteLock::ScopedTryReadLock(lock))
-        {
-			if constexpr (ProcessDataType::hasCompileTimeSize())
-			{
-				if constexpr (data.getNumChannels() == 1)
-	                processFixed<1>(data);
-	            if constexpr (data.getNumChannels() == 2)
-	                processFixed<2>(data);
-			}
-			else
-			{
-				if(data.getNumChannels() == 1)
-                processFixed<1>(data.template as<ProcessData<1>>());
-	            if(data.getNumChannels() == 2)
-	                processFixed<2>(data.template as<ProcessData<2>>());
-			}
-
-            
-        }
-    }
-
-    template <typename FrameDataType> void processFrame(FrameDataType& t)
-    {
-        jassertfalse;
-    }
-    
-    void prepare(PrepareSpecs ps)
-    {
-        ps.blockSize *= MaxDownsampleFactor;
-        obj.prepare(ps);
-        
-        if(ps.blockSize == 2)
-        {
-            buffer.setSize(0);
-            return;
-        }
-        
-        auto numChannels = ps.numChannels;
-        auto numSamples = ps.blockSize + 3;
-        auto numElements = numChannels * numSamples;
-
-        if (numElements > buffer.size())
-            buffer.setSize(numElements);
-    }
-    
-    void reset()
-    {
-        {
-            hise::SimpleReadWriteLock::ScopedReadLock sl(lock);
-            
-            up[0].reset();
-            down[0].reset();
-            
-            up[1].reset();
-            down[1].reset();
-        }
-        
-        this->obj.reset();
-    }
-    
-    SN_DEFAULT_INIT(T);
-    SN_DEFAULT_MOD(T);
-    SN_DEFAULT_HANDLE_EVENT(T);
-    
-private:
-        
-    SimpleReadWriteLock lock;
-    
-    double ratio = 1.0;
-    double invRatio = 1.0;
-    T obj;
-    heap<float> buffer;
-};
-
 template <int OversamplingFactor, class T, class InitFunctionClass=scriptnode_initialisers::oversample> class oversample: public oversample_base
 {
 public:
@@ -927,34 +600,28 @@ public:
 	oversample():
 		oversample_base(OversamplingFactor)
 	{
+        
         this->prepareFunc = prototypes::static_wrappers<T>::prepare;
 		this->pObj = &obj;
 	}
 
-    // A oversample node is never polyphonic
-    static constexpr bool isPolyphonic() { return false; }
-    
-	// Forward the get calls to the wrapped container
-	template <int arg> constexpr auto& get() noexcept { return this->obj.template get<arg>(); }
-	template <int arg> constexpr const auto& get() const noexcept { return this->obj.template get<arg>(); }
-
-    template <int P> void setParameter(double newValue)
+    template <int P> static void setParameter(void* t, double newValue)
     {
-		static_assert(P == 0, "illegal parameter index");
-
         if constexpr(P == 0)
-            this->setOversamplingFactor((int)newValue);
+            static_cast<oversample*>(t)->setOversamplingFactor((int)newValue);
     }
-	SN_FORWARD_PARAMETER_TO_MEMBER(oversample);
-
+    
 	forcedinline void reset() noexcept 
 	{
-		hise::SimpleReadWriteLock::ScopedReadLock sl(this->lock);
+		hise::SimpleReadWriteLock::ScopedTryReadLock sl(this->lock);
 
-		if (oversampler != nullptr)
-			oversampler->reset();
+		if (sl)
+		{
+			if(oversampler != nullptr)
+				oversampler->reset();
+		}
 
-		obj.reset();
+		obj.reset(); 
 	}
 
 	void handleHiseEvent(HiseEvent& e)
@@ -970,25 +637,28 @@ public:
 
 	template <typename ProcessDataType>  void process(ProcessDataType& data)
 	{
- 		hise::SimpleReadWriteLock::ScopedReadLock sl(this->lock);
+		hise::SimpleReadWriteLock::ScopedTryReadLock sl(this->lock);
 
-		if (oversampler == nullptr)
-			return;
+		if (sl)
+		{
+			if (oversampler == nullptr)
+				return;
 
-		auto bl = data.toAudioBlock();
-		auto output = oversampler->processSamplesUp(bl);
+			auto bl = data.toAudioBlock();
+			auto output = oversampler->processSamplesUp(bl);
 
-		float* tmp[NUM_MAX_CHANNELS];
+			float* tmp[NUM_MAX_CHANNELS];
 
-		for (int i = 0; i < data.getNumChannels(); i++)
-			tmp[i] = output.getChannelPointer(i);
+			for (int i = 0; i < data.getNumChannels(); i++)
+				tmp[i] = output.getChannelPointer(i);
 
-		ProcessDataType od(tmp, data.getNumSamples() * oversamplingFactor, data.getNumChannels());
+			ProcessDataType od(tmp, data.getNumSamples() * OversamplingFactor, data.getNumChannels());
 
-		od.copyNonAudioDataFrom(data);
-		obj.process(od);
+			od.copyNonAudioDataFrom(data);
+			obj.process(od);
 
-		oversampler->processSamplesDown(bl);
+			oversampler->processSamplesDown(bl);
+		}
 	}
 
 	void initialise(NodeBase* n)
@@ -1022,14 +692,10 @@ template <class T> class default_data
 	}
 };
 
-#if !JUCE_WINDOWS
 
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Winvalid-offsetof"
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Winvalid-offsetof"
 
-#endif
 
 /** A wrapper that extends the wrap::init class with the possibility of handling external data.
 
@@ -1051,6 +717,17 @@ template <class T, class DataHandler = default_data<T>> struct data : public wra
 	{
         using D = data<T, DataHandler>;
         return offsetof(D, i);
+
+        
+        
+        D* d = nullptr;
+        
+        auto x1 = reinterpret_cast<uint64>(&d->i);
+        auto x2 = reinterpret_cast<uint64>(&d->obj);
+        
+        return static_cast<size_t>(x1 - x2);
+        
+		//return offsetof(D, i);
 	}
 
 	data()
@@ -1094,32 +771,70 @@ template <class T, class DataHandler = default_data<T>> struct data : public wra
 	JUCE_DECLARE_WEAK_REFERENCEABLE(data);
 };
 
-#if !JUCE_WINDOWS
 #pragma clang diagnostic pop
-#endif
-
-
 
 /** A wrapper node that will render its child node to a external data object. */
-template <class T> class offline
+template <class T> class offline : public scriptnode::data::base
 {
 public:
 
-	SN_OPAQUE_WRAPPER(offline, T);
+	static const int NumTables = 0;
+	static const int NumSliderPacks = 0;
+	static const int NumAudioFiles = 1;
+	static const int NumFilters = 0;
+	static const int NumDisplayBuffers = 0;
 
-	SN_EMPTY_PROCESS;
-	SN_EMPTY_PROCESS_FRAME;
-	SN_EMPTY_HANDLE_EVENT;
+	SN_SELF_AWARE_WRAPPER(offline, T);
+
+	HISE_EMPTY_PROCESS;
+	HISE_EMPTY_PROCESS_SINGLE;
+	HISE_EMPTY_PREPARE;
+	HISE_EMPTY_RESET;
+	HISE_EMPTY_HANDLE_EVENT;
 	
 	void initialise(NodeBase* n) { obj.initialise(n); }
 
-	void prepare(PrepareSpecs ps) { obj.prepare(ps); }
+	void setExternalData(const snex::ExternalData& data, int index) override
+	{
+		if (recursion || data.isEmpty())
+			return;
 
-	void reset() { obj.reset(); }
+		ScopedValueSetter<bool> svs(recursion, true);
+
+		PrepareSpecs ps;
+		ps.blockSize = 512;
+		ps.numChannels = data.numChannels;
+		ps.sampleRate = data.sampleRate;
+
+		getWrappedObject().prepare(ps);
+		getWrappedObject().reset();
+		
+		ProcessDataDyn pd((float**)data.data, data.numSamples, data.numChannels);
+
+		ChunkableProcessData cd(pd);
+
+		while (cd.getNumLeft() > ps.blockSize)
+		{
+			auto c = cd.getChunk(ps.blockSize);
+			getWrappedObject().process(c.toData());
+		}
+
+		if (cd.getNumLeft() > 0)
+		{
+			auto c = cd.getRemainder();
+			getWrappedObject().process(c.toData());
+		}
+
+		if (auto af = dynamic_cast<MultiChannelAudioBuffer*>(data.obj))
+		{
+			af->loadBuffer(data.toAudioSampleBuffer(), data.sampleRate);
+		}
+	}
 
 private:
 
 	T obj;
+	bool recursion = false;
 };
 
 #if 0
@@ -1147,10 +862,10 @@ public:
 		jassertfalse;
 	}
 
-	SN_DEFAULT_INIT(T);
-	SN_DEFAULT_RESET(T);
-	SN_DEFAULT_MOD(T);
-	SN_DEFAULT_HANDLE_EVENT(T);
+	HISE_DEFAULT_INIT(T);
+	HISE_DEFAULT_RESET(T);
+	HISE_DEFAULT_MOD(T);
+	HISE_DEFAULT_HANDLE_EVENT(T);
 
 private:
 
@@ -1158,38 +873,17 @@ private:
 };
 #endif
 
-template <class T> struct no_process
-{
-	SN_OPAQUE_WRAPPER(no_process, T);
-
-	SN_DEFAULT_RESET(T);
-	SN_EMPTY_MOD;
-	SN_DEFAULT_INIT(T);
-	SN_EMPTY_PROCESS;
-	SN_EMPTY_PROCESS_FRAME;
-	SN_DEFAULT_PREPARE(T);
-	SN_EMPTY_HANDLE_EVENT;
-
-	template <int P> void setParameter(double v)
-	{
-		this->obj.template setParameter<P>(v);
-	}
-	SN_FORWARD_PARAMETER_TO_MEMBER(no_process)
-
-	T obj;
-};
-
 template <class T> struct no_midi
 {
 	SN_OPAQUE_WRAPPER(no_midi, T);
 
-	SN_DEFAULT_RESET(T);
-	SN_DEFAULT_MOD(T);
-	SN_DEFAULT_INIT(T);
-	SN_DEFAULT_PROCESS(T);
-	SN_DEFAULT_PROCESS_FRAME(T);
-	SN_DEFAULT_PREPARE(T);
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_DEFAULT_RESET(T);
+	HISE_DEFAULT_MOD(T);
+	HISE_DEFAULT_INIT(T);
+	HISE_DEFAULT_PROCESS(T);
+	HISE_DEFAULT_PROCESS_FRAME(T);
+	HISE_DEFAULT_PREPARE(T);
+	HISE_EMPTY_HANDLE_EVENT;
 
 	T obj;
 };
@@ -1200,9 +894,9 @@ template <class T, typename FixBlockClass> struct fix_blockx
 	SN_OPAQUE_WRAPPER(fix_blockx, T);
 
 	
-	SN_DEFAULT_RESET(T);
-	SN_DEFAULT_MOD(T);
-	SN_DEFAULT_HANDLE_EVENT(T);
+	HISE_DEFAULT_RESET(T);
+	HISE_DEFAULT_MOD(T);
+	HISE_DEFAULT_HANDLE_EVENT(T);
 
 	void initialise(NodeBase* n)
 	{
@@ -1222,7 +916,8 @@ template <class T, typename FixBlockClass> struct fix_blockx
 
 	template <typename FrameDataType> void processFrame(FrameDataType& t)
 	{
-		obj.processFrame(t);
+		// should never happen...
+		jassertfalse;
 	}
 
 	T obj;
@@ -1233,124 +928,6 @@ template <int BlockSize, class T> struct fix_block: public fix_blockx<T, static_
 {
 };
 
-template <class T> struct dynamic_blocksize
-{
-	SN_SELF_AWARE_WRAPPER(dynamic_blocksize, T);
-	
-    // A oversample node is never polyphonic
-    static constexpr bool isPolyphonic() { return false; }
-    
-	// Forward the get calls to the wrapped container
-	template <int arg> constexpr auto& get() noexcept { return this->obj.template get<arg>(); }
-	template <int arg> constexpr const auto& get() const noexcept { return this->obj.template get<arg>(); }
-
-    template <int P> void setParameter(double newValue)
-    {
-		static_assert(P == 0, "illegal parameter index");
-
-        if constexpr(P == 0)
-            this->setBlockSize(newValue);
-    }
-	SN_FORWARD_PARAMETER_TO_MEMBER(dynamic_blocksize);
-
-	forcedinline void reset() noexcept 
-	{
-		obj.reset();
-	}
-
-	void prepare(PrepareSpecs ps)
-	{
-		lastSpecs = ps;
-		
-		ps.blockSize = jmin(ps.blockSize, currentBlockSize);
-		obj.prepare(ps);
-	}
-
-	void initialise(NodeBase* n)
-	{
-		obj.initialise(n);
-	}
-
-	void handleHiseEvent(HiseEvent& e)
-	{
-		obj.handleHiseEvent(e);
-	}
-
-	template <typename FrameDataType> void processFrame(FrameDataType& data) noexcept
-	{
-		obj.processFrame(data);
-	}
-	
-	template <typename ProcessDataType>  void process(ProcessDataType& data)
-	{
-#define BLOCKSIZE_CASE(x) case x: static_functions::fix_block<x>::process(&obj, prototypes::static_wrappers<T>::template process<ProcessDataType>, data); break;
-
-		if(auto sl = SimpleReadWriteLock::ScopedTryReadLock(lock))
-		{
- 			switch(currentBlockSize)
- 			{
- 			case 1:
- 			{
- 				constexpr int C = ProcessDataType::getNumFixedChannels();
-
-				if constexpr (ProcessDataType::hasCompileTimeSize())
-					FrameConverters::processFix<C>(&obj, data);
-				else
-					FrameConverters::forwardToFrame16(&obj, data);
-
- 				break;
- 			}
- 			BLOCKSIZE_CASE(8);
-			BLOCKSIZE_CASE(16);
-			BLOCKSIZE_CASE(32);
-			BLOCKSIZE_CASE(64);
-			BLOCKSIZE_CASE(128);
-			BLOCKSIZE_CASE(256);
-			BLOCKSIZE_CASE(512);
- 			}
-		}
-#undef BLOCKSIZE_CASE	
-	}
-
-	void setBlockSize(double newBlockSize)
-	{
-		static const std::array<int, 8> BlockSizes = { 1, 8, 16, 32, 64, 128, 256, 512 };
-
-		auto idx = roundToInt(newBlockSize);
-
-		if(isPositiveAndBelow(idx, BlockSizes.size()))
-		{
-			auto nb = BlockSizes[idx];
-
-			if(nb != currentBlockSize)
-			{
-				currentBlockSize = nb;
-				SimpleReadWriteLock::ScopedWriteLock sl(lock);
-				this->prepare(lastSpecs);
-			}
-		}
-	}
-
-	int getBlockSize() const { return currentBlockSize; }
-
-private:
-
-	PrepareSpecs lastSpecs;
-
-	int currentBlockSize = 64;
-
-	static_functions::fix_block<8> b8;
-	static_functions::fix_block<16> b16;
-	static_functions::fix_block<32> b32;
-	static_functions::fix_block<64> b64;
-	static_functions::fix_block<128> b128;
-	static_functions::fix_block<256> b256;
-	static_functions::fix_block<512> b512;
-
-	T obj;
-
-	hise::SimpleReadWriteLock lock;
-};
 
 
 /** Downsamples the incoming signal with the HISE_EVENT_RASTER value
@@ -1470,8 +1047,6 @@ template <class ParameterClass, class T> struct mod
 		checkModValue();
 	}
 
-	static Identifier getStaticId() { return T::getStaticId(); }
-
 	/** Resets the node and sends a modulation signal if required. */
 	void reset() noexcept 
 	{
@@ -1565,14 +1140,9 @@ private:
 };
 
 
-template <typename T> struct illegal_poly: public scriptnode::data::base,
-										   public polyphonic_base
+template <typename T> struct illegal_poly: public scriptnode::data::base
 {
 	SN_GET_SELF_AS_OBJECT(illegal_poly);
-
-	illegal_poly():
-	  polyphonic_base("illegal_poly", false)
-	{};
 
 	static Identifier getStaticId() { return T::getStaticId(); }
 
@@ -1591,11 +1161,11 @@ template <typename T> struct illegal_poly: public scriptnode::data::base,
     
 	SN_DESCRIPTION("(not available in a poly network)");
 
-	SN_EMPTY_PROCESS;
-	SN_EMPTY_PROCESS_FRAME;
-	SN_EMPTY_RESET;
-	SN_EMPTY_HANDLE_EVENT;
-	SN_EMPTY_MOD;
+	HISE_EMPTY_PROCESS;
+	HISE_EMPTY_PROCESS_SINGLE;
+	HISE_EMPTY_RESET;
+	HISE_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_MOD;
 	
 	void initialise(NodeBase* n) { obj.initialise(n); }
 
@@ -1620,24 +1190,12 @@ template <class T> struct node : public scriptnode::data::base
 	static constexpr bool isModulationSource = T::isModulationSource;
 	static constexpr bool isNormalisedModulation() { return true; };
 
-	static constexpr bool hasTail() { return T::hasTail(); }
-
-	static constexpr bool isSuspendedOnSilence() 
-	{ 
-		if constexpr (prototypes::check::isSuspendedOnSilence<T>::value)
-			return T::isSuspendedOnSilence();
-		else
-			return false;
-	}
-
 	static constexpr int NumChannels =	  MetadataClass::NumChannels;
 	static constexpr int NumTables =	  MetadataClass::NumTables;
 	static constexpr int NumSliderPacks = MetadataClass::NumSliderPacks;
 	static constexpr int NumAudioFiles =  MetadataClass::NumAudioFiles;
 	static constexpr int NumFilters =  MetadataClass::NumFilters;
 	static constexpr int NumDisplayBuffers = MetadataClass::NumDisplayBuffers;
-
-	static constexpr int getFixChannelAmount() { return NumChannels; };
 
 	// We treat everything in this node as opaque...
 	SN_GET_SELF_AS_OBJECT(node);
@@ -1665,7 +1223,7 @@ template <class T> struct node : public scriptnode::data::base
 		T::template setParameterStatic<P>(objPtr, v);
 	}
 
-	SN_PARAMETER_MEMBER_FUNCTION;
+	PARAMETER_MEMBER_FUNCTION;
 
 	void process(FixBlockType& d)
 	{
@@ -1704,16 +1262,16 @@ template <class T> struct node : public scriptnode::data::base
 	{
 		if constexpr (prototypes::check::isPolyphonic<T>::value)
 			return obj.isPolyphonic();
-		else
-			return false;
+
+		return false;
 	}
 
 	static constexpr bool isProcessingHiseEvent()
 	{
 		if constexpr (prototypes::check::isProcessingHiseEvent<T>::value)
 			return T::isProcessingHiseEvent();
-		else
-			return false;
+
+		return false;
 	}
 
 	void reset() noexcept { obj.reset(); }
@@ -1722,8 +1280,8 @@ template <class T> struct node : public scriptnode::data::base
 	{
 		if constexpr(prototypes::check::handleModulation<T>::value)
 			return obj.handleModulation(value);
-		else
-			return false;
+
+		return false;
 	}
 
 	void setExternalData(const ExternalData& d, int index) override
@@ -1731,12 +1289,6 @@ template <class T> struct node : public scriptnode::data::base
 		if constexpr (prototypes::check::setExternalData<T>::value)
 			obj.setExternalData(d, index);
 	}
-    
-    void connectToRuntimeTarget(bool add, const runtime_target::connection& c)
-    {
-        if constexpr (prototypes::check::connectToRuntimeTarget<T>::value)
-            obj.connectToRuntimeTarget(add, c);
-    }
 
 	void createParameters(ParameterDataList& data)
 	{
@@ -1744,8 +1296,6 @@ template <class T> struct node : public scriptnode::data::base
 		obj.parameters.addToList(l);
 
 		auto peList = parameter::encoder::fromNode<node>();
-
-		
 
 		for (const parameter::pod& p : peList)
 		{
@@ -1756,8 +1306,7 @@ template <class T> struct node : public scriptnode::data::base
 			}
 		}
 
-		if (!peList.isEmpty())
-			data.addArray(l);
+		data.addArray(l);
 	}
 
 

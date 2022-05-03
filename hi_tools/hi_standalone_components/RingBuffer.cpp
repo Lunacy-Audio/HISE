@@ -674,9 +674,10 @@ AhdsrGraph::~AhdsrGraph()
 
 void AhdsrGraph::paint(Graphics &g)
 {
+	getSpecialLookAndFeel<RingBufferComponentBase::LookAndFeelMethods>()->drawOscilloscopeBackground(g, *this, getLocalBounds().toFloat());
+
 	auto laf = getSpecialLookAndFeel<LookAndFeelMethods>();
 
-	laf->drawAhdsrBackground(g, *this);
 	laf->drawAhdsrPathSection(g, *this, envelopePath, false);
 
 
@@ -878,11 +879,7 @@ void AhdsrGraph::rebuildGraph()
 	//envelopePath.closeSubPath();
 }
 
-void AhdsrGraph::LookAndFeelMethods::drawAhdsrBackground(Graphics& g, AhdsrGraph& graph)
-{
-	g.setColour(graph.getColourForAnalyserBase(RingBufferComponentBase::bgColour));
-	g.fillRect(graph.getLocalBounds());
-}
+
 
 void AhdsrGraph::LookAndFeelMethods::drawAhdsrPathSection(Graphics& g, AhdsrGraph& graph, const Path& s, bool isActive)
 {

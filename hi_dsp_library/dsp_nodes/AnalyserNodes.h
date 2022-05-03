@@ -80,7 +80,7 @@ struct Helpers
 
 		int getClassIndex() const override { return PropertyIndex; }
 
-		SN_NODE_ID("fft");
+		SET_HISE_NODE_ID("fft");
 
 		static String getDescription() { return "A FFT analyser"; };
 
@@ -352,7 +352,7 @@ struct Helpers
 
 		int getClassIndex() const override { return PropertyIndex; }
 
-		SN_NODE_ID("oscilloscope");
+		SET_HISE_NODE_ID("oscilloscope");
 
 		static String getDescription() { return "an oscilloscope with optional MIDI input sync"; };
 
@@ -407,7 +407,7 @@ struct Helpers
 
 		static String getDescription() { return "A goniometer (stereo correlation display)."; };
 
-		SN_NODE_ID("goniometer");
+		SET_HISE_NODE_ID("goniometer");
 
 		GonioMeter(SimpleRingBuffer::WriterBase* w) : PropertyObject(w) {};
 
@@ -433,10 +433,10 @@ template <class T> class analyse_base : public Helpers::AnalyserDataProvider,
 {
 public:
 
-	SN_NODE_ID(T::getStaticId());
+	SET_HISE_NODE_ID(T::getStaticId());
     SN_GET_SELF_AS_OBJECT(analyse_base);
     
-	SN_EMPTY_MOD;
+	HISE_EMPTY_MOD;
 	
 	constexpr bool isProcessingHiseEvent() const { return std::is_same<T, Helpers::Oscilloscope>(); }
 

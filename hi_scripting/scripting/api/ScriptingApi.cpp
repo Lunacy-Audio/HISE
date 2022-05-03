@@ -1096,7 +1096,6 @@ void ScriptingApi::Message::onAllNotesOff()
 struct ScriptingApi::Engine::Wrapper
 {
 	API_VOID_METHOD_WRAPPER_0(Engine, allNotesOff);
-	API_METHOD_WRAPPER_0(Engine, getProjectInfo);
 	API_METHOD_WRAPPER_0(Engine, getUptime);
 	API_METHOD_WRAPPER_0(Engine, getHostBpm);
 	API_VOID_METHOD_WRAPPER_1(Engine, setHostBpm);
@@ -1216,7 +1215,6 @@ struct ScriptingApi::Engine::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Engine, loadFont);
 	API_VOID_METHOD_WRAPPER_2(Engine, loadFontAs);
 	API_VOID_METHOD_WRAPPER_1(Engine, setGlobalFont);
-	API_VOID_METHOD_WRAPPER_0(Engine, quit);
 	API_VOID_METHOD_WRAPPER_0(Engine, undo);
 	API_VOID_METHOD_WRAPPER_0(Engine, redo);
     API_VOID_METHOD_WRAPPER_0(Engine, clearUndoHistory);
@@ -1254,7 +1252,6 @@ ScriptingObject(p),
 ApiClass(0),
 parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 {
-	ADD_API_METHOD_0(getProjectInfo);
 	ADD_API_METHOD_0(allNotesOff);
 	ADD_API_METHOD_0(getUptime);
 	ADD_API_METHOD_0(getHostBpm);
@@ -1369,7 +1366,6 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_1(extendTimeOut);
 	ADD_API_METHOD_0(getControlRateDownsamplingFactor);
     ADD_API_METHOD_1(createFixObjectFactory);
-	ADD_API_METHOD_0(quit);
 	ADD_API_METHOD_0(undo);
 	ADD_API_METHOD_0(redo);
     ADD_API_METHOD_0(clearUndoHistory);
@@ -3458,10 +3454,6 @@ void ScriptingApi::Engine::loadImageIntoPool(const String& id)
 	auto mc = getScriptProcessor()->getMainController_();
 
 	auto pool = mc->getCurrentImagePool();
-
-	if (auto e = mc->getExpansionHandler().getExpansionForWildcardReference(id))
-		pool = &e->pool->getImagePool();
-
 	const bool isWildcard = id.contains("*");
 
 	if (isWildcard)
@@ -3737,7 +3729,6 @@ String ScriptingApi::Engine::doubleToString(double value, int digits)
 {
     return String(value, digits);
 }
-
 
 float ScriptingApi::Engine::getStringWidth(String text, String fontName, float fontSize, float fontSpacing)
 {
@@ -7843,28 +7834,6 @@ var ScriptingApi::Server::downloadFile(String subURL, var parameters, var target
 {
 	if (auto sf = dynamic_cast<ScriptingObjects::ScriptFile*>(targetFile.getObject()))
 	{
-		if (subURL.contains("?") && parameters.getDynamicObject() != nullptr && parameters.getDynamicObject()->getProperties().isEmpty())
-		{
-			auto parameterObject = new DynamicObject();
-			auto realSubURL = subURL.upToFirstOccurrenceOf("?", false, false);
-			auto parameterString = subURL.fromFirstOccurrenceOf("?", false, false);
-			auto parameterObjects = StringArray::fromTokens(parameterString, "&", "");
-
-			for (auto po : parameterObjects)
-			{
-				auto key = po.upToFirstOccurrenceOf("=", false, false);
-				auto value = po.fromFirstOccurrenceOf("=", false, false);
-
-				if (!key.isEmpty() && !value.isEmpty())
-				{
-					parameterObject->setProperty(Identifier(key), var(value));
-				}
-			}
-
-			parameters = var(parameterObject);
-			subURL = realSubURL;
-		}
-
 		if (sf->f.isDirectory())
 		{
 			reportScriptError("target file is a directory");

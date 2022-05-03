@@ -541,6 +541,9 @@ public:
         /** Returns the absolute y-position relative to the interface. */
         int getGlobalPositionY();
         
+		/** Returns list of component's children */
+		var getChildComponents();
+				
 		/** Returns a [x, y, w, h] array that was reduced by the given amount. */
 		var getLocalBounds(float reduceAmount);
 
@@ -569,7 +572,7 @@ public:
 		void setControlCallback(var controlFunction);
 
 		/** Call this to indicate that the value has changed (the onControl callback will be executed. */
-		void changed();
+		virtual void changed();
 
 		/** Returns a list of all property IDs as array. */
 		var getAllProperties();
@@ -582,6 +585,9 @@ public:
 
 		/** Call this method in order to give away the focus for this component. */
 		void loseFocus();
+
+		/** Attaches the local look and feel to this component. */
+		void setLocalLookAndFeel(var lafObject);
 
 		// End of API Methods ============================================================================================
 
@@ -614,6 +620,10 @@ public:
 		struct Wrapper;
 
 		bool isConnectedToProcessor() const;;
+
+		bool isConnectedToGlobalCable() const;
+
+		void sendGlobalCableValue(var v);
 
 		Processor* getConnectedProcessor() const { return connectedProcessor.get(); };
 
@@ -661,6 +671,10 @@ public:
 			return scriptChangedProperties.contains(id);
 		}
 
+		void repaintThisAndAllChildren();
+
+
+
 		void setPropertyToLookFor(const Identifier& id)
 		{
 			searchedProperty = id;
@@ -680,6 +694,9 @@ public:
 				}
 			}
 		}
+
+		/** Returns a local look and feel if it was registered before. */
+		LookAndFeel* createLocalLookAndFeel();
 
 		static Array<Identifier> numberPropertyIds;
 		static bool numbersInitialised;
@@ -748,6 +765,8 @@ public:
 
 	private:
 
+		var localLookAndFeel;
+
 		WeakCallbackHolder keyboardCallback;
 
 		struct AsyncControlCallbackSender : private UpdateDispatcher::Listener
@@ -770,6 +789,8 @@ public:
             ProcessorWithScriptingContent* p;
         };
         
+		struct GlobalCableConnection;
+
 		AsyncControlCallbackSender controlSender;
 
 		bool isPositionProperty(Identifier id) const;
@@ -801,6 +822,8 @@ public:
 
 		WeakReference<Processor> connectedProcessor;
 		int connectedParameterIndex = -1;
+
+		ScopedPointer<GlobalCableConnection> globalConnection;
 
         int connectedMacroIndex = -1;
         bool macroRecursionProtection = false;
@@ -866,6 +889,7 @@ public:
 		/** Set the value from a 0.0 to 1.0 range */
 		void setValueNormalized(double normalizedValue) override;
 
+		/** Returns the normalized value. */
 		double getValueNormalized() const override;
 
 		/** Sets the range and the step size of the knob. */
@@ -1137,7 +1161,8 @@ public:
 
 
 	struct ComplexDataScriptComponent : public ScriptComponent,
-										public ExternalDataHolder
+										public ExternalDataHolder,
+										public ComplexDataUIUpdaterBase::EventListener
 	{
 		ComplexDataScriptComponent(ProcessorWithScriptingContent* base, Identifier name, snex::ExternalData::DataType type_);;
 			
@@ -1222,17 +1247,38 @@ public:
 				otherHolder = cd;
 				updateCachedObjectReference();
 			}
+			else if ((newData.isInt() || newData.isInt64()) && (int)newData == -1)
+			{
+				// just go back to its own data object
+				otherHolder = nullptr;
+				updateCachedObjectReference();
+			}
 		}
 
 		ComplexDataUIBase* getCachedDataObject() const { return cachedObjectReference.get(); };
 
 		var registerComplexDataObjectAtParent(int index = -1);
 
+		void onComplexDataEvent(ComplexDataUIUpdaterBase::EventType t, var data) override
+		{
+			
+		}
+
+		ComplexDataUIBase::SourceWatcher& getSourceWatcher() { return sourceWatcher; }
+
 	protected:
 
 		void updateCachedObjectReference()
 		{
+			if (cachedObjectReference != nullptr)
+				cachedObjectReference->getUpdater().removeEventListener(this);
+
 			cachedObjectReference = getComplexBaseType(type, 0);
+
+			if (cachedObjectReference != nullptr)
+				cachedObjectReference->getUpdater().addEventListener(this);
+
+			sourceWatcher.setNewSource(cachedObjectReference);
 		}
 
 	private:
@@ -1248,6 +1294,8 @@ public:
 
 		WeakReference<ComplexDataUIBase> cachedObjectReference;
 		ReferenceCountedObjectPtr<ComplexDataUIBase> ownedObject;
+
+		ComplexDataUIBase::SourceWatcher sourceWatcher;
 	};
 
 	struct ScriptTable : public ComplexDataScriptComponent
@@ -1287,14 +1335,14 @@ public:
 			setScriptObjectProperty(getIndexPropertyId(), index, sendNotification);
 		}
 
-		/** Returns the table value from 0.0 to 1.0 according to the input value from 0 to 127. */
-		float getTableValue(int inputValue);
+		/** Returns the table value from 0.0 to 1.0 according to the input value from 0.0 to 1.0. */
+		float getTableValue(float inputValue);
 
 		/** Connects the table to an existing Processor. */
 		/** Makes the table snap to the given x positions (from 0.0 to 1.0). */
 		void setSnapValues(var snapValueArray);
 
-		/** Connects it to a table data object (or UI element in the same interface). */
+		/** Connects it to a table data object (or UI element in the same interface). -1 sets it back to its internal data object. */
 		void referToData(var tableData);
 
 		/** Registers this table (and returns a reference to the data) with the given index so you can use it from the outside. */
@@ -1356,7 +1404,7 @@ public:
 
 		// ======================================================================================================== API Methods
 
-		/** Connects this SliderPack to an existing SliderPackData object. */
+		/** Connects this SliderPack to an existing SliderPackData object. -1 sets it back to its internal data object. */
 		void referToData(var sliderPackData);
 
 		/** sets the slider value at the given index.*/
@@ -1377,7 +1425,11 @@ public:
 		/** Registers this sliderpack to the script processor to be acessible from the outside. */
 		var registerAtParent(int pIndex);
 
+		void onComplexDataEvent(ComplexDataUIUpdaterBase::EventType t, var data) override;
+
 		// ========================================================================================================
+
+		void changed() override;
 
 		struct Wrapper;
 
@@ -1405,6 +1457,7 @@ public:
 			showLines,
 			showFileName,
 			sampleIndex,
+			enableRange,
 			numProperties
 		};
 
@@ -1421,6 +1474,22 @@ public:
 		virtual Identifier 	getObjectName() const override { return getStaticObjectName(); };
 		ScriptCreatedComponentWrapper *createComponentWrapper(ScriptContentComponent *content, int index) override;
 
+		// ======================================================================================================== API Methods
+
+		/** Connects this AudioFile to an existing ScriptAudioFile object. -1 sets it back to its internal data object. */
+		void referToData(var audioData);
+
+		/** Returns the current range start. */
+		int getRangeStart();
+
+		/** Returns the current range end. */
+		int getRangeEnd();
+
+		/** Registers this waveform to the script processor to be acessible from the outside. */
+		var registerAtParent(int pIndex);
+
+		// ========================================================================================================
+
 		void handleDefaultDeactivatedProperties() override;
 
 		void resetValueToDefault() override;
@@ -1434,6 +1503,8 @@ public:
 		// ========================================================================================================
 
 	private:
+
+		struct Wrapper;
 
 		MultiChannelAudioBuffer* getCachedAudioFile() { return static_cast<MultiChannelAudioBuffer*>(getCachedDataObject()); };
 		const MultiChannelAudioBuffer* getCachedAudioFile() const { return static_cast<const MultiChannelAudioBuffer*>(getCachedDataObject()); };
@@ -1456,6 +1527,7 @@ public:
 			Offset,
 			Scale,
 			AllowCallbacks,
+			BlendMode,
 			PopupMenuItems,
 			PopupOnRightClick,
 			numProperties
@@ -1496,7 +1568,13 @@ public:
 
 	private:
 
+		void updateBlendMode();
+
+		Image blendImage;
+
 		PooledImage image;
+
+		gin::BlendMode blendMode = gin::BlendMode::Normal;
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ScriptImage);
 		JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptImage);
@@ -1648,6 +1726,9 @@ public:
 		/** Loads a image which can be drawn with the paint function later on. */
 		void loadImage(String imageName, String prettyName);
 
+		/** Unload all images from the panel. */
+		void unloadAllImages();
+
 		/** If `allowedDragging` is enabled, it will define the boundaries where the panel can be dragged. */
 		void setDraggingBounds(var area);
 
@@ -1695,7 +1776,6 @@ public:
 
 #if HISE_INCLUDE_RLOTTIE
 		bool isAnimationActive() const { return animation != nullptr && animation->isValid(); }
-
 		RLottieAnimation::Ptr getAnimation() { return animation.get(); }
 #endif
 
@@ -1712,20 +1792,7 @@ public:
 
 		void setScriptObjectPropertyWithChangeMessage(const Identifier &id, var newValue, NotificationType notifyEditor=sendNotification) override
 		{
-			if (id == getIdFor((int)ScriptComponent::Properties::visible))
-			{
-				const bool wasVisible = (bool)getScriptObjectProperty(visible);
-
-				const bool isNowVisible = (bool)newValue;
-
-				setScriptObjectProperty(visible, newValue);
-
-				if (wasVisible != isNowVisible)
-				{
-					repaintThisAndAllChildren();
-
-				}
-			}
+			
 
 			ScriptComponent::setScriptObjectPropertyWithChangeMessage(id, newValue, notifyEditor);
 
@@ -1741,8 +1808,6 @@ public:
 			}
 #endif
 		}
-
-		void repaintThisAndAllChildren();
 
 		struct Wrapper;
 
@@ -1831,8 +1896,9 @@ public:
 		void updateAnimationData();
 		ScopedPointer<RLottieAnimation> animation;
 		var animationData;
-		Array<WeakReference<AnimationListener>> animationListeners;
 #endif
+
+		Array<WeakReference<AnimationListener>> animationListeners;
 
 		bool shownAsPopup = false;
 		bool isModalPopup = false;
@@ -2032,18 +2098,7 @@ public:
 	};
 
 
-	struct ScreenshotListener
-	{
-        virtual ~ScreenshotListener() {};
-        
-		virtual void makeScreenshot(const File& targetFile, Rectangle<float> area) = 0;
-
-		virtual void visualGuidesChanged() = 0;
-
-	private:
-
-		JUCE_DECLARE_WEAK_REFERENCEABLE(ScreenshotListener);
-	};
+	using ScreenshotListener = ScreenshotListener;
 
 	struct VisualGuide
 	{
@@ -2106,7 +2161,7 @@ public:
 	ScriptSliderPack *addSliderPack(Identifier sliderPackName, int x, int y);
 
 	/** Adds a viewport. */
-	ScriptedViewport* addScriptedViewport(Identifier viewportName, int x, int y);
+	ScriptedViewport* addViewport(Identifier viewportName, int x, int y);
 
 	/** Adds a floating layout component. */
 	ScriptFloatingTile* addFloatingTile(Identifier floatingTileName, int x, int y);
@@ -2171,6 +2226,9 @@ public:
 	/** Set this to true to render all script panels with double resolution for retina or rescaling. */
 	void setUseHighResolutionForPanels(bool shouldUseDoubleResolution);
 
+	/** Creates a look and feel that you can attach manually to certain components. */
+	var createLocalLookAndFeel();
+
 	// ================================================================================================================
 
 	// Restores the content and sets the attributes so that the macros and the control callbacks gets executed.
@@ -2205,7 +2263,7 @@ public:
 	bool isEmpty();
 	int getNumComponents() const noexcept{ return components.size(); };
 	ScriptComponent *getComponent(int index);
-	const ScriptComponent *getComponent(int index) const { return components[index]; };
+	const ScriptComponent *getComponent(int index) const { return components[index].get(); };
 	ScriptComponent * getComponentWithName(const Identifier &componentName);
 	const ScriptComponent * getComponentWithName(const Identifier &componentName) const;
 	int getComponentIndex(const Identifier &componentName) const;
@@ -2230,9 +2288,14 @@ public:
 		return contentPropertyData;
 	}
 
-	void setScreenshotListener(ScreenshotListener* l)
+	void addScreenshotListener(ScreenshotListener* l)
 	{
-		screenshotListener = l;
+		screenshotListeners.addIfNotAlreadyThere(l);
+	}
+
+	void removeScreenshotListener(ScreenshotListener* l)
+	{
+		screenshotListeners.removeAllInstancesOf(l);
 	}
 
 	var getValuePopupProperties() const { return valuePopupData; };
@@ -2419,7 +2482,7 @@ private:
 		}
 	};
 
-	WeakReference<ScreenshotListener> screenshotListener;
+	Array<WeakReference<ScreenshotListener>> screenshotListeners;
 
 	static void initNumberProperties();
 

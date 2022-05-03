@@ -162,13 +162,9 @@ public:
 
 	String getNodeDescription() const override { return "Allows soft bypassing without clicks"; }
 
-	void updateSmoothingTime(Identifier id, var newValue);
-
 private:
 
-	NodePropertyT<int> smoothingTime;
-
-	using WrapperType = bypass::smoothed<-1, SerialNode::DynamicSerialProcessor>;
+	using WrapperType = bypass::smoothed<SerialNode::DynamicSerialProcessor>;
 	
 	WrapperType obj;
 };
@@ -189,7 +185,7 @@ public:
 
 private:
 
-	wrap::offline<SerialNode::DynamicSerialProcessor> obj;
+	wrap::data<wrap::offline<SerialNode::DynamicSerialProcessor>, scriptnode::data::dynamic::audiofile> obj;
 };
 
 namespace wrap {
@@ -233,8 +229,7 @@ public:
 		DEF_PARAMETER(SplitSignal, CloneNode);
 	}
 
-	SN_PARAMETER_MEMBER_FUNCTION;
-	SN_REGISTER_CALLBACK(CloneNode);
+	PARAMETER_MEMBER_FUNCTION;
 
 	SCRIPTNODE_FACTORY(CloneNode, "clone");
 
@@ -409,8 +404,6 @@ private:
     valuetree::RecursivePropertyListener complexDataSyncer;
 };
 
-
-
 template <int OversampleFactor> class OversampleNode : public SerialNode
 {
 public:
@@ -442,61 +435,15 @@ public:
         DEF_PARAMETER(OversamplingFactor, OversampleNode);
     }
 
-    SN_PARAMETER_MEMBER_FUNCTION;
+    PARAMETER_MEMBER_FUNCTION;
 
     void setOversamplingFactor(double newFactor)
     {
-		if (!hasFixedParameters())
-			return;
-
-		obj.setOversamplingFactor(newFactor);
-
-		// We need to call this dynamically because the DynamicSerialProcessor::prepare does nothing
-		if(lastSpecs)
-			prepareNodes(lastSpecs);
+        obj.setOversamplingFactor(jlimit(0, 16, (int)newFactor));
     }
     
-    bool hasFixedParameters() const final override { return OversampleFactor == -1; }
+    virtual bool hasFixedParameters() const { return OversampleFactor == -1; }
     
-	Component* createLeftTabComponent() const override
-	{
-		if (hasFixedParameters())
-			return new Component();
-		else
-			return nullptr;
-	}
-
-	ParameterDataList createInternalParameterList() override
-	{
-		ParameterDataList data;
-
-		{
-			auto maxExponent = wrap::oversample_base::MaxOversamplingExponent;
-
-			parameter::data p("Oversampling");
-			p.callback = parameter::inner<OversampleNode<OversampleFactor>, (int)Parameters::OversamplingFactor>(*this);
-			p.setRange({ 0.0, (double)maxExponent, 1.0 });
-			
-			StringArray sa;
-			sa.add("None");
-
-			for (int i = 1; i < maxExponent + 1; i++)
-			{
-				auto os = (int)(std::pow(2.0, (double)(i)));
-				String name;
-				name << (int)os << "x";
-				sa.add(name);
-			}
-			
-			p.setParameterValueNames(sa);
-
-			p.setDefaultValue(1.0);
-			data.add(std::move(p));
-		}
-
-		return data;
-	}
-
 	double getSampleRateForChildNodes() const override;
 
 	int getBlockSizeForChildNodes() const override;
@@ -519,71 +466,7 @@ public:
 	wrap::oversample<OversampleFactor, SerialNode::DynamicSerialProcessor> obj;
 };
 
-class RepitchNode : public SerialNode
-{
-public:
 
-    
-    
-    SCRIPTNODE_FACTORY(RepitchNode, "repitch");
-
-    String getNodeDescription() const override { return "Resamples the audio signal and processes its child nodes with a different sample rate"; }
-
-    RepitchNode(DspNetwork* network, ValueTree d);
-
-	enum Parameters
-    {
-        RepitchFactor,
-        Interpolation,
-        numParameters
-    };
-
-    DEFINE_PARAMETERS
-    {
-        DEF_PARAMETER(RepitchFactor, RepitchNode);
-        DEF_PARAMETER(Interpolation, RepitchNode);
-    }
-
-    SN_PARAMETER_MEMBER_FUNCTION;
-    
-    void setRepitchFactor(double s)
-    {
-        obj.setParameter<0>(s);
-    }
-    
-    void setInterpolation(double s)
-    {
-        obj.setParameter<1>(s);
-    }
-    
-    void process(ProcessDataDyn& data) final;
-
-    void processFrame(FrameType& data) noexcept final override
-    {
-        
-    }
-
-    void processMonoFrame(MonoFrameType& data) override;
-
-    void processStereoFrame(StereoFrameType& data);
-
-    void prepare(PrepareSpecs ps) final;
-
-    void reset() final;
-
-    void handleHiseEvent(HiseEvent& e) final;
-
-    void setBypassed(bool shouldBeBypassed) override
-    {
-        
-    }
-
-    virtual bool hasFixedParameters() const { return true; }
-    
-    ParameterDataList createInternalParameterList() override;
-
-    wrap::repitch<DynamicSerialProcessor, wrap::interpolators::dynamic> obj;
-};
 
 template <int B> class FixedBlockNode : public SerialNode
 {
@@ -599,10 +482,7 @@ public:
 
 	void process(ProcessDataDyn& data) final override;
 
-	void processFrame(FrameType& data) noexcept final override;
-
-	void processMonoFrame(MonoFrameType& data);
-	void processStereoFrame(StereoFrameType& data);
+	void processFrame(FrameType& data) noexcept final override { jassertfalse; }
 
 	void prepare(PrepareSpecs ps) final override;
 	void reset() final override;
@@ -610,13 +490,14 @@ public:
 
 	int getBlockSizeForChildNodes() const override
 	{
-		return (isBypassed() || originalBlockSize == 1) ? originalBlockSize : FixedBlockSize;
+		return isBypassed() ? originalBlockSize : FixedBlockSize;
 	}
 
 	void setBypassed(bool shouldBeBypassed) override;
 
 	wrap::fix_block<FixedBlockSize, DynamicSerialProcessor> obj;
 };
+
 
 
 class FixedBlockXNode : public SerialNode
@@ -657,7 +538,7 @@ public:
 		void prepare(void* obj, prototypes::prepare f, const PrepareSpecs& ps)
 		{
 			originalSpecs = ps;
-			auto ps_ = ps.withBlockSize(blockSize, true);
+			auto ps_ = ps.withBlockSize(blockSize);
 			f(obj, &ps_);
 		}
 
@@ -690,7 +571,7 @@ public:
 
 	void process(ProcessDataDyn& data) final override;
 
-	void processFrame(FrameType& data) noexcept final override;
+	void processFrame(FrameType& data) noexcept final override { jassertfalse; }
 
 	void prepare(PrepareSpecs ps) final override;
 	void reset() final override;
@@ -700,7 +581,7 @@ public:
 
 	int getBlockSizeForChildNodes() const override
 	{
-		return (isBypassed() || originalBlockSize == 1) ? originalBlockSize : obj.fbClass.blockSize;
+		return isBypassed() ? originalBlockSize : obj.fbClass.blockSize;
 	}
 
 	void setBypassed(bool shouldBeBypassed) override;
@@ -708,54 +589,6 @@ public:
 	wrap::fix_blockx<DynamicSerialProcessor, DynamicBlockProperty> obj;
 };
 
-class DynamicBlockSizeNode : public SerialNode
-{
-public:
-    
-    SCRIPTNODE_FACTORY(DynamicBlockSizeNode, "dynamic_blocksize");
-
-    String getNodeDescription() const override { return "A container that processes its childnode with a dynamic buffer size"; }
-
-    DynamicBlockSizeNode(DspNetwork* network, ValueTree d);
-
-	enum Parameters
-    {
-        BlockSize,
-        numParameters
-    };
-
-    DEFINE_PARAMETERS
-    {
-        DEF_PARAMETER(BlockSize, DynamicBlockSizeNode);
-    }
-
-    SN_PARAMETER_MEMBER_FUNCTION;
-    
-    void setBlockSize(double s);
-
-    void process(ProcessDataDyn& data) final;
-    void processFrame(FrameType& data) noexcept final;
-    void processMonoFrame(MonoFrameType& data) override;
-    void processStereoFrame(StereoFrameType& data) override;
-
-    int getBlockSizeForChildNodes() const override
-	{
-		return (isBypassed() || originalBlockSize == 1) ? originalBlockSize : obj.getBlockSize();
-	}
-
-    void prepare(PrepareSpecs ps) final;
-    void reset() final;
-    void handleHiseEvent(HiseEvent& e) final;
-    void setBypassed(bool shouldBeBypassed) override {}
-    bool hasFixedParameters() const override { return true; }
-    
-    ParameterDataList createInternalParameterList() override;
-
-private:
-
-    int blockSize = 64;
-	wrap::dynamic_blocksize<DynamicSerialProcessor> obj;
-};
 
 class SplitNode : public ParallelNode
 {
@@ -846,48 +679,6 @@ public:
 	Range<int> channelRanges[NUM_MAX_CHANNELS];
 };
 
-class BranchNode : public ParallelNode
-{
-public:
-
-	BranchNode(DspNetwork* root, ValueTree data);;
-
-	SCRIPTNODE_FACTORY(BranchNode, "branch");
-
-	void updateIndexLimit(ValueTree, bool wasAdded);
-
-	String getNodeDescription() const override { return "Processes a single child based on the branch index"; }
-
-	enum Parameters
-    {
-        Index,
-		numParameters
-    };
-
-    DEFINE_PARAMETERS
-    {
-        DEF_PARAMETER(Index, BranchNode);
-    }
-
-    SN_PARAMETER_MEMBER_FUNCTION;
-    
-    void setIndex(double s);
-
-	void prepare(PrepareSpecs ps) final override;
-	void reset() final override;
-	void handleHiseEvent(HiseEvent& e) override;
-	void processFrame(FrameType& data) final override;
-	void process(ProcessDataDyn& d) final override;
-
-	virtual bool hasFixedParameters() const override { return true; }
-    
-    ParameterDataList createInternalParameterList() override;
-
-	valuetree::ChildListener indexRangeUpdater;
-
-	int currentIndex = 0;
-};
-
 class SingleSampleBlockX : public SerialNode
 {
 public:
@@ -909,27 +700,6 @@ public:
 
 	wrap::frame_x<SerialNode::DynamicSerialProcessor> obj;
 	AudioSampleBuffer leftoverBuffer;
-};
-
-class SidechainNode : public SerialNode
-{
-public:
-
-    SidechainNode(DspNetwork* n, ValueTree d);
-
-    SCRIPTNODE_FACTORY(SidechainNode, "sidechain");
-
-    String getNodeDescription() const override { return "Creates a empty audio by duplicating the channel amount for sidechain routing."; }
-
-    void prepare(PrepareSpecs ps) final override;
-    void reset() final override;
-    void process(ProcessDataDyn& data) final override;
-    void processFrame(FrameType& data) final override;
-    int getBlockSizeForChildNodes() const override;;
-    int getNumChannelsToDisplay() const override { return lastSpecs.numChannels * 2; };
-    void handleHiseEvent(HiseEvent& e) override;
-
-    wrap::sidechain<SerialNode::DynamicSerialProcessor> obj;
 };
 
 template <int NumChannels> class SingleSampleBlock : public SerialNode
@@ -970,19 +740,17 @@ public:
 
 	void process(ProcessDataDyn& data) final override
 	{
-        TRACE_DSP();
-        
+		
+
 		if (isBypassed())
 		{
 			NodeProfiler np(this, data.getNumSamples());
-			ProcessDataPeakChecker pd(this, data);
 			obj.getObject().process(data.as<FixProcessType>());
 		}
 			
 		else
 		{
 			NodeProfiler np(this, 1);
-			ProcessDataPeakChecker pd(this, data);
 			float* channels[NumChannels];
 			int numChannels = jmin(NumChannels, data.getNumChannels());
 			memcpy(channels, data.getRawDataPointers(), numChannels * sizeof(float*));
@@ -1009,7 +777,6 @@ public:
 	void processFrame(FrameType& d) final override
 	{
 		jassert(d.size() == NumChannels);
-		FrameDataPeakChecker fd(this, d.begin(), d.size());
 
 		auto& s = FixFrameType::as(d.begin());
 		obj.processFrame(s);

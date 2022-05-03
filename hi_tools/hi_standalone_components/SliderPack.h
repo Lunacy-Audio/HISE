@@ -375,7 +375,6 @@ private:
 	WeakReference<SliderPackData> data;
 	OwnedArray<Slider> sliders;
 
-	JUCE_DECLARE_WEAK_REFERENCEABLE(SliderPack);
 };
 
 

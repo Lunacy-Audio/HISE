@@ -1325,7 +1325,6 @@ var ScriptExpansionHandler::InstallState::getObject()
 	auto newObj = new DynamicObject();
 	newObj->setProperty("Status", status);
 	newObj->setProperty("Progress", getProgress());
-	newObj->setProperty("TotalProgress", getTotalProgress());
 	newObj->setProperty("SourceFile", new ScriptingObjects::ScriptFile(parent.getScriptProcessor(), sourceFile));
 	newObj->setProperty("TargetFolder", new ScriptingObjects::ScriptFile(parent.getScriptProcessor(), targetFolder));
 	newObj->setProperty("SampleFolder", new ScriptingObjects::ScriptFile(parent.getScriptProcessor(), sampleFolder));
@@ -1339,10 +1338,6 @@ double ScriptExpansionHandler::InstallState::getProgress()
 	return parent.getMainController()->getSampleManager().getPreloadProgress();
 }
 
-double ScriptExpansionHandler::InstallState::getTotalProgress()
-{
-	return parent.getMainController()->getExpansionHandler().getTotalProgress();
-}
 
 struct ScriptExpansionReference::Wrapper
 {
@@ -1565,6 +1560,8 @@ var ScriptExpansionReference::loadDataFile(var relativePath)
 
 			if(fileToLoad.existsAsFile())
 				return JSON::parse(fileToLoad.loadFileAsString());
+
+			reportScriptError("Can't find data file " + fileToLoad.getFullPathName());
 		}
 		else
 		{
@@ -1589,6 +1586,10 @@ var ScriptExpansionReference::loadDataFile(var relativePath)
 					return obj;
 
 				reportScriptError("Error at parsing JSON: " + ok.getErrorMessage());
+			}
+			else
+			{
+				reportScriptError("Can't find data file " + ref.getReferenceString());
 			}
 		}
 	}
