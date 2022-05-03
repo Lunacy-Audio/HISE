@@ -78,7 +78,7 @@ struct dynamic
 
 	dynamic();
 
-	SN_EMPTY_SET_PARAMETER;
+	HISE_EMPTY_SET_PARAMETER;
 
 	void prepare(PrepareSpecs ps);
 	void reset();

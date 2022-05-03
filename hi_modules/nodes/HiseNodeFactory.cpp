@@ -608,7 +608,7 @@ template <typename ParameterClass> struct xy :
 	public pimpl::parameter_node_base<ParameterClass>,
 	public pimpl::no_processing
 {
-	SN_NODE_ID("xy");
+	SET_HISE_NODE_ID("xy");
 	SN_GET_SELF_AS_OBJECT(xy);
 	SN_PARAMETER_NODE_CONSTRUCTOR(xy, ParameterClass);
 	
@@ -635,7 +635,7 @@ template <typename ParameterClass> struct xy :
 		DEF_PARAMETER(X, xy);
 		DEF_PARAMETER(Y, xy);
 	};
-	SN_PARAMETER_MEMBER_FUNCTION;
+	PARAMETER_MEMBER_FUNCTION;
 
 	void setX(double v)
 	{
@@ -994,7 +994,7 @@ using gonio_display = data::ui::pimpl::editorT<data::dynamic::displaybuffer,
 
 struct SpecNode: public NodeBase
 {
-	SN_NODE_ID("specs");
+	SET_HISE_NODE_ID("specs");
 
 	struct Comp : public NodeComponent,
 				  public PooledUIUpdater::SimpleTimer

@@ -58,11 +58,11 @@ public:
 
 	static constexpr int NumVoices = V;
 
-	SN_POLY_NODE_ID("sampleandhold");
+	SET_HISE_POLY_NODE_ID("sampleandhold");
 	SN_GET_SELF_AS_OBJECT(sampleandhold_impl);
 	SN_DESCRIPTION("A sample and hold effect node");
 
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
 	sampleandhold_impl();
 
@@ -174,11 +174,11 @@ public:
 
 	static constexpr int NumVoices = V;
 
-	SN_POLY_NODE_ID("bitcrush");
+	SET_HISE_POLY_NODE_ID("bitcrush");
 	SN_GET_SELF_AS_OBJECT(bitcrush_impl);
 	SN_DESCRIPTION("A bitcrusher effect node");
 
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
 	bitcrush_impl();
 
@@ -231,10 +231,10 @@ public:
 		DEF_PARAMETER(Frequency, phase_delay_impl);
 	}
 
-	SN_POLY_NODE_ID("phase_delay");
+	SET_HISE_POLY_NODE_ID("phase_delay");
 	SN_GET_SELF_AS_OBJECT(phase_delay_impl);
 	SN_DESCRIPTION("A phase delay for comb filtering");
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
 	phase_delay_impl();
 
@@ -295,15 +295,15 @@ public:
 		DEF_PARAMETER(Width, reverb);
 		DEF_PARAMETER(Size, reverb);
 	}
-	SN_PARAMETER_MEMBER_FUNCTION;
+	PARAMETER_MEMBER_FUNCTION;
 
-	SN_NODE_ID("reverb");
+	SET_HISE_NODE_ID("reverb");
 	SN_GET_SELF_AS_OBJECT(reverb);
 	SN_DESCRIPTION("The default JUCE reverb implementation");
 
 	bool isPolyphonic() const { return false; }
 
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
 	reverb();
 
@@ -364,10 +364,10 @@ public:
 		DEF_PARAMETER(Position, haas);
 	}
 
-	SN_POLY_NODE_ID("haas");
+	SET_HISE_POLY_NODE_ID("haas");
 	SN_GET_SELF_AS_OBJECT(haas);
 	SN_DESCRIPTION("A Haas effect (simulate stereo position using delay)");
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
 	void createParameters(ParameterDataList& data) override;
 	void prepare(PrepareSpecs ps);

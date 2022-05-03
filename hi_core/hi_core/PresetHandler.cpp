@@ -1580,12 +1580,6 @@ juce::String FrontendHandler::getCompanyWebsiteName()
 	return {};
 }
 
-juce::String FrontendHandler::getCompanyCopyright()
-{
-	jassertfalse;
-	return {};
-}
-
 juce::String FrontendHandler::getVersionString()
 {
 	jassertfalse;

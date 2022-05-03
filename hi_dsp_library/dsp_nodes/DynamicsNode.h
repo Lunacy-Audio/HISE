@@ -99,7 +99,7 @@ public:
 		DEF_PARAMETER(Release, dynamics_wrapper);
 		DEF_PARAMETER(Ratio, dynamics_wrapper);
 	}
-	SN_PARAMETER_MEMBER_FUNCTION;
+	PARAMETER_MEMBER_FUNCTION;
 
 	static Identifier getStaticId()
     {
@@ -122,7 +122,7 @@ public:
         
     };
 
-	SN_EMPTY_HANDLE_EVENT;
+	HISE_EMPTY_HANDLE_EVENT;
 
 	void createParameters(ParameterDataList& data)
     {
@@ -262,9 +262,9 @@ public:
 		DEF_PARAMETER(Release, envelope_follower);
 		DEF_PARAMETER(ProcessSignal, envelope_follower)
 	}
-    SN_PARAMETER_MEMBER_FUNCTION;
+    PARAMETER_MEMBER_FUNCTION;
 
-	SN_NODE_ID("envelope_follower");
+	SET_HISE_NODE_ID("envelope_follower");
 	SN_GET_SELF_AS_OBJECT(envelope_follower);
 
     envelope_follower() :
@@ -275,8 +275,8 @@ public:
 
 	static constexpr bool isNormalisedModulation() { return true; }
 
-	SN_EMPTY_HANDLE_EVENT;
-    SN_EMPTY_INITIALISE;
+	HISE_EMPTY_HANDLE_EVENT;
+    HISE_EMPTY_INITIALISE;
 
 	bool handleModulation(double& v) noexcept 
 	{ 
