@@ -238,8 +238,13 @@ void SfzImporter::parseOpcodes()
 		}
 		else if (currentLine.startsWith(Group::getTag()))
 		{
-			if (currentTarget == nullptr)
-				setIfRoot(currentTarget = new Global(currentTarget.get()));
+			if(currentTarget == nullptr)
+            {
+                setIfRoot(currentTarget = new Global(nullptr));
+                auto g = new Group(currentTarget.get());
+                g->groupName = "Group 1";
+                currentTarget = g;
+            }
 
 			navigateToParent<Global>(ThrowErrorIfNotFound);
 
