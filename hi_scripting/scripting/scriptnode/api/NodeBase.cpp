@@ -47,6 +47,7 @@ struct NodeBase::Wrapper
 	API_VOID_METHOD_WRAPPER_1(NodeBase, connectToBypass);
 	API_METHOD_WRAPPER_1(NodeBase, getParameter);
     API_METHOD_WRAPPER_3(NodeBase, setComplexDataIndex);
+	API_METHOD_WRAPPER_0(NodeBase, getNumParameters);
 };
 
 
@@ -81,6 +82,7 @@ NodeBase::NodeBase(DspNetwork* rootNetwork, ValueTree data_, int numConstants_) 
 	ADD_API_METHOD_2(connectTo);
 	ADD_API_METHOD_1(connectToBypass);
     ADD_API_METHOD_3(setComplexDataIndex);
+	ADD_API_METHOD_0(getNumParameters);
 
 	for (auto c : getPropertyTree())
 		addConstant(c[PropertyIds::ID].toString(), c[PropertyIds::ID]);
@@ -1303,7 +1305,43 @@ juce::ValueTree ConnectionSourceManager::Helpers::getOrCreateConnection(ValueTre
 	return newC;
 }
 
+ProcessDataPeakChecker::ProcessDataPeakChecker(NodeBase* n, ProcessDataDyn& d_) :
+	p(*n),
+	d(d_)
+{
+	check(false);
+}
 
+ProcessDataPeakChecker::~ProcessDataPeakChecker()
+{
+	check(true);
+}
+
+void ProcessDataPeakChecker::check(bool post)
+{
+#if USE_BACKEND
+	if (!p.getRootNetwork()->isSignalDisplayEnabled())
+		return;
+
+	span<float, NUM_MAX_CHANNELS> peaks;
+
+	int index = 0;
+
+	int halfIndex = d.getNumSamples() / 2;
+
+	for (auto& ch : d)
+	{
+		auto b = d.toChannelData(ch);
+
+		auto first = b[0];
+		auto half = b[halfIndex];
+		auto peak = jmax(hmath::abs(first), hmath::abs(half));
+		peaks[index++] = peak;
+	}
+
+	p.setSignalPeaks(peaks.begin(), d.getNumChannels(), post);
+#endif
+}
 
 RealNodeProfiler::RealNodeProfiler(NodeBase* n, int numSamples_) :
 	enabled(n->getRootNetwork()->getCpuProfileFlag()),
@@ -1343,7 +1381,7 @@ void ConnectionSourceManager::CableRemoveListener::removeCable(ValueTree& v)
 	if (auto node = parent.n->getNodeForValueTree(v))
 	{
 		if (!node->isBeingMoved())
-			data.getParent().removeChild(data, parent.n->getUndoManager(true));
+			data.getParent().removeChild(data, parent.n->getUndoManager(false));
 	}
 }
 
@@ -1387,42 +1425,67 @@ ConnectionSourceManager::CableRemoveListener::CableRemoveListener(ConnectionSour
 {
 	targetNode = findTargetNodeData(parent.n->getValueTree().getChildWithName(PropertyIds::Node));
 
-	jassert(data.hasType(PropertyIds::Connection) || data.hasType(PropertyIds::ModulationTarget));
-	jassert(sourceNode.hasType(PropertyIds::Node));
-	jassert(targetNode.hasType(PropertyIds::Node));
+    if(!sourceNode.isValid() || !targetNode.isValid())
+    {
+        WeakReference<CableRemoveListener> safeThis(this);
+        
+        parent.n->addPostInitFunction([safeThis]()
+        {
+            if(safeThis.get() != nullptr)
+                return safeThis->initListeners();
+            
+            return true;
+        });
+    }
+    
+    initListeners();
+}
 
-	RangeHelpers::removeRangeProperties(data, parent.n->getUndoManager(true));
+bool ConnectionSourceManager::CableRemoveListener::initListeners()
+{
+    targetNode = findTargetNodeData(parent.n->getValueTree().getChildWithName(PropertyIds::Node));
+    
+    if(!targetNode.isValid())
+        return false;
+    
+    jassert(data.hasType(PropertyIds::Connection) || data.hasType(PropertyIds::ModulationTarget));
+    jassert(sourceNode.hasType(PropertyIds::Node));
+    jassert(targetNode.hasType(PropertyIds::Node));
 
-	//targetNode->getValueTree()
-	//parent->getValueTree()
+    RangeHelpers::removeRangeProperties(data, parent.n->getUndoManager(true));
 
-	targetRemoveUpdater.setCallback(targetNode,
-		valuetree::AsyncMode::Synchronously,
-		true,
-		BIND_MEMBER_FUNCTION_1(CableRemoveListener::removeCable));
+    //targetNode->getValueTree()
+    //parent->getValueTree()
 
-	sourceRemoveUpdater.setCallback(sourceNode,
-		valuetree::AsyncMode::Synchronously,
-		true,
-		BIND_MEMBER_FUNCTION_1(CableRemoveListener::removeCable));
+    targetRemoveUpdater.setCallback(targetNode,
+        valuetree::AsyncMode::Synchronously,
+        true,
+        BIND_MEMBER_FUNCTION_1(CableRemoveListener::removeCable));
 
-	if (data[PropertyIds::ParameterId].toString() != PropertyIds::Bypassed.toString())
-	{
-		targetParameterTree = targetNode.getChildWithName(PropertyIds::Parameters).getChildWithProperty(PropertyIds::ID, data[PropertyIds::ParameterId]);
+    sourceRemoveUpdater.setCallback(sourceNode,
+        valuetree::AsyncMode::Synchronously,
+        true,
+        BIND_MEMBER_FUNCTION_1(CableRemoveListener::removeCable));
 
-		jassert(targetParameterTree.isValid());
+    if (data[PropertyIds::ParameterId].toString() != PropertyIds::Bypassed.toString())
+    {
+        targetParameterTree = targetNode.getChildWithName(PropertyIds::Parameters).getChildWithProperty(PropertyIds::ID, data[PropertyIds::ParameterId]);
 
-		targetParameterTree.setProperty(PropertyIds::Automated, true, parent.n->getUndoManager());
+        jassert(targetParameterTree.isValid());
 
-		targetRangeListener.setCallback(targetParameterTree, RangeHelpers::getRangeIds(false), valuetree::AsyncMode::Synchronously,
-			[this](Identifier, var) { this->parent.rebuildCallback(); });
-	}
+        targetParameterTree.setProperty(PropertyIds::Automated, true, parent.n->getUndoManager());
+
+        targetRangeListener.setCallback(targetParameterTree, RangeHelpers::getRangeIds(false), valuetree::AsyncMode::Synchronously,
+            [this](Identifier, var) { this->parent.rebuildCallback(); });
+    }
+    
+    return true;
 }
 
 ConnectionSourceManager::CableRemoveListener::~CableRemoveListener()
 {
 	if(targetParameterTree.isValid())
-		targetParameterTree.setProperty(PropertyIds::Automated, false, parent.n->getUndoManager(true));
+		targetParameterTree.setProperty(PropertyIds::Automated, false, parent.n->getUndoManager(false));
 }
 
 ConnectionSourceManager::ConnectionSourceManager(DspNetwork* n_, ValueTree connectionsTree_) :
@@ -1546,9 +1609,13 @@ scriptnode::NodeBase* ConnectionBase::Helpers::findRealSource(NodeBase* source)
 {
 	if (auto cableNode = dynamic_cast<InterpretedCableNode*>(source))
 	{
-        auto valueParam = cableNode->getParameterFromIndex(0);
-        
-		if (valueParam != nullptr && valueParam->isModulated())
+		source = nullptr;
+
+		auto valueParam = cableNode->getParameterFromIndex(0);
+
+		jassert(valueParam != nullptr);
+
+		if(valueParam != nullptr && valueParam->isModulated())
 		{
             source = nullptr;
             
@@ -1563,6 +1630,25 @@ scriptnode::NodeBase* ConnectionBase::Helpers::findRealSource(NodeBase* source)
 	}
 
 	return source;
+}
+
+FrameDataPeakChecker::FrameDataPeakChecker(NodeBase* n, float* d, int s) :
+	p(*n),
+	b(d, s)
+{
+	check(false);
+}
+
+FrameDataPeakChecker::~FrameDataPeakChecker()
+{
+	check(true);
+}
+
+void FrameDataPeakChecker::check(bool post)
+{
+#if USE_BACKEND && ALLOW_FRAME_SIGNAL_CHECK
+	p.setSignalPeaks(b.begin(), b.size(), post);
+#endif
 }
 
 }

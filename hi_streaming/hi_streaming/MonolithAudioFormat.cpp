@@ -72,6 +72,9 @@ juce::File MonolithFileReference::getFile()
 
 	auto extension = getFileExtensionPrefix();
 
+	if (sampleRoots.isEmpty() && fileNotFoundBehaviour == FileNotFoundBehaviour::ThrowException)
+		throw Result::fail("No sample directory specified");
+
 	if (isMultimic())
 	{
 		extension << String(channelIndex + 1);
@@ -86,20 +89,23 @@ juce::File MonolithFileReference::getFile()
 	else
 		extension << String(1);
 
+	File lastFile;
+	path << "." << extension;
+
 	for (const auto& f : sampleRoots)
 	{
-		path << "." << extension;
+		
 
 		auto mf = f.getChildFile(path);
 
-		if (!mf.existsAsFile())
-		{
-			if(fileNotFoundBehaviour == FileNotFoundBehaviour::ThrowException)
-				throw Result::fail(f.getFullPathName() + " can't be found");
-		}
+		lastFile = mf;
 
-		return mf;
+		if (mf.existsAsFile())
+			return mf;
 	}
+
+	if (fileNotFoundBehaviour == FileNotFoundBehaviour::ThrowException)
+		throw Result::fail(lastFile.getFullPathName() + " can't be found");
 
 	return File();
 }
@@ -254,8 +260,6 @@ void HlacMonolithInfo::fillMetadataInfo(const ValueTree& sampleMap)
 		info.length = sample.getProperty(MonolithIds::MonolithLength);
 		info.sampleRate = sample.getProperty("SampleRate");
 		
-		int splitIndex = sample.getProperty(MonolithIds::MonolithSplitIndex, 0);
-
 		if (numChannels == 1)
 		{
 			info.fileNames.add(sample.getProperty(MonolithIds::FileName));

@@ -289,6 +289,8 @@ public:
 	{
 		using Ptr = ReferenceCountedObjectPtr<ScriptComponent>;
 
+		using CustomAutomationPtr = MainController::UserPresetHandler::CustomAutomationData::Ptr;
+
 		struct PropertyWithValue
 		{
 			int id;
@@ -321,6 +323,7 @@ public:
 			pluginParameterName,
             isMetaParameter,
 			linkedTo,
+			automationId,
 			useUndoManager,
 			parentComponent,
 			processorId,
@@ -719,6 +722,8 @@ public:
 			zLevelListeners.removeAllInstancesOf(l);
 		}
 
+		CustomAutomationPtr getCustomAutomation() { return currentAutomationData; }
+
 	protected:
 
 		bool isCorrectlyInitialised(int p) const
@@ -758,6 +763,8 @@ public:
 		Array<Identifier> priorityProperties;
 		
 		bool removePropertyIfDefault = true;
+
+		CustomAutomationPtr currentAutomationData;
 
 #if USE_BACKEND
 		juce::SharedResourcePointer<hise::ScriptComponentPropertyTypeSelector> selectorTypes;
@@ -1592,6 +1599,19 @@ public:
 
 		struct MouseCursorInfo
 		{
+			MouseCursorInfo() = default;
+
+			MouseCursorInfo(MouseCursor::StandardCursorType t) :
+				defaultCursorType(t)
+			{};
+
+			MouseCursorInfo(const Path& p, Colour c_, Point<float> hp) :
+				path(p),
+				c(c_),
+				hitPoint(hp)
+			{};
+
+			MouseCursor::StandardCursorType defaultCursorType = MouseCursor::NormalCursor;
 			Path path;
 			Colour c = juce::Colours::white;
 			Point<float> hitPoint = { 0.0f, 0.0f };
@@ -1789,6 +1809,10 @@ public:
 		{
 			return mouseCursorPath;
 		}
+
+		LambdaBroadcaster<MouseCursorInfo>& getCursorUpdater() { return cursorUpdater; }
+
+		LambdaBroadcaster<MouseCursorInfo> cursorUpdater;
 
 		void setScriptObjectPropertyWithChangeMessage(const Identifier &id, var newValue, NotificationType notifyEditor=sendNotification) override
 		{
@@ -2207,6 +2231,9 @@ public:
     
 	/** Sets this script as main interface with the given device resolution (only works with mobile devices). */
 	void makeFullScreenInterface();
+
+	/** Returns the total bounds of the main display. */
+	var getScreenBounds(bool getTotalArea);
 
 	/** sets the Tooltip that will be shown if the mouse hovers over the script's tab button. */
 	void setContentTooltip(const String &tooltipToShow) { tooltip = tooltipToShow; }

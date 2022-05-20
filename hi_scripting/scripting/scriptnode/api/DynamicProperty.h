@@ -57,7 +57,9 @@ struct dynamic_base: public ReferenceCountedObject
 	virtual void call(double value)
 	{
 		setDisplayValue(value);
-		f(obj, lastValue);
+        
+        if(obj != nullptr && f)
+            f(obj, lastValue);
 	}
 
 	static dynamic_base::Ptr createFromConnectionTree(const ValueTree& v, parameter::dynamic& callback, bool allowRange=true);
@@ -163,7 +165,10 @@ template <bool ScaleInput> struct dynamic_chain : public dynamic_base
 
 	void addParameter(dynamic_base::Ptr p)
 	{
-		targets.add(p);
+		jassert(p != nullptr);
+
+		if(p != nullptr)
+			targets.add(p);
 	}
 
 	void call(double v)

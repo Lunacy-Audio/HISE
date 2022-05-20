@@ -233,9 +233,6 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	hasChanged(false),
 	customControlCallback(var())
 {
-
-	
-
 	jassert(propertyTree.isValid());
 
 	ADD_SCRIPT_PROPERTY(textId, "text");
@@ -260,14 +257,14 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	ADD_SCRIPT_PROPERTY(iId4, "isPluginParameter"); ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(pId, "pluginParameterName");
     ADD_SCRIPT_PROPERTY(pId76, "isMetaParameter");  ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
-	ADD_SCRIPT_PROPERTY(pId72, "linkedTo")			ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
+	ADD_SCRIPT_PROPERTY(pId72, "linkedTo");			ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
+	ADD_SCRIPT_PROPERTY(pId73, "automationID");		ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 	ADD_SCRIPT_PROPERTY(uId, "useUndoManager");		ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(pId2, "parentComponent");	ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 	ADD_SCRIPT_PROPERTY(pId3, "processorId");		ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 	ADD_SCRIPT_PROPERTY(pId4, "parameterId");		ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 
 	handleDefaultDeactivatedProperties();
-
 
 	setDefaultValue(Properties::text, name.toString());
 	setDefaultValue(Properties::visible, true);
@@ -287,6 +284,7 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	setDefaultValue(Properties::isPluginParameter, false);
 	setDefaultValue(Properties::pluginParameterName, "");
     setDefaultValue(Properties::isMetaParameter, false);
+	setDefaultValue(automationId, "");
 	setDefaultValue(Properties::linkedTo, "");
 	setDefaultValue(Properties::useUndoManager, false);
 	setDefaultValue(Properties::parentComponent, "");
@@ -354,6 +352,10 @@ StringArray ScriptingApi::Content::ScriptComponent::getOptionsFor(const Identifi
 		}
 
 		return sa;
+	}
+	else if (id == getIdFor(automationId))
+	{
+		return getScriptProcessor()->getMainController_()->getUserPresetHandler().getCustomAutomationIds();
 	}
 	else if (id == getIdFor(processorId))
 	{
@@ -488,6 +490,28 @@ void ScriptingApi::Content::ScriptComponent::setScriptObjectPropertyWithChangeMe
 		const int index = sa.indexOf(newValue.toString()) - 1;
 
 		addToMacroControl(index);
+	}
+	else if (id == getIdFor(automationId))
+	{
+		if (currentAutomationData != nullptr)
+		{
+			currentAutomationData->asyncListeners.removeListener(*this);
+		}
+
+		if (!newValue.toString().isEmpty())
+		{
+			Identifier newCustomId(newValue.toString());
+
+            if ((currentAutomationData = getScriptProcessor()->getMainController_()->getUserPresetHandler().getCustomAutomationData(newCustomId)))
+			{
+				currentAutomationData->asyncListeners.addListener(*this, [](ScriptComponent& c, double v)
+				{
+					c.setValue(v);
+				}, true);
+			}
+		}
+		else
+			currentAutomationData = nullptr;
 	}
 	else if (id == getIdFor(linkedTo))
 	{
@@ -1125,6 +1149,9 @@ ScriptingApi::Content::ScriptComponent::~ScriptComponent()
 {
 	if (linkedComponent != nullptr)
 		linkedComponent->removeLinkedTarget(this);
+
+	if (currentAutomationData != nullptr)
+		currentAutomationData->asyncListeners.removeListener(*this);
 }
 
 void ScriptingApi::Content::ScriptComponent::handleDefaultDeactivatedProperties()
@@ -2006,8 +2033,6 @@ struct ScriptingApi::Content::ScriptLabel::Wrapper
 ScriptingApi::Content::ScriptLabel::ScriptLabel(ProcessorWithScriptingContent *base, Content* /*parentContent*/, Identifier name, int x, int y, int , int) :
 ScriptComponent(base, name)
 {
-	
-
 	ADD_SCRIPT_PROPERTY(i01, "fontName");	ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
 	ADD_NUMBER_PROPERTY(i02, "fontSize");	ADD_AS_SLIDER_TYPE(1, 200, 1);
 	ADD_SCRIPT_PROPERTY(i03, "fontStyle");	ADD_TO_TYPE_SELECTOR(SelectorTypes::ChoiceSelector);
@@ -2093,10 +2118,10 @@ Justification ScriptingApi::Content::ScriptLabel::getJustification()
 
 void ScriptingApi::Content::ScriptLabel::handleDefaultDeactivatedProperties()
 {
-
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::defaultValue));
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::min));
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::max));
+	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::automationId));
 }
 
 struct ScriptingApi::Content::ScriptComboBox::Wrapper
@@ -2307,6 +2332,7 @@ void ScriptingApi::Content::ComplexDataScriptComponent::handleDefaultDeactivated
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(isMetaParameter));
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(isPluginParameter));
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(pluginParameterName));
+	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::automationId));
 }
 
 var ScriptingApi::Content::ComplexDataScriptComponent::registerComplexDataObjectAtParent(int index /*= -1*/)
@@ -2376,6 +2402,7 @@ ComplexDataScriptComponent(base, name, snex::ExternalData::DataType::Table)
 	setDefaultValue(ScriptTable::Properties::customColours, 0);
 
 	handleDefaultDeactivatedProperties();
+	
 	
 	initInternalPropertyFromValueTreeOrDefault(ScriptComponent::Properties::processorId);
 	initInternalPropertyFromValueTreeOrDefault(Properties::TableIndex);
@@ -2492,6 +2519,7 @@ ComplexDataScriptComponent(base, name_, snex::ExternalData::DataType::SliderPack
 	setDefaultValue(StepSize, 0.01);
 
 	handleDefaultDeactivatedProperties();
+	
 
 	initInternalPropertyFromValueTreeOrDefault(SliderAmount);
 	initInternalPropertyFromValueTreeOrDefault(min);
@@ -3033,7 +3061,9 @@ void ScriptingApi::Content::ScriptImage::handleDefaultDeactivatedProperties()
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::defaultValue));
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::textColour));
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::macroControl));
+	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::automationId));
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(linkedTo));
+	
 }
 
 void ScriptingApi::Content::ScriptImage::updateBlendMode()
@@ -3090,7 +3120,8 @@ isChildPanel(true),
 loadRoutine(base, var(), 1),
 timerRoutine(base, var(), 0),
 mouseRoutine(base, var(), 1),
-fileDropRoutine(base, var(), 1)
+fileDropRoutine(base, var(), 1),
+mouseCursorPath(MouseCursor::NormalCursor)
 {
 	init();
 }
@@ -3103,7 +3134,8 @@ ScriptingApi::Content::ScriptPanel::ScriptPanel(ScriptPanel* parent) :
 	loadRoutine(parent->getScriptProcessor(), var(), 1),
 	mouseRoutine(parent->getScriptProcessor(), var(), 1),
 	timerRoutine(parent->getScriptProcessor(), var(), 0),
-	fileDropRoutine(parent->getScriptProcessor(), var(), 1)
+	fileDropRoutine(parent->getScriptProcessor(), var(), 1),
+	mouseCursorPath(MouseCursor::NormalCursor)
 {
 	
 	init();
@@ -3183,6 +3215,8 @@ void ScriptingApi::Content::ScriptPanel::init()
 	ADD_API_METHOD_0(getAnimationData);
 	ADD_API_METHOD_1(setAnimation);
 	ADD_API_METHOD_1(setAnimationFrame);
+
+	
 }
 
 
@@ -3552,6 +3586,8 @@ void ScriptingApi::Content::ScriptPanel::setImage(String imageName, int xOffset,
 
 void ScriptingApi::Content::ScriptPanel::setMouseCursor(var pathIcon, var colour, var hitPoint)
  {
+	getCursorUpdater().enableLockFreeUpdate(getScriptProcessor()->getMainController_()->getGlobalUIUpdater());
+
 	if (auto po = dynamic_cast<ScriptingObjects::PathObject*>(pathIcon.getObject()))
 	{
 		mouseCursorPath.path = po->getPath();
@@ -3573,8 +3609,46 @@ void ScriptingApi::Content::ScriptPanel::setMouseCursor(var pathIcon, var colour
 		else
 			reportScriptError("hitPoint must be a [x, y] array");
 	}
+	else if (pathIcon.isString())
+	{
+		static const StringArray iconIds =
+		{
+		"ParentCursor",               /**< Indicates that the component's parent's cursor should be used. */
+		"NoCursor",                       /**< An invisible cursor. */
+		"NormalCursor",                   /**< The standard arrow cursor. */
+		"WaitCursor",                     /**< The normal hourglass or spinning-beachball 'busy' cursor. */
+		"IBeamCursor",                    /**< A vertical I-beam for positioning within text. */
+		"CrosshairCursor",                /**< A pair of crosshairs. */
+		"CopyingCursor",                  /**< The normal arrow cursor, but with a "+" on it to indicate that you're dragging a copy of something. */
+		"PointingHandCursor",             /**< A hand with a pointing finger, for clicking on web-links. */
+		"DraggingHandCursor",             /**< An open flat hand for dragging heavy objects around. */
+		"LeftRightResizeCursor",          /**< An arrow pointing left and right. */
+		"UpDownResizeCursor",             /**< an arrow pointing up and down. */
+		"UpDownLeftRightResizeCursor",    /**< An arrow pointing up, down, left and right. */
+		"TopEdgeResizeCursor",            /**< A platform-specific cursor for resizing the top-edge of a window. */
+		"BottomEdgeResizeCursor",         /**< A platform-specific cursor for resizing the bottom-edge of a window. */
+		"LeftEdgeResizeCursor",           /**< A platform-specific cursor for resizing the left-edge of a window. */
+		"RightEdgeResizeCursor",          /**< A platform-specific cursor for resizing the right-edge of a window. */
+		"TopLeftCornerResizeCursor",      /**< A platform-specific cursor for resizing the top-left-corner of a window. */
+		"TopRightCornerResizeCursor",     /**< A platform-specific cursor for resizing the top-right-corner of a window. */
+		"BottomLeftCornerResizeCursor",   /**< A platform-specific cursor for resizing the bottom-left-corner of a window. */
+		"BottomRightCornerResizeCursor"  /**< A platform-specific cursor for resizing the bottom-right-corner of a window. */
+		};
+
+		auto index = iconIds.indexOf(pathIcon.toString());
+
+		if (isPositiveAndBelow(index, (MouseCursor::NumStandardCursorTypes)))
+		{
+			auto standardCursor = (MouseCursor::StandardCursorType)index;
+			mouseCursorPath = MouseCursorInfo(standardCursor);
+		}
+		else
+			reportScriptError("Unknown Cursor name. Use the JUCE enum as string");
+	}
 	else
 		reportScriptError("pathIcon is not a path");
+
+	getCursorUpdater().sendMessage(sendNotificationAsync, mouseCursorPath);
 }
 
 Rectangle<int> ScriptingApi::Content::ScriptPanel::getBoundsForImage() const
@@ -4204,6 +4278,7 @@ void ScriptingApi::Content::ScriptFloatingTile::handleDefaultDeactivatedProperti
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::parameterId));
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::isMetaParameter));
 	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::linkedTo));
+	deactivatedProperties.addIfNotAlreadyThere(getIdFor(ScriptComponent::Properties::automationId));
 }
 
 bool ScriptingApi::Content::ScriptFloatingTile::fillScriptPropertiesWithFloatingTile(FloatingTile* ft)
@@ -4310,6 +4385,7 @@ colour(Colour(0xff777777))
 	setMethod("clear", Wrapper::clear);
 	setMethod("createPath", Wrapper::createPath);
 	setMethod("createShader", Wrapper::createShader);
+	setMethod("getScreenBounds", Wrapper::getScreenBounds);
 	setMethod("getCurrentTooltip", Wrapper::getCurrentTooltip);
 	setMethod("createLocalLookAndFeel", Wrapper::createLocalLookAndFeel);
 }
@@ -4437,6 +4513,28 @@ ScriptingApi::Content::ScriptComponent * ScriptingApi::Content::getComponent(int
 		return components[index].get();
 
 	return nullptr;
+}
+
+juce::var ScriptingApi::Content::getScreenBounds(bool getTotalArea)
+{
+	Rectangle<int> b;
+
+	{
+		MessageManagerLock mm;
+
+		if (getTotalArea)
+			b = Desktop::getInstance().getDisplays().getMainDisplay().totalArea;
+		else
+			b = Desktop::getInstance().getDisplays().getMainDisplay().userArea;
+	}
+
+	Array<var> vb;
+	vb.add(b.getX());
+	vb.add(b.getY());
+	vb.add(b.getWidth());
+	vb.add(b.getHeight());
+
+	return var(vb);
 }
 
 var ScriptingApi::Content::getComponent(var componentName)
@@ -5212,6 +5310,8 @@ String ScriptingApi::Content::getCurrentTooltip()
 
 	return {};
 }
+
+
 
 #undef ADD_TO_TYPE_SELECTOR
 #undef ADD_AS_SLIDER_TYPE

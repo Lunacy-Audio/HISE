@@ -113,24 +113,37 @@ private:
 /** This data object holds a number of IIR coefficients and manages the notification / external management. */
 struct FilterDataObject : public ComplexDataUIBase
 {
+public:
+
+	struct Broadcaster
+	{
+		virtual ~Broadcaster() {};
+
+		bool registerAtObject(ComplexDataUIBase* obj);
+		bool deregisterAtObject(ComplexDataUIBase* obj);
+
+	private:
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(Broadcaster);
+	};
+
+	struct InternalData
+	{
+		bool operator==(const InternalData& other) const { return broadcaster == other.broadcaster; }
+		WeakReference<Broadcaster> broadcaster;
+		IIRCoefficients coefficients;
+	};
+
 	using Ptr = ReferenceCountedObjectPtr<FilterDataObject>;
 
-	FilterDataObject() :
-		ComplexDataUIBase()
-	{};
+	FilterDataObject();;
+
+	~FilterDataObject();
 
 	bool fromBase64String(const String& b64) override { return true; };
 	String toBase64String() const override { return ""; };
 
-	void setCoefficients(IIRCoefficients newCoefficients)
-	{
-		jassert(MessageManager::getInstance()->isThisTheMessageThread());
-
-		coefficients = newCoefficients;
-
-		if(sampleRate > 0.0)
-			getUpdater().sendDisplayChangeMessage(sampleRate, sendNotificationSync, true);
-	}
+	void setCoefficients(Broadcaster* b, IIRCoefficients newCoefficients);
 
 	void setSampleRate(double sr)
 	{
@@ -141,15 +154,19 @@ struct FilterDataObject : public ComplexDataUIBase
 		}
 	}
 
-	IIRCoefficients getCoefficients() const { return coefficients; }
+	IIRCoefficients getCoefficients(int index) const;
+
+	IIRCoefficients getCoefficientsForBroadcaster(Broadcaster* b) const;
 
 	double getSamplerate() const { return sampleRate; }
+
+	int getNumCoefficients() const;
 
 private:
 
 	double sampleRate = -1.0;
 
-	IIRCoefficients coefficients;
+	UnorderedStack<InternalData> internalData;
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(FilterDataObject);
 };

@@ -357,6 +357,7 @@ struct ScriptingObjects::ScriptShader::PreviewComponent: public Component,
 				colour = Colours::red.withSaturation(0.6f);
 				letter = 'A';
 				break;
+                default: jassertfalse; break;
 			}
 		}
 
@@ -1532,9 +1533,17 @@ void ScriptingObjects::GraphicsObject::drawPath(var path, var area, var strokeTy
 	{
 		Path p = pathObject->getPath();
 
+		
+
 		if (area.isArray())
 		{
 			Rectangle<float> r = getRectangleFromVar(area);
+
+			if (p.getBounds().isEmpty() || r.isEmpty())
+			{
+				return;
+			}
+
 			p.scaleToFit(r.getX(), r.getY(), r.getWidth(), r.getHeight(), false);
 		}
 
@@ -1639,6 +1648,7 @@ Array<Identifier> ScriptingObjects::ScriptedLookAndFeel::getAllFunctionNames()
 		"drawDialogButton",
 		"drawComboBox",
 		"drawNumberTag",
+		"createPresetBrowserIcons",
 		"drawPresetBrowserBackground",
 		"drawPresetBrowserColumnBackground",
 		"drawPresetBrowserListItem",
@@ -2132,7 +2142,26 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawNumberTag(Graphics& g_, Col
 	NumberTag::LookAndFeelMethods::drawNumberTag(g_, c, area, offset, size, number);
 }
 
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPresetBrowserBackground(Graphics& g_, PresetBrowser* p)
+juce::Path ScriptingObjects::ScriptedLookAndFeel::Laf::createPresetBrowserIcons(const String& id)
+{
+	if (functionDefined("createPresetBrowserIcons"))
+	{
+		if (auto l = get())
+		{
+			var args = var(id);
+			auto returnPath = l->callDefinedFunction("createPresetBrowserIcons", &args, 1);
+
+			if (auto sg = dynamic_cast<PathObject*>(returnPath.getObject()))
+			{
+				return sg->getPath();
+			}
+		}
+	}
+
+	return PresetBrowserLookAndFeelMethods::createPresetBrowserIcons(id);
+}
+
+void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPresetBrowserBackground(Graphics& g_, Component* p)
 {
 	if (functionDefined("drawPresetBrowserBackground"))
 	{
