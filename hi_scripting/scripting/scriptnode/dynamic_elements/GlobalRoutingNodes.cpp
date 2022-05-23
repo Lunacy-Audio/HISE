@@ -1218,7 +1218,7 @@ template <int NV> struct GlobalReceiveNode : public GlobalRoutingNodeBase
 		initParameters();
 	};
 
-	SET_HISE_NODE_ID("global_receive");
+	SN_NODE_ID("global_receive");
 
 	static NodeBase* createNode(DspNetwork* n, ValueTree d)
 	{

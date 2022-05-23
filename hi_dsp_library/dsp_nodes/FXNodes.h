@@ -63,7 +63,7 @@ public:
 	SN_GET_SELF_AS_OBJECT(sampleandhold);
 	SN_DESCRIPTION("A sample and hold effect node");
 
-	HISE_EMPTY_HANDLE_EVENT;
+	SN_EMPTY_HANDLE_EVENT;
 
 	sampleandhold();
 
@@ -178,7 +178,7 @@ public:
 	SN_GET_SELF_AS_OBJECT(bitcrush);
 	SN_DESCRIPTION("A bitcrusher effect node");
 
-	HISE_EMPTY_HANDLE_EVENT;
+	SN_EMPTY_HANDLE_EVENT;
 
 	bitcrush();
 
@@ -235,7 +235,7 @@ public:
 	SN_POLY_NODE_ID("phase_delay");
 	SN_GET_SELF_AS_OBJECT(phase_delay);
 	SN_DESCRIPTION("A phase delay for comb filtering");
-	HISE_EMPTY_HANDLE_EVENT;
+	SN_EMPTY_HANDLE_EVENT;
 
 	phase_delay();
 
@@ -292,15 +292,15 @@ public:
 		DEF_PARAMETER(Width, reverb);
 		DEF_PARAMETER(Size, reverb);
 	}
-	PARAMETER_MEMBER_FUNCTION;
+	SN_PARAMETER_MEMBER_FUNCTION;
 
-	SET_HISE_NODE_ID("reverb");
+	SN_NODE_ID("reverb");
 	SN_GET_SELF_AS_OBJECT(reverb);
 	SN_DESCRIPTION("The default JUCE reverb implementation");
 
 	bool isPolyphonic() const { return false; }
 
-	HISE_EMPTY_HANDLE_EVENT;
+	SN_EMPTY_HANDLE_EVENT;
 
 	reverb();
 
@@ -361,10 +361,10 @@ public:
 		DEF_PARAMETER(Position, haas);
 	}
 
-	SET_HISE_POLY_NODE_ID("haas");
+	SN_POLY_NODE_ID("haas");
 	SN_GET_SELF_AS_OBJECT(haas);
 	SN_DESCRIPTION("A Haas effect (simulate stereo position using delay)");
-	HISE_EMPTY_HANDLE_EVENT;
+	SN_EMPTY_HANDLE_EVENT;
 
 	void createParameters(ParameterDataList& data) override;
 	void prepare(PrepareSpecs ps);

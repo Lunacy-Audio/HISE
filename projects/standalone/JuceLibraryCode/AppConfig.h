@@ -39,14 +39,14 @@
 // BEGIN SECTION A
 
 #ifndef JUCE_DISPLAY_SPLASH_SCREEN
- #define JUCE_DISPLAY_SPLASH_SCREEN 0
+ #define JUCE_DISPLAY_SPLASH_SCREEN 1
 #endif
 
 // END SECTION A
 
 #define JUCE_USE_DARK_SPLASH_SCREEN 1
 
-#define JUCE_PROJUCER_VERSION 0x60105
+#define JUCE_PROJUCER_VERSION 0x60104
 
 //==============================================================================
 #define JUCE_MODULE_AVAILABLE_hi_backend                  1
@@ -174,6 +174,10 @@
  #define   ENABLE_PLOTTER 1
 #endif
 
+#ifndef    HISE_NUM_MACROS
+ //#define HISE_NUM_MACROS 1
+#endif
+
 #ifndef    ENABLE_SCRIPTING_SAFE_CHECKS
  #define   ENABLE_SCRIPTING_SAFE_CHECKS 1
 #endif
@@ -208,6 +212,14 @@
 
 #ifndef    ENABLE_HOST_INFO
  //#define ENABLE_HOST_INFO 1
+#endif
+
+#ifndef    HISE_USE_OPENGL_FOR_PLUGIN
+ //#define HISE_USE_OPENGL_FOR_PLUGIN 0
+#endif
+
+#ifndef    HISE_DEFAULT_OPENGL_VALUE
+ //#define HISE_DEFAULT_OPENGL_VALUE 1
 #endif
 
 #ifndef    ENABLE_STARTUP_LOGGER

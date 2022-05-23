@@ -567,6 +567,11 @@ public:
     /** Returns a string of the value with the supplied number of digits. */
     String doubleToString(double value, int digits);
 
+    	String intToHexString(int value);
+
+    	/** Signals that the application should terminate. */
+		void quit();
+
 		/** Reverts the last controller change. */
 		void undo();
 

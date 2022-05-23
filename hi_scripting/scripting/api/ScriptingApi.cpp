@@ -879,6 +879,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_2(Engine, matchesRegex);
 	API_METHOD_WRAPPER_2(Engine, getRegexMatches);
 	API_METHOD_WRAPPER_2(Engine, doubleToString);
+	API_METHOD_WRAPPER_1(Engine, intToHexString);
 	API_METHOD_WRAPPER_0(Engine, getOS);
 	API_METHOD_WRAPPER_0(Engine, getSystemStats);
 	API_METHOD_WRAPPER_0(Engine, isPlugin);
@@ -1007,6 +1008,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_2(matchesRegex);
 	ADD_API_METHOD_2(getRegexMatches);
 	ADD_API_METHOD_2(doubleToString);
+	ADD_API_METHOD_1(intToHexString);
 	ADD_API_METHOD_1(getMasterPeakLevel);
 	ADD_API_METHOD_0(getOS);
 	ADD_API_METHOD_0(getSystemStats);
