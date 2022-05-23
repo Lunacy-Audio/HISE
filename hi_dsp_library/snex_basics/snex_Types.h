@@ -185,7 +185,7 @@ template <typename T> ID getTypeFromTypeId()
 		return ID::Integer;
 	if (std::is_same<T, void*>())
 		return ID::Pointer;
-	
+
 	return ID::Void;
 }
 
@@ -394,8 +394,6 @@ struct VoiceResetter
 	virtual void onVoiceReset(bool allVoices, int voiceIndex) = 0;
 	virtual int getNumActiveVoices() const = 0;
 
-	int skipResetIndex = -1;
-
 	JUCE_DECLARE_WEAK_REFERENCEABLE(VoiceResetter);
 };
 
@@ -403,70 +401,28 @@ struct DllBoundaryTempoSyncer: public hise::TempoListener
 {
 	DllBoundaryTempoSyncer()
 	{
-		
+		tempoListeners.ensureStorageAllocated(256);
 	}
 	~DllBoundaryTempoSyncer() = default;
 	
 	/** Register an item that has a tempoChangedStatic class. */
 	void registerItem(TempoListener* obj)
 	{
-        if(obj == nullptr)
-            return;
-        
-        for(int i = 0; i < tempoListeners.size(); i++)
-        {
-            if(tempoListeners[i].get() == nullptr)
-            {
-                jassertfalse;
-            }
-        }
-        
 		jassert(tempoListeners.size() < 255);
 
 		{
 			SimpleReadWriteLock::ScopedWriteLock sl(listenerLock);
-            tempoListeners.insert(obj);
+			tempoListeners.addIfNotAlreadyThere(obj);
 		}
 		
 		obj->tempoChanged(bpm);
-        
-        
-        obj->onTransportChange(isPlaying, ppqPosition);
 	}
 
 	/** deregisters an item with the tempo changed class. */
 	void deregisterItem(hise::TempoListener* obj)
 	{
 		SimpleReadWriteLock::ScopedWriteLock sl(listenerLock);
-		tempoListeners.remove(obj);
-	}
-
-    void onResync(double ppqPos) override
-    {
-        SimpleReadWriteLock::ScopedReadLock sl(listenerLock);
-        
-        ppqPosition = ppqPos;
-        
-        for(auto d: tempoListeners)
-            if(d != nullptr)
-                d->onResync(ppqPosition);
-    }
-    
-	void onTransportChange(bool isPlaying_, double ppqPosition_) override
-	{
-		SimpleReadWriteLock::ScopedReadLock sl(listenerLock);
-
-        if(isPlaying != isPlaying_ || ppqPosition != ppqPosition_)
-        {
-            isPlaying = isPlaying_;
-            ppqPosition = ppqPosition_;
-            
-            for (auto d : tempoListeners)
-            {
-                if (d != nullptr)
-                    d->onTransportChange(isPlaying, ppqPosition);
-            }
-        }
+		tempoListeners.removeAllInstancesOf(obj);
 	}
 
 	void tempoChanged(double newTempo)
@@ -486,18 +442,13 @@ struct DllBoundaryTempoSyncer: public hise::TempoListener
 	}
 
 	double bpm = 120.0;
-    bool isPlaying = false;
-    double ppqPosition = 0.0;
 	
 	hise::SimpleReadWriteLock listenerLock;
 
-	hise::UnorderedStack<WeakReference<hise::TempoListener>, 256> tempoListeners;
+	Array<WeakReference<hise::TempoListener>> tempoListeners;
 
 	// Oh boy, what a disgrace...
 	ModValue* publicModValue = nullptr;
-
-	// And now we don't even care anymore about tucking stuff in here...
-	hise::AdditionalEventStorage* additionalEventStorage = nullptr;
 
 	/** @internal This can be used to temporarily change the pointer to the mod value.
 		The OpaqueNetworkHolder uses this abomination of a class in the prepare
@@ -600,29 +551,6 @@ struct PolyHandler
 		PolyHandler& p;
 	};
 
-	struct ScopedNoReset
-	{
-		ScopedNoReset(PolyHandler& p, int voiceIndex):
-			parent(p),
-			prevValue(-1)
-		{
-			if (auto vr = p.getVoiceResetter())
-			{
-				prevValue = vr->skipResetIndex;
-				vr->skipResetIndex = voiceIndex;
-			}
-		}
-
-		~ScopedNoReset()
-		{
-			if (auto vr = parent.getVoiceResetter())
-				vr->skipResetIndex = prevValue;
-		}
-
-		PolyHandler& parent;
-		int prevValue;
-	};
-
 	/** Returns the voice index. If its disabled, it will return always zero. If the thread is the processing thread
 	    it will return the voice index that is being set with ScopedVoiceSetter, or -1 if it's called from another thread
 		(or if the voice index has not been set). */
@@ -654,20 +582,17 @@ struct PolyHandler
 
 		jassert(ph->enabled != 0);
 
-		auto voiceIndex = ph->getVoiceIndex();
-
-		if (voiceIndex == -1)
-			return 0;
-
-		return voiceIndex;
+		return ph->getVoiceIndex();
 	}
 
 	static int getSizeStatic(PolyHandler* ph)
-    {
-        if (ph == nullptr)
-            return 0;
-        
-        if (!ph->enabled || ph->getVoiceIndex() == -1)
+	{
+		if (ph == nullptr)
+			return 0;
+
+		jassert(ph->enabled != 0);
+
+		if (ph->getVoiceIndex() == -1)
 			return 1;
 
 		return 0;
@@ -676,12 +601,7 @@ struct PolyHandler
 	void sendVoiceResetMessage(bool allVoices)
 	{
 		if (vr.get() != nullptr)
-		{
-			auto currentIndex = getVoiceIndex();
-
-			if(vr->skipResetIndex != currentIndex || allVoices)
-				vr->onVoiceReset(allVoices, currentIndex);
-		}
+			vr->onVoiceReset(allVoices, getVoiceIndex());
 	}
 
 	void setVoiceResetter(VoiceResetter* newVr)
@@ -707,120 +627,6 @@ private:
 	DllBoundaryTempoSyncer* tempoSyncer = nullptr;
 };
 
-
-struct VoiceDataStack
-{
-	struct VoiceData
-	{
-		bool operator==(const VoiceData& other) const
-		{
-			return other.voiceIndex == voiceIndex && noteOn == other.noteOn;
-		}
-
-		int voiceIndex;
-		HiseEvent noteOn;
-	};
-
-	void reset(int voiceIndex)
-	{
-		for (int i = 0; i < voiceNoteOns.size(); i++)
-		{
-			if (voiceNoteOns[i].voiceIndex == voiceIndex)
-			{
-				voiceNoteOns.removeElement(i--);
-				break;
-			}
-		}
-	}
-
-	bool containsVoiceIndex(int voiceIndex) const
-	{
-		for (const auto& vd : voiceNoteOns)
-		{
-			if (voiceIndex == vd.voiceIndex)
-				return true;
-		}
-
-		return false;
-	}
-
-	template <typename T> void handleHiseEvent(T& n, PolyHandler& ph, const HiseEvent& m)
-	{
-		if (m.isNoteOff())
-		{
-			for (auto vd : voiceNoteOns)
-			{
-				if (vd.noteOn.getEventId() == m.getEventId())
-				{
-					HiseEvent c(m);
-					PolyHandler::ScopedVoiceSetter vs(ph, vd.voiceIndex);
-					n.handleHiseEvent(c);
-				}
-			}
-		}
-        else if (m.isAllNotesOff())
-        {
-            for(auto vd: voiceNoteOns)
-            {
-                HiseEvent c(vd.noteOn);
-                c.setType(HiseEvent::Type::NoteOff);
-                c.setVelocity(0);
-                
-                PolyHandler::ScopedVoiceSetter vs(ph, vd.voiceIndex);
-                n.handleHiseEvent(c);
-            }
-        }
-		else if (m.isPitchWheel() || m.isAftertouch() || m.isController())
-		{
-			if (voiceNoteOns.isEmpty())
-			{
-				HiseEvent c(m);
-				n.handleHiseEvent(c);
-			}
-			else
-			{
-				for (auto vd : voiceNoteOns)
-				{
-					if (vd.noteOn.getChannel() == m.getChannel())
-					{
-						HiseEvent c(m);
-						PolyHandler::ScopedVoiceSetter vs(ph, vd.voiceIndex);
-						n.handleHiseEvent(c);
-					}
-				}
-			}
-		}
-		else if (!m.isNoteOn())
-		{
-			for (auto vd : voiceNoteOns)
-			{
-				HiseEvent c(m);
-				PolyHandler::ScopedVoiceSetter vs(ph, vd.voiceIndex);
-				n.handleHiseEvent(c);
-			}
-		}
-	}
-
-	template <typename T> void startVoice(T& n, PolyHandler& ph, int voiceIndex, const HiseEvent& e)
-	{
-		voiceNoteOns.insertWithoutSearch({ voiceIndex, e });
-		HiseEvent c(e);
-
-		PolyHandler::ScopedVoiceSetter vs(ph, voiceIndex);
-
-		HiseEvent copy(e);
-
-		{
-			// Deactivate reset calls of envelopes killing the voice before it begins...
-			PolyHandler::ScopedNoReset vs(ph, voiceIndex);
-			n.reset();
-		}
-
-		n.handleHiseEvent(copy);
-	}
-
-	UnorderedStack<VoiceData, NUM_POLYPHONIC_VOICES> voiceNoteOns;
-};
 
 /** A data structure containing the processing details for the context.
     @ingroup snex_data_structures
@@ -1084,7 +890,7 @@ template <typename T, int NumVoices> struct PolyData
 #if JUCE_DEBUG
 		String s;
 		s << "VoiceIndex: ";
-		s << (voicePtr != nullptr ? String(voicePtr->getVoiceIndex()) : "inactive");
+		s << (voicePtr != nullptr ? String(*voicePtr) : "inactive");
 		return s;
 #else
 		return {};
@@ -1107,17 +913,9 @@ template <typename T, int NumVoices> struct PolyData
 
 	int getVoiceIndexForData(const T& d) const
 	{
-		auto off = (reinterpret_cast<uint64>(&d) - reinterpret_cast<uint64>(&data)) / sizeof(T);
+		auto off = (reinterpret_cast<uint64>(&d) - reinterpret_cast<uint64>(&data)) / sizeof(uint64);
 
 		return jlimit(0, NUM_POLYPHONIC_VOICES, (int)off);
-	}
-
-	bool isMonophonicOrInsideVoiceRendering() const
-	{
-		if (!isPolyphonic() || voicePtr == nullptr)
-			return true;
-
-		return isVoiceRenderingActive();
 	}
 
 private:
@@ -1126,7 +924,13 @@ private:
 	
 	static constexpr bool isPolyphonic() { return NumVoices > 1; }
 
-	
+	bool isMonophonicOrInsideVoiceRendering() const
+	{
+		if (!isPolyphonic() || voicePtr == nullptr)
+			return true;
+
+		return isVoiceRenderingActive();
+	}
 
 	bool isVoiceRenderingActive() const
 	{

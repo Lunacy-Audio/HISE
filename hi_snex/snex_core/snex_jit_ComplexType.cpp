@@ -34,7 +34,7 @@
 namespace snex {
 namespace jit {
 using namespace juce;
-USE_ASMJIT_NAMESPACE;
+using namespace asmjit;
 
 int ComplexType::numInstances = 0;
 
@@ -78,7 +78,7 @@ Result ComplexType::callConstructor(InitData& d)
 				VariableStorage v;
 
 				if (!mp->getValue(v))
-					mp->value = VariableStorage(memberData, (int)mp->st->getMemberTypeInfo(mp->variableId).getRequiredByteSize());
+					mp->value = VariableStorage(memberData, mp->st->getMemberTypeInfo(mp->variableId).getRequiredByteSize());
 
 				providedArgs.add(mp->st->getMemberTypeInfo(mp->variableId).withModifiers(false, true));
 			}
@@ -259,9 +259,11 @@ bool ComplexType::hasDefaultConstructor()
 
 		for (auto& m : matches)
 		{
-            if(m.matchesArgumentTypesWithDefault({}))
+            if(m.matchesArgumentTypesWithDefault({}));
 				return true;
 		}
+
+		return false;
 	}
 
 	return false;
@@ -387,7 +389,6 @@ bool ComplexType::isValidCastTarget(Types::ID nativeTargetType, ComplexType::Ptr
 
 void ComplexType::writeNativeMemberTypeToAsmStack(const ComplexType::InitData& d, int initIndex, int offsetInBytes, int size)
 {
-#if SNEX_ASMJIT_BACKEND
 	auto& cc = GET_COMPILER_FROM_INIT_DATA(d);
 	auto mem = d.asmPtr->memory.cloneAdjustedAndResized(offsetInBytes, size);
 
@@ -415,20 +416,19 @@ void ComplexType::writeNativeMemberTypeToAsmStack(const ComplexType::InitData& d
 		}
 		IF_(float)
 		{
-			auto t = cc.newFloatConst(ConstPoolScope::kLocal, v.toFloat());
+			auto t = cc.newFloatConst(ConstPool::kScopeLocal, v.toFloat());
 			auto temp = cc.newXmmPs();
 			cc.movss(temp, t);
 			cc.movss(mem, temp);
 		}
 		IF_(double)
 		{
-			auto t = cc.newDoubleConst(ConstPoolScope::kLocal, v.toDouble());
+			auto t = cc.newDoubleConst(ConstPool::kScopeLocal, v.toDouble());
 			auto temp = cc.newXmmPd();
 			cc.movsd(temp, t);
 			cc.movsd(mem, temp);
 		}
 	}
-#endif
 }
 
 void ComplexType::writeNativeMemberType(void* dataPointer, int byteOffset, const VariableStorage& initValue)

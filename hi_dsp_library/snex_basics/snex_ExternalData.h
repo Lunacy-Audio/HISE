@@ -90,7 +90,22 @@ using namespace Types;
             virtual juce::String toString() const = 0;
         };
         
-        juce::String toString() const;
+        juce::String toString() const
+        {
+            juce::String s;
+            s << "{ ";
+            
+            for (auto l : root)
+            {
+                s << l->toString();
+                
+                if (root.getLast().get() != l)
+                    s << ", ";
+            }
+            
+            s << " }";
+            return s;
+        }
         
         static Ptr makeSingleList(const VariableStorage& v)
         {
@@ -160,7 +175,7 @@ using namespace Types;
             return root.size();
         }
         
-        bool forEach(const std::function<bool(ChildBase*)>& func) const
+        bool forEach(const std::function<bool(ChildBase*)>& func)
         {
             for (auto l : root)
             {
@@ -275,15 +290,8 @@ using namespace Types;
                 juce::String s;
                 s << "{ ";
                 
-                int index = 0;
-                
                 for (auto l : list)
-                {
                     s << l->toString();
-                    
-                    if(++index < list.size())
-                        s << ", ";
-                }
                 
                 s << " }";
                 return s;
@@ -415,8 +423,6 @@ struct ExternalData
 
     static void forEachType(const std::function<void(DataType)>& f);
 
-	bool isTypeOrEmpty(DataType t) const { return dataType == t || dataType == DataType::numDataTypes; }
-
     /** assigns a block container to the data type. If the external data is pointing to an audio file you can specify the channelIndex. */
 	void referBlockTo(block& b, int channelIndex) const;
 
@@ -432,8 +438,6 @@ struct ExternalData
 	{
 		return std::is_same<B, D>() || std::is_base_of<B, D>();
 	}
-
-	static DataType getDataTypeForId(const Identifier& id, bool plural=false);
 
 	template <class DataClass> static constexpr DataType getDataTypeForClass()
 	{
@@ -458,11 +462,7 @@ struct ExternalData
     /** Returns true if there is no data associated with this object. */
 	bool isEmpty() const
 	{
-		return dataType == DataType::numDataTypes ||
-               numSamples == 0 ||
-               (obj == nullptr && data == nullptr) || // allow obj to be nullptr for embedded data tables
-               numChannels == 0 ||
-               data == nullptr;
+		return dataType == DataType::numDataTypes || numSamples == 0 || obj == nullptr || numChannels == 0 || data == nullptr;
 	}
 
 	bool isNotEmpty() const
@@ -743,7 +743,7 @@ struct base
 	virtual void setExternalData(const snex::ExternalData& d, int index)
 	{
 		// This function must always be called while the writer lock is active
-		jassert(d.obj == nullptr || d.obj->getDataLock().writeAccessIsLocked() || d.obj->getDataLock().writeAccessIsSkipped());
+		jassert(d.isEmpty() || d.obj->getDataLock().writeAccessIsLocked() || d.obj->getDataLock().writeAccessIsSkipped());
 
 		
 
@@ -843,53 +843,23 @@ struct DataWriteLock : hise::SimpleReadWriteLock::ScopedWriteLock
 namespace data
 {
 
-struct filter_base : public base,
-					 public FilterDataObject::Broadcaster
+struct filter_base : public data::base,
+	public FilterDataObject::Broadcaster
 {
 	virtual ~filter_base() {};
 
-	virtual FilterDataObject::CoefficientData getApproximateCoefficients() const = 0;
+	virtual IIRCoefficients getApproximateCoefficients() const = 0;
 
-	void sendCoefficientUpdateMessage();
+	void setExternalData(const snex::ExternalData& d, int index) override
+	{
+		deregisterAtObject(this->externalData.obj);
+		base::setExternalData(d, index);
+		registerAtObject(this->externalData.obj);
 
-	void setExternalData(const snex::ExternalData& d, int index) override;
+		if (auto o = dynamic_cast<FilterDataObject*>(d.obj))
+			o->setCoefficients(this, getApproximateCoefficients());
+	}
 };
-
-struct filterT: public filter_base,
-				public ComplexDataUIUpdaterBase::EventListener
-{
-	template <typename T> filterT(T* obj_):
-	  obj(obj_),
-	  f(T::getPlotValueStatic)
-	{}
-
-	~filterT() override;
-
-	FilterDataObject::CoefficientData getApproximateCoefficients() const override;
-	void onComplexDataEvent(ComplexDataUIUpdaterBase::EventType t, var data) override;
-	void setExternalData(const snex::ExternalData& d, int index) override;
-
-	void* obj = nullptr;
-	FilterCoefficientData::PlotFunction f = nullptr;
-};
-
-// Use this macro in the SNEX setExternalCallback() function to init the filter in the (compiled) node
-#define SNEX_INIT_FILTER(d, index) filter_node_base::setExternalData(d, index);
-
-struct filter_node_base: public filterT
-{
-	filter_node_base():
-		filterT(this)
-	{}
-
-	~filter_node_base() override {};
-
-	static double getPlotValueStatic(void* obj, bool getMagnitude, double freqNorm);
-
-	virtual double getPlotValue(int getMagnitude, double freqNorm) = 0;
-};
-
-
 
 #define SNEX_THROW_IF_MULTIPLE_WRITERS 0
 
@@ -942,13 +912,7 @@ template <bool EnableBuffer> struct display_buffer_base : public base,
 		if (rb != nullptr)
 		{
 			auto numSamples = rb->getReadBuffer().getNumSamples();
-
-			ignoreUnused(numSamples);
-			
-#if !HI_EXPORT_AS_PROJECT_DLL
-			// We can only reallocate here if we're not in the dll memory space
 			rb->setRingBufferSize(ps.numChannels, numSamples);
-#endif
 			rb->setSamplerate(ps.sampleRate);
 		}
 	}
@@ -980,8 +944,6 @@ template <bool EnableBuffer> struct display_buffer_base : public base,
 	SimpleRingBuffer::Ptr rb = nullptr;
 	snex::Types::PrepareSpecs lastSpecs;
 };
-
-
 
 
 using namespace snex;
@@ -1028,7 +990,7 @@ template <int Index, ExternalData::DataType DType> struct plain : index_type_bas
 
 	template <typename NodeType> void setExternalData(NodeType& n, const ExternalData& b, int index)
 	{
-		if ((index == Index && b.dataType == DType) || b.dataType == ExternalData::DataType::numDataTypes)
+		if (index == Index && b.dataType == DType)
 			n.setExternalData(b, 0);
 	}
 };
