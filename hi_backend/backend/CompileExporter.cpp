@@ -362,12 +362,6 @@ int CompileExporter::getBuildOptionPart(const String& argument)
 	{
 		const String pluginName = argument.fromFirstOccurrenceOf("-p:", false, true).toUpperCase();
 
-		if (pluginName == "VST23AU")
-		{
-			CompileExporter::forcedVSTVersion = 23; // you now, 2 + 3...
-			return 0x0010;
-		}
-
 		if (pluginName == "VST2")
 		{
 			CompileExporter::forcedVSTVersion = 2;
@@ -1597,7 +1591,7 @@ hise::CompileExporter::ErrorCodes CompileExporter::createPluginProjucerFile(Targ
 	{
 		REPLACE_WILDCARD_WITH_STRING("%BUILD_AUV3%", "0");
 
-		bool buildAU = BuildOptionHelpers::isAU(option);
+		const bool buildAU = BuildOptionHelpers::isAU(option);
 		bool buildVST = BuildOptionHelpers::isVST(option);
 		const bool headlessLinux = BuildOptionHelpers::isHeadlessLinuxPlugin(option);
 
@@ -1614,12 +1608,8 @@ hise::CompileExporter::ErrorCodes CompileExporter::createPluginProjucerFile(Targ
 			jassert(isExportingFromCommandLine());
 			jassert(isUsingCIMode());
 			jassert(BuildOptionHelpers::isVST(option));
-			buildVST2 = forcedVSTVersion == 2 || forcedVSTVersion == 23;
-			buildVST3 = forcedVSTVersion == 3 || forcedVSTVersion == 23;
-
-#if JUCE_MAC
-			buildAU = forcedVSTVersion == 23;
-#endif
+			buildVST2 = forcedVSTVersion == 2;
+			buildVST3 = forcedVSTVersion == 3;
 		}
 
 #if JUCE_LINUX
@@ -2416,18 +2406,16 @@ void CompileExporter::BatchFileCreator::createBatchFile(CompileExporter* exporte
     }
     else
     {
-        // Allow the errorcode to flow through xcpretty
-        ADD_LINE("set -o pipefail");
-        
         ADD_LINE("echo Compiling " << projectType << " " << projectName << " ...");
 
-        int threads = SystemStats::getNumCpus() - 2;
-        String xcodeLine;
-        
+		int threads = SystemStats::getNumCpus() - 2;
+		String xcodeLine;
 		xcodeLine << "xcodebuild -project \"Builds/MacOSX/" << projectName << ".xcodeproj\" -configuration \"" << exporter->configurationName << "\" -jobs \"" << threads << "\"";
 		xcodeLine << " | xcpretty";
 		
+
         ADD_LINE(xcodeLine);
+        ADD_LINE("echo Compiling finished. Cleaning up...");
     }
     
     File tempFile = batchFile.getSiblingFile("tempBatch");
@@ -2657,6 +2645,7 @@ void CompileExporter::HeaderHelpers::addProjectInfoLines(CompileExporter* export
 {
 	const String companyName = exporter->GET_SETTING(HiseSettings::User::Company);
 	const String companyWebsiteName = exporter->GET_SETTING(HiseSettings::User::CompanyURL);
+	const String companyCopyright = exporter->GET_SETTING(HiseSettings::User::CompanyCopyright);
 	const String projectName = exporter->GET_SETTING(HiseSettings::Project::Name);
 	const String versionString = exporter->GET_SETTING(HiseSettings::Project::Version);
 	const String appGroupString = exporter->GET_SETTING(HiseSettings::Project::AppGroupID);
@@ -2666,6 +2655,7 @@ void CompileExporter::HeaderHelpers::addProjectInfoLines(CompileExporter* export
 	pluginDataHeaderFile << "String hise::FrontendHandler::getProjectName() { return \"" << projectName << "\"; };\n";
 	pluginDataHeaderFile << "String hise::FrontendHandler::getCompanyName() { return \"" << companyName << "\"; };\n";
 	pluginDataHeaderFile << "String hise::FrontendHandler::getCompanyWebsiteName() { return \"" << companyWebsiteName << "\"; };\n";
+	pluginDataHeaderFile << "String hise::FrontendHandler::getCompanyCopyright() { return \"" << companyCopyright << "\"; };\n";
 	pluginDataHeaderFile << "String hise::FrontendHandler::getVersionString() { return \"" << versionString << "\"; };\n";
     
     pluginDataHeaderFile << "String hise::FrontendHandler::getAppGroupId() { return \"" << appGroupString << "\"; };\n";
