@@ -214,6 +214,8 @@ struct ScriptingObjects::ScriptFile::Wrapper
 	API_VOID_METHOD_WRAPPER_2(ScriptFile, setReadOnly);
 	API_VOID_METHOD_WRAPPER_3(ScriptFile, extractZipFile);
 	API_VOID_METHOD_WRAPPER_0(ScriptFile, show);
+	API_METHOD_WRAPPER_1(ScriptFile, loadAsMidiFile);
+	API_METHOD_WRAPPER_2(ScriptFile, writeMidiFile)
 };
 
 String ScriptingObjects::ScriptFile::getFileNameFromFile(var fileOrString)
@@ -269,6 +271,8 @@ ScriptingObjects::ScriptFile::ScriptFile(ProcessorWithScriptingContent* p, const
 	ADD_API_METHOD_1(getRelativePathFrom);
 	ADD_API_METHOD_0(loadFromXmlFile);
 	ADD_API_METHOD_2(writeAsXmlFile);
+	ADD_API_METHOD_1(loadAsMidiFile);
+	ADD_API_METHOD_2(writeMidiFile);
 }
 
 
@@ -564,6 +568,85 @@ bool ScriptingObjects::ScriptFile::writeAudioFile(var audioData, double sampleRa
 		reportScriptError("Can't find audio format for file extension " + fileFormat);
 		RETURN_IF_NO_THROW(var());
 	}
+}
+
+bool ScriptingObjects::ScriptFile::writeMidiFile(var eventList, var metadataObject)
+{
+	if (eventList.isArray())
+	{
+		Array<HiseEvent> events;
+
+		for (auto e : *eventList.getArray())
+		{
+			if (auto eh = dynamic_cast<ScriptingMessageHolder*>(e.getObject()))
+			{
+				events.add(eh->getMessageCopy());
+			}
+		}
+
+		HiseMidiSequence::Ptr newSequence = new HiseMidiSequence();
+
+		HiseMidiSequence::TimeSignature t;
+
+		if (metadataObject.getDynamicObject() != nullptr)
+		{
+			auto v = ValueTreeConverters::convertDynamicObjectToValueTree(metadataObject, "TimeSignature");
+			t.restoreFromValueTree(v);
+		}
+
+		newSequence->setLengthFromTimeSignature(t);
+		newSequence->setTimeStampEditFormat(HiseMidiSequence::TimestampEditFormat::Ticks);
+		MidiPlayer::EditAction::writeArrayToSequence(newSequence, events, 120, 44100.0);
+
+		auto tmpFile = newSequence->writeToTempFile();
+
+		if (f.existsAsFile())
+			f.deleteFile();
+
+		return tmpFile.moveFileTo(f);
+	}
+
+	return false;
+}
+
+juce::var ScriptingObjects::ScriptFile::loadAsMidiFile(int trackIndex)
+{
+	if (f.existsAsFile() && f.getFileExtension() == "mid")
+	{
+		HiseMidiSequence::Ptr newSequence = new HiseMidiSequence();
+
+		FileInputStream fis(f);
+		MidiFile mf;
+		mf.readFrom(fis);
+		newSequence->loadFrom(mf);
+
+		newSequence->setTimeStampEditFormat(HiseMidiSequence::TimestampEditFormat::Ticks);
+		newSequence->setCurrentTrackIndex(trackIndex);
+
+		auto v = newSequence->getTimeSignature().exportAsValueTree();
+
+		auto list = newSequence->getEventList(44100.0, 120.0);
+
+		auto obj = ValueTreeConverters::convertValueTreeToDynamicObject(v);
+
+		Array<var> eventList;
+		eventList.ensureStorageAllocated(list.size());
+
+		for (auto e : list)
+		{
+			auto eh = new ScriptingMessageHolder(getScriptProcessor());
+			eh->setMessage(e);
+			eventList.add(var(eh));
+		}
+
+		auto returnObj = new DynamicObject();
+		returnObj->setProperty("TimeSignature", obj);
+		returnObj->setProperty("Events", var(eventList));
+
+		return var(returnObj);
+	}
+
+	return var();
 }
 
 bool ScriptingObjects::ScriptFile::writeString(String text)
@@ -1320,7 +1403,7 @@ struct ScriptingObjects::ScriptAudioFile::Wrapper
 };
 
 ScriptingObjects::ScriptAudioFile::ScriptAudioFile(ProcessorWithScriptingContent* pwsc, int index_, ExternalDataHolder* otherHolder) :
-	ScriptComplexDataReferenceBase(pwsc, 0, snex::ExternalData::DataType::AudioFile, otherHolder)
+	ScriptComplexDataReferenceBase(pwsc, index_, snex::ExternalData::DataType::AudioFile, otherHolder)
 {
 	ADD_API_METHOD_2(setRange);
 	ADD_API_METHOD_1(loadFile);
@@ -3608,6 +3691,7 @@ struct ScriptingObjects::ScriptingMidiProcessor::Wrapper
 	API_METHOD_WRAPPER_0(ScriptingMidiProcessor, getId);
 	API_METHOD_WRAPPER_0(ScriptingMidiProcessor, asMidiPlayer);
 	
+	
 };
 
 ScriptingObjects::ScriptingMidiProcessor::ScriptingMidiProcessor(ProcessorWithScriptingContent *p, MidiProcessor *mp_) :
@@ -3643,6 +3727,7 @@ mp(mp_)
 	ADD_API_METHOD_1(getAttributeId);
 	ADD_API_METHOD_1(getAttributeIndex);
 	ADD_API_METHOD_0(asMidiPlayer);
+	
 }
 
 Component* ScriptingObjects::ScriptingMidiProcessor::createPopupComponent(const MouseEvent& e, Component* t)
@@ -4592,11 +4677,17 @@ struct ScriptingObjects::ScriptedMidiPlayer::Wrapper
 	API_METHOD_WRAPPER_1(ScriptedMidiPlayer, setTimeSignature);
 	API_METHOD_WRAPPER_0(ScriptedMidiPlayer, getLastPlayedNotePosition);
 	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setSyncToMasterClock);
+	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setSequenceCallback);
+	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setAutomationHandlerConsumesControllerEvents);
+	API_METHOD_WRAPPER_0(ScriptedMidiPlayer, asMidiProcessor);
+	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setGlobalPlaybackRatio);
+	
 };
 
 ScriptingObjects::ScriptedMidiPlayer::ScriptedMidiPlayer(ProcessorWithScriptingContent* p, MidiPlayer* player_):
 	MidiPlayerBaseType(player_),
-	ConstScriptingObject(p, 0)
+	ConstScriptingObject(p, 0),
+	updateCallback(p, var(), 1)
 {
 	ADD_API_METHOD_0(getPlaybackPosition);
 	ADD_API_METHOD_1(setPlaybackPosition);
@@ -4626,6 +4717,10 @@ ScriptingObjects::ScriptedMidiPlayer::ScriptedMidiPlayer(ProcessorWithScriptingC
 	ADD_API_METHOD_1(setUseTimestampInTicks);
 	ADD_API_METHOD_0(getTicksPerQuarter);
 	ADD_API_METHOD_0(getLastPlayedNotePosition);
+	ADD_API_METHOD_1(setAutomationHandlerConsumesControllerEvents);
+	ADD_API_METHOD_1(setSequenceCallback);
+	ADD_API_METHOD_0(asMidiProcessor);
+	ADD_API_METHOD_1(setGlobalPlaybackRatio);
 }
 
 ScriptingObjects::ScriptedMidiPlayer::~ScriptedMidiPlayer()
@@ -4643,6 +4738,8 @@ juce::String ScriptingObjects::ScriptedMidiPlayer::getDebugValue() const
 
 void ScriptingObjects::ScriptedMidiPlayer::trackIndexChanged()
 {
+	callUpdateCallback();
+
 	if (auto panel = dynamic_cast<ScriptingApi::Content::ScriptPanel*>(connectedPanel.get()))
 	{
 		panel->repaint();
@@ -4651,6 +4748,8 @@ void ScriptingObjects::ScriptedMidiPlayer::trackIndexChanged()
 
 void ScriptingObjects::ScriptedMidiPlayer::sequenceIndexChanged()
 {
+	callUpdateCallback();
+
 	if (auto panel = dynamic_cast<ScriptingApi::Content::ScriptPanel*>(connectedPanel.get()))
 	{
 		panel->repaint();
@@ -4659,6 +4758,8 @@ void ScriptingObjects::ScriptedMidiPlayer::sequenceIndexChanged()
 
 void ScriptingObjects::ScriptedMidiPlayer::sequencesCleared()
 {
+	callUpdateCallback();
+
 	if (auto panel = dynamic_cast<ScriptingApi::Content::ScriptPanel*>(connectedPanel.get()))
 	{
 		panel->repaint();
@@ -4764,8 +4865,10 @@ void ScriptingObjects::ScriptedMidiPlayer::connectToPanel(var panel)
 
 var ScriptingObjects::ScriptedMidiPlayer::getEventList()
 {
+	Array<var> eventHolders;
+
 	if (!sequenceValid())
-		return {};
+		return var(eventHolders);
 
 	auto sr = getPlayer()->getSampleRate();
 	auto bpm = getPlayer()->getMainController()->getBpm();
@@ -4773,8 +4876,6 @@ var ScriptingObjects::ScriptedMidiPlayer::getEventList()
 	getPlayer()->getCurrentSequence()->setTimeStampEditFormat(useTicks ? HiseMidiSequence::TimestampEditFormat::Ticks : HiseMidiSequence::TimestampEditFormat::Samples);
 
 	auto list = getPlayer()->getCurrentSequence()->getEventList(sr, bpm);
-
-	Array<var> eventHolders;
 
 	for (const auto& e : list)
 	{
@@ -5030,9 +5131,54 @@ bool ScriptingObjects::ScriptedMidiPlayer::setTimeSignature(var timeSignatureObj
 	return false;
 }
 
+void ScriptingObjects::ScriptedMidiPlayer::setAutomationHandlerConsumesControllerEvents(bool shouldBeEnabled)
+{
+	if (auto player = getPlayer())
+	{
+		player->setMidiControlAutomationHandlerConsumesControllerEvents(shouldBeEnabled);
+	}
+}
+
+void ScriptingObjects::ScriptedMidiPlayer::setSequenceCallback(var updateFunction)
+{
+	if (HiseJavascriptEngine::isJavascriptFunction(updateFunction))
+	{
+		updateCallback = WeakCallbackHolder(getScriptProcessor(), updateFunction, 1);
+		updateCallback.incRefCount();
+
+		callUpdateCallback();
+	}
+}
+
+juce::var ScriptingObjects::ScriptedMidiPlayer::asMidiProcessor()
+{
+	if (auto p = getPlayer())
+	{
+		return var(new ScriptingMidiProcessor(getScriptProcessor(), p));
+	}
+
+	return var();
+}
+
+void ScriptingObjects::ScriptedMidiPlayer::setGlobalPlaybackRatio(double globalRatio)
+{
+	getScriptProcessor()->getMainController_()->setGlobalMidiPlaybackSpeed(globalRatio);
+}
+
+void ScriptingObjects::ScriptedMidiPlayer::callUpdateCallback()
+{
+	if (updateCallback)
+	{
+		var thisVar(this);
+
+		updateCallback.call(&thisVar, 1);
+	}
+}
+
 void ScriptingObjects::ScriptedMidiPlayer::sequenceLoaded(HiseMidiSequence::Ptr newSequence)
 {
-
+	callUpdateCallback();
+	
 }
 
 int ScriptingObjects::ScriptedMidiPlayer::getNumTracks()

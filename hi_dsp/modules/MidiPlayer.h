@@ -536,6 +536,12 @@ public:
 	/** Returns the normalised playback position inside the current loop. This will never be outside the bounds of the loop. */
 	double getPlayPackPositionInLoop() const;
 
+	/** This will send any CC messages from the MIDI file to the global MIDI handler. */
+	void setMidiControlAutomationHandlerConsumesControllerEvents(bool shouldBeEnabled)
+	{
+		globalMidiHandlerConsumesCC = shouldBeEnabled;
+	}
+
 	void swapCurrentSequence(MidiMessageSequence* newSequence);
 	void enableInternalUndoManager(bool shouldBeEnabled);
 
@@ -598,7 +604,9 @@ public:
 		by passing in the timestamp of the current event within the buffer. */
 	bool stop(int timestampInBuffer=0);
 
-	double getTicksPerSample() const { return ticksPerSample * playbackSpeed; }
+	double getTicksPerSample() const { return ticksPerSample * getPlaybackSpeed(); }
+
+	double getPlaybackSpeed() const { return playbackSpeed * getMainController()->getGlobalPlaybackSpeed(); }
 
 	/** Starts recording. If the sequence is already playing, it switches into overdub mode, otherwise it also starts playing. */
 	bool record(int timestampInBuffer=0);
@@ -694,7 +702,7 @@ private:
 
 	bool isRecording() const noexcept { return getPlayState() == PlayState::Record; }
 
-	
+	bool globalMidiHandlerConsumesCC = false;
 
 	ScopedPointer<UndoManager> ownedUndoManager;
     UndoManager* undoManager = nullptr;

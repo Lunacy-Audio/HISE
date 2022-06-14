@@ -278,6 +278,27 @@ void SliderPack::setNumSliders(int numSliders)
 	data->setNumSliders(numSliders);
 }
 
+void SliderPack::updateSliderRange()
+{
+	auto rToUse = data->getRange();
+	auto stepSize = data->getStepSize();
+
+	for (int i = 0; i < sliders.size(); i++)
+	{
+		Slider *s = sliders[i];
+
+		s->setRange(rToUse, stepSize);
+
+		float v = (float)data->getValue(i);
+		v = FloatSanitizers::sanitizeFloatNumber(v);
+
+		s->setValue((double)v, dontSendNotification);
+		s->repaint();
+	}
+
+	repaint();
+}
+
 void SliderPack::updateSliders()
 {
 	for (int i = 0; i < sliders.size(); i++)
@@ -388,7 +409,12 @@ void SliderPack::sliderValueChanged(Slider *s)
 
 	if(data.get() == nullptr) return;
     
-	data->setValue(index, (float)s->getValue(), sendNotificationSync, true);
+	NotificationType n = sendNotificationSync;
+
+	if (callbackOnMouseUp)
+		n = dontSendNotification;
+
+	data->setValue(index, (float)s->getValue(), n, true);
 }
 
 void SliderPack::mouseDown(const MouseEvent &e)
@@ -445,6 +471,8 @@ void SliderPack::mouseDrag(const MouseEvent &e)
 	int y = e.getEventRelativeTo(this).getPosition().getY();
 
 	Rectangle<int> thisBounds(0, 0, getWidth(), getHeight());
+
+	NotificationType n = sendNotificationSync;
 
 	if (!rightClickLine.getStart().isOrigin())
 	{
@@ -518,7 +546,6 @@ void SliderPack::mouseDrag(const MouseEvent &e)
 				if (auto s = sliders[i])
 					s->setValue(v, sendNotificationSync);
 			}
-
 		}
 
 		lastDragIndex = sliderIndex;
@@ -533,6 +560,9 @@ void SliderPack::mouseUp(const MouseEvent &e)
 	currentlyDragged = false;
 
 	if(!rightClickLine.getStart().isOrigin()) setValuesFromLine();
+
+	if (callbackOnMouseUp)
+		getData()->getUpdater().sendContentChangeMessage(sendNotificationSync, -1);
 
 	repaint();
 }
@@ -628,7 +658,6 @@ void SliderPack::setValuesFromLine()
 			const double y = (double)midLine.getIntersection(rightClickLine).getY();
 
 			double normalizedValue = ((double)getHeight() - y) / (double)getHeight();
-
 			double value = s->proportionOfLengthToValue(normalizedValue);
 
             data->setValue(i, value, dontSendNotification, true);
@@ -636,7 +665,7 @@ void SliderPack::setValuesFromLine()
 		}
 	}
     
-    data->getUpdater().sendContentChangeMessage(sendNotificationAsync, lastIndex);
+	data->getUpdater().sendContentChangeMessage(sendNotificationAsync, lastIndex);
 
 	rightClickLine = Line<float>(0.0f, 0.0f, 0.0f, 0.0f);
 }

@@ -354,6 +354,8 @@ public:
 			setSliderPackData(sp);
 	}
 
+	void updateSliderRange();
+
 	void updateSliders();
 
 #if 0
@@ -432,6 +434,11 @@ public:
 			d->removeListener(listener);
 	}
 
+	void setCallbackOnMouseUp(bool shouldFireOnMouseUp)
+	{
+		callbackOnMouseUp = shouldFireOnMouseUp;
+	}
+
 private:
 
 	int lastDragIndex = -1;
@@ -457,6 +464,8 @@ private:
 	Line<float> rightClickLine;
 
 	bool currentlyDragged;
+
+	bool callbackOnMouseUp = false;
 
 	int currentlyDraggedSlider;
 
