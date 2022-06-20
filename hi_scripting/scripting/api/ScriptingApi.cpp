@@ -872,6 +872,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_0(Engine, createTimerObject);
 	API_METHOD_WRAPPER_0(Engine, createMessageHolder);
 	API_METHOD_WRAPPER_0(Engine, createTransportHandler);
+	API_METHOD_WRAPPER_0(Engine, createMidiAutomationHandler);
 	API_METHOD_WRAPPER_0(Engine, getPlayHead);
 	API_VOID_METHOD_WRAPPER_2(Engine, dumpAsJSON);
 	API_METHOD_WRAPPER_1(Engine, loadFromJSON);
@@ -982,6 +983,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_1(setLowestKeyToDisplay);
   	ADD_API_METHOD_1(openWebsite);
 	ADD_API_METHOD_0(createUserPresetHandler);
+	ADD_API_METHOD_0(createMidiAutomationHandler);
   	ADD_API_METHOD_1(loadNextUserPreset);
 	ADD_API_METHOD_1(loadPreviousUserPreset);
 	ADD_API_METHOD_1(isUserPresetReadOnly);
@@ -1673,6 +1675,11 @@ var ScriptingApi::Engine::createDspNetwork(String id)
 var ScriptingApi::Engine::createExpansionHandler()
 {
 	return var(new ScriptExpansionHandler(dynamic_cast<JavascriptProcessor*>(getScriptProcessor())));
+}
+
+juce::var ScriptingApi::Engine::createMidiAutomationHandler()
+{
+	return var(new ScriptingObjects::ScriptedMidiAutomationHandler(getScriptProcessor()));
 }
 
 var ScriptingApi::Engine::createUserPresetHandler()
@@ -4255,6 +4262,7 @@ struct ScriptingApi::Synth::Wrapper
 	API_METHOD_WRAPPER_1(Synth, isArtificialEventActive);
 	API_VOID_METHOD_WRAPPER_1(Synth, setClockSpeed);
 	API_VOID_METHOD_WRAPPER_1(Synth, setShouldKillRetriggeredNote);
+	
 };
 
 
@@ -4328,7 +4336,7 @@ ScriptingApi::Synth::Synth(ProcessorWithScriptingContent *p, Message* messageObj
 	ADD_API_METHOD_1(isArtificialEventActive);
 	ADD_API_METHOD_1(setClockSpeed);
 	ADD_API_METHOD_1(setShouldKillRetriggeredNote);
-
+	
 };
 
 
@@ -5477,6 +5485,8 @@ int ScriptingApi::Synth::getModulatorIndex(int chain, const String &id) const
 
 	RETURN_IF_NO_THROW(-1)
 }
+
+
 
 // ====================================================================================================== Console functions
 

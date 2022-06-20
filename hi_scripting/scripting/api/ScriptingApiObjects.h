@@ -1642,6 +1642,15 @@ namespace ScriptingObjects
 		/** Swaps the effect with the other slot. */
 		bool swap(var otherSlot);
 
+		/** Returns the list of all available modules that you can load into the slot (might be empty if there is no compiled dll present). */
+		var getModuleList();
+
+        /** Returns a JSON object containing all parameters with their range properties. */
+        var getParameterProperties();
+        
+        /** Returns the ID of the effect that is currently loaded. */
+        String getCurrentEffectId();
+        
 		// ============================================================================================================
 
 		struct Wrapper;
@@ -2213,6 +2222,53 @@ namespace ScriptingObjects
         JUCE_DECLARE_WEAK_REFERENCEABLE(TimerObject);
 	};
 
+	class ScriptedMidiAutomationHandler : public ConstScriptingObject,
+									      public SafeChangeListener
+	{
+	public:
+
+		struct Wrapper;
+
+		ScriptedMidiAutomationHandler(ProcessorWithScriptingContent* sp);
+
+		~ScriptedMidiAutomationHandler();
+
+		void changeListenerCallback(SafeChangeBroadcaster *b) override;
+
+		static Identifier getClassName() { RETURN_STATIC_IDENTIFIER("MidiAutomationHandler"); };
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("MidiAutomationHandler"); }
+
+		// ============================================================================================================ API Methods
+
+		/** Returns an object that contains the MIDI automation data. */
+		var getAutomationDataObject();
+
+		/** Sets the MIDI automation from the automation data object. */
+		void setAutomationDataFromObject(var automationData);
+
+		/** Sets the numbers that are displayed in the MIDI automation popup. */
+		void setControllerNumbersInPopup(var numberArray);
+
+		/** Replaces the names in the popup. */
+		void setControllerNumberNames(var ccName, var nameArray);
+
+		/** Enables the "exclusive" mode for MIDI automation (only one active parameter for each controller). */
+		void setExclusiveMode(bool shouldBeExclusive);
+
+		/** Set a function (without parameters) that will be executed whenever the MIDI automation changes. */
+		void setUpdateCallback(var callback);
+
+		/** Sets whether a automated MIDI CC message should be consumed by the automation handler (default is enabled). */
+		void setConsumeAutomatedControllers(bool shouldBeConsumed);
+
+		// ============================================================================================================ End of API Methods
+
+	private:
+
+		MidiControllerAutomationHandler* handler;
+		WeakCallbackHolder updateCallback;
+	};
 
 	class ScriptedMidiPlayer : public MidiPlayerBaseType,
 								public ConstScriptingObject,
@@ -2236,6 +2292,8 @@ namespace ScriptingObjects
 		void sequencesCleared() override;
 
 		void timerCallback() override;
+
+		
 
 		// ============================================================================================================ API Methods
 
@@ -2331,6 +2389,9 @@ namespace ScriptingObjects
 		/** Attaches a callback that gets executed whenever the sequence was changed. */
 		void setSequenceCallback(var updateFunction);
 
+		/** Attaches a callback with two arguments (timestamp, playState) that gets executed when the play state changes. */
+		void setPlaybackCallback(var playbackCallback, bool synchronous);
+
 		/** Returns a typed MIDI processor reference (for setting attributes etc). */
 		var asMidiProcessor();
 
@@ -2344,6 +2405,29 @@ namespace ScriptingObjects
 	private:
 
 		void callUpdateCallback();
+
+		
+
+		struct PlaybackUpdater : public PooledUIUpdater::SimpleTimer,
+								 public MidiPlayer::PlaybackListener
+		{
+			PlaybackUpdater(ScriptedMidiPlayer& parent_, var f, bool sync_);
+
+			~PlaybackUpdater();
+
+			void timerCallback() override;
+
+			void playbackChanged(int timestamp, MidiPlayer::PlayState newState) override;
+
+			bool dirty = false;
+			const bool sync;
+			ScriptedMidiPlayer& parent;
+			WeakCallbackHolder playbackCallback;
+
+			var args[2];
+		};
+
+		ScopedPointer<PlaybackUpdater> playbackUpdater;
 
 		WeakCallbackHolder updateCallback;
 
