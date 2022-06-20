@@ -2421,12 +2421,12 @@ void CompileExporter::BatchFileCreator::createBatchFile(CompileExporter* exporte
         
         ADD_LINE("echo Compiling " << projectType << " " << projectName << " ...");
 
-        int threads = SystemStats::getNumCpus() - 2;
-        String xcodeLine;
-        
+		int threads = SystemStats::getNumCpus() - 2;
+		String xcodeLine;
 		xcodeLine << "xcodebuild -project \"Builds/MacOSX/" << projectName << ".xcodeproj\" -configuration \"" << exporter->configurationName << "\" -jobs \"" << threads << "\"";
 		xcodeLine << " | xcpretty";
 		
+
         ADD_LINE(xcodeLine);
     }
     
@@ -2657,6 +2657,7 @@ void CompileExporter::HeaderHelpers::addProjectInfoLines(CompileExporter* export
 {
 	const String companyName = exporter->GET_SETTING(HiseSettings::User::Company);
 	const String companyWebsiteName = exporter->GET_SETTING(HiseSettings::User::CompanyURL);
+	const String companyCopyright = exporter->GET_SETTING(HiseSettings::User::CompanyCopyright);
 	const String projectName = exporter->GET_SETTING(HiseSettings::Project::Name);
 	const String versionString = exporter->GET_SETTING(HiseSettings::Project::Version);
 	const String appGroupString = exporter->GET_SETTING(HiseSettings::Project::AppGroupID);
@@ -2666,6 +2667,7 @@ void CompileExporter::HeaderHelpers::addProjectInfoLines(CompileExporter* export
 	pluginDataHeaderFile << "String hise::FrontendHandler::getProjectName() { return \"" << projectName << "\"; };\n";
 	pluginDataHeaderFile << "String hise::FrontendHandler::getCompanyName() { return \"" << companyName << "\"; };\n";
 	pluginDataHeaderFile << "String hise::FrontendHandler::getCompanyWebsiteName() { return \"" << companyWebsiteName << "\"; };\n";
+	pluginDataHeaderFile << "String hise::FrontendHandler::getCompanyCopyright() { return \"" << companyCopyright << "\"; };\n";
 	pluginDataHeaderFile << "String hise::FrontendHandler::getVersionString() { return \"" << versionString << "\"; };\n";
     
     pluginDataHeaderFile << "String hise::FrontendHandler::getAppGroupId() { return \"" << appGroupString << "\"; };\n";
