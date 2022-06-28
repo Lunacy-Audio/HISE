@@ -205,6 +205,7 @@ struct ScriptingObjects::ScriptFile::Wrapper
 	API_METHOD_WRAPPER_0(ScriptFile, loadAsString);
 	API_METHOD_WRAPPER_0(ScriptFile, loadAsObject);
 	API_METHOD_WRAPPER_0(ScriptFile, loadAsAudioFile);
+	API_METHOD_WRAPPER_0(ScriptFile, getNonExistentSibling);
 	API_METHOD_WRAPPER_0(ScriptFile, deleteFileOrDirectory);
 	API_METHOD_WRAPPER_1(ScriptFile, loadEncryptedObject);
 	API_METHOD_WRAPPER_1(ScriptFile, rename);
@@ -264,6 +265,7 @@ ScriptingObjects::ScriptFile::ScriptFile(ProcessorWithScriptingContent* p, const
 	ADD_API_METHOD_1(loadEncryptedObject);
 	ADD_API_METHOD_1(rename);
 	ADD_API_METHOD_0(show);
+	ADD_API_METHOD_0(getNonExistentSibling);
 	ADD_API_METHOD_3(extractZipFile);
 	ADD_API_METHOD_0(getNumZippedItems);
 	ADD_API_METHOD_2(setReadOnly);
@@ -307,6 +309,11 @@ int64 ScriptingObjects::ScriptFile::getBytesFreeOnVolume()
 bool ScriptingObjects::ScriptFile::setExecutePermission(bool shouldBeExecutable)
 {
 	return f.setExecutePermission(shouldBeExecutable);
+}
+
+juce::var ScriptingObjects::ScriptFile::getNonExistentSibling()
+{
+	return var(new ScriptFile(getScriptProcessor(), f.getNonexistentSibling(false)));
 }
 
 bool ScriptingObjects::ScriptFile::startAsProcess(String parameters)
@@ -4722,7 +4729,7 @@ struct ScriptingObjects::ScriptedMidiPlayer::Wrapper
 	API_METHOD_WRAPPER_0(ScriptedMidiPlayer, asMidiProcessor);
 	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setGlobalPlaybackRatio);
 	API_VOID_METHOD_WRAPPER_2(ScriptedMidiPlayer, setPlaybackCallback);
-	
+	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setUseGlobalUndoManager);
 };
 
 ScriptingObjects::ScriptedMidiPlayer::ScriptedMidiPlayer(ProcessorWithScriptingContent* p, MidiPlayer* player_):
@@ -4763,6 +4770,7 @@ ScriptingObjects::ScriptedMidiPlayer::ScriptedMidiPlayer(ProcessorWithScriptingC
 	ADD_API_METHOD_0(asMidiProcessor);
 	ADD_API_METHOD_1(setGlobalPlaybackRatio);
 	ADD_API_METHOD_2(setPlaybackCallback);
+	ADD_API_METHOD_1(setUseGlobalUndoManager);
 }
 
 ScriptingObjects::ScriptedMidiPlayer::~ScriptedMidiPlayer()
@@ -4895,6 +4903,14 @@ void ScriptingObjects::ScriptedMidiPlayer::setRepaintOnPositionChange(var should
 		else
 			stopTimer();
 	}
+}
+
+void ScriptingObjects::ScriptedMidiPlayer::setUseGlobalUndoManager(bool shouldUseGlobalUndoManager)
+{
+	if (shouldUseGlobalUndoManager)
+		getPlayer()->setExternalUndoManager(getScriptProcessor()->getMainController_()->getControlUndoManager());
+	else
+		getPlayer()->setExternalUndoManager(nullptr);
 }
 
 void ScriptingObjects::ScriptedMidiPlayer::connectToPanel(var panel)
@@ -5267,6 +5283,7 @@ juce::Array<juce::Identifier> ApiHelpers::getGlobalApiClasses()
 		"Engine",
 		"Console",
 		"Content",
+        "Colours",
 		"Sampler",
 		"Synth",
 		"Math",
@@ -5277,6 +5294,31 @@ juce::Array<juce::Identifier> ApiHelpers::getGlobalApiClasses()
 	};
 	
 	return ids;
+}
+
+void ApiHelpers::loadPathFromData(Path& p, var data)
+{
+	if (data.isString())
+	{
+		juce::MemoryBlock mb;
+		mb.fromBase64Encoding(data.toString());
+		p.clear();
+		p.loadPathFromData(mb.getData(), mb.getSize());
+	}
+	if (data.isArray())
+	{
+		p.clear();
+		Array<unsigned char> pathData;
+		Array<var> *varData = data.getArray();
+		const int numElements = varData->size();
+
+		pathData.ensureStorageAllocated(numElements);
+
+		for (int i = 0; i < numElements; i++)
+			pathData.add(static_cast<unsigned char>((int)varData->getUnchecked(i)));
+
+		p.loadPathFromData(pathData.getRawDataPointer(), numElements);
+	}
 }
 
 juce::PathStrokeType ApiHelpers::createPathStrokeType(var strokeType)

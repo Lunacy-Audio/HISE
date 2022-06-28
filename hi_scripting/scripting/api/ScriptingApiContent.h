@@ -1759,6 +1759,9 @@ public:
 		/** Disables the paint routine and just uses the given (clipped) image. */
 		void setImage(String imageName, int xOffset, int yOffset);
 
+		/** Starts dragging an external file (or a number of files). */
+		bool startExternalFileDrag(var fileOrFilesToDrag, bool moveOriginalFiles, var finishCallback);
+
 		/** Loads a image which can be drawn with the paint function later on. */
 		void loadImage(String imageName, String prettyName);
 
@@ -2226,6 +2229,9 @@ public:
 
 	/** Creates an OpenGL framgent shader. */
 	var createShader(const String& fileName);
+
+	/** Creates a MarkdownRenderer. */
+	var createMarkdownRenderer();
 
 	/** Sets the colour for the panel. */
 	void setColour(int red, int green, int blue) { colour = Colour((uint8)red, (uint8)green, (uint8)blue); };

@@ -566,20 +566,62 @@ struct HiseJavascriptEngine::RootObject::Scope
 
 struct HiseJavascriptEngine::RootObject::Statement
 {
+	using Ptr = ScopedPointer<Statement>;
+
 	Statement(const CodeLocation& l) noexcept : location(l) {}
 	virtual ~Statement() {}
 
 	enum ResultCode  { ok = 0, returnWasHit, breakWasHit, continueWasHit, breakpointWasHit };
 	virtual ResultCode perform(const Scope&, var*) const  { return ok; }
 
+	virtual bool isConstant() const { return false; }
+
 	CodeLocation location;
+	
+	/** Return nullptr if there is no child, otherwise a reference to the child statement. 
+		This makes the syntax tree iteratable for optimisations.
+	*/
+	virtual Statement* getChildStatement(int index) { return nullptr; };
+	
+	/** Helper function to quickly replace expression children that are optimized away. 
+	
+		Use inside replaceChildStatement with each childStatement
+	*/
+	template <typename T> static bool swapIf(Ptr& newChild, Statement* childToReplace, ScopedPointer<T>& currentChild)
+	{
+		if (childToReplace == currentChild.get())
+		{
+			auto nc = newChild.release();
+			auto oc = currentChild.release();
+
+			newChild = dynamic_cast<Statement*>(oc);
+			currentChild = dynamic_cast<T*>(nc);
+
+			return true;
+		}
+
+		return false;
+	}
+
+	template <typename T> static bool swapIfArrayElement(Ptr& newChild, Statement* childToReplace, OwnedArray<T>& arrayToSwap)
+	{
+		auto idx = arrayToSwap.indexOf(dynamic_cast<T*>(childToReplace));
+
+		if (idx != -1)
+		{
+			arrayToSwap.set(idx, dynamic_cast<T*>(newChild.release()), true);
+			return true;
+		}
+
+		return false;
+	}
+
+	virtual bool replaceChildStatement(Ptr& newChild, Statement* oldChild) { return false; };
 
 	Breakpoint::Reference breakpointReference;
 
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Statement)
 };
-
-
 
 struct HiseJavascriptEngine::RootObject::Expression : public Statement
 {
@@ -590,6 +632,8 @@ struct HiseJavascriptEngine::RootObject::Expression : public Statement
 
 	ResultCode perform(const Scope& s, var*) const override  { getResult(s); return ok; }
 };
+
+
 
 
 void HiseJavascriptEngine::RootObject::addToCallStack(const Identifier& id, const CodeLocation* location)
@@ -1198,12 +1242,95 @@ struct TokenWithDot : public mcl::TokenCollection::Token
 			return Token::matches(input, previousToken, lineNumber);
 		}
 
+#if 0
 		if (previousToken.isNotEmpty() && !previousToken.startsWith(classId))
 			return false;
+#endif
 
 		return matchesInput(previousToken + input, tokenContent);
 	}
 
+    static bool hasCallbackArgument(const ValueTree& method)
+    {
+        auto s = method["name"].toString();
+
+        auto isArrayFunction = [](const String& s)
+        {
+            return s == "find" ||
+                   s == "filter" ||
+                   s == "map" ||
+                   s == "some";
+        };
+        
+        return s.contains("Callback") || s.contains("setPaintRoutine") || s.contains("setErrorFunction") || s.contains("setOn") || isArrayFunction(s);
+    }
+    
+    static String getContent(const ValueTree& method, const Identifier objectId)
+    {
+        String s;
+        s << objectId << "." << method["name"].toString();
+        
+        if (hasCallbackArgument(method))
+        {
+            auto args = method["arguments"].toString();
+            static const String body = "\n{\n\t \n}";
+
+            auto replaceArgs = [&](const String& varName, const String& newArgs)
+            {
+                if (args.contains(varName))
+                {
+                    String newF;
+                    newF << "function(" << newArgs << ")" << body;
+
+                    args = args.replace("var " + varName, newF);
+                }
+            };
+
+            auto replaceFCallback = [&](const String& methodName, const String& newArgs)
+            {
+                if (s.contains(methodName))
+                {
+                    String func;
+                    func << "function(" << newArgs << ")" << body;
+                    args = args.replace("var f", func);
+                }
+            };
+
+            replaceArgs("timerCallback", "");
+            replaceArgs("paintFunction", "g");
+            replaceArgs("mouseCallbackFunction", "event");
+            replaceArgs("loadingCallback", "isPreloading");
+            replaceArgs("loadCallback", "obj");
+            replaceArgs("saveCallback", "");
+            replaceArgs("loadingFunction", ""); // this is peak code quality right here...
+            replaceArgs("displayFunction", "displayValue");
+            replaceArgs("contentFunction", "changedIndex");
+            replaceArgs("testFunction", "currentValue, index, arr");
+            
+            replaceArgs("playbackCallback", "timestamp, playState");
+            replaceArgs("updateCallback", "index, value");
+            replaceArgs("presetPreCallback", "presetData");
+            replaceArgs("presetPostCallback", "presetFile");
+            replaceArgs("newProcessFunction", "fftData, startIndex");
+            replaceArgs("backgroundTaskFunction", "thread");
+            replaceArgs("newFinishCallback", "isFinished, wasCancelled");
+
+            replaceFCallback("setOnBeatChange", "beatIndex, isNewBar");
+            replaceFCallback("setOnSignatureChange", "nom, denom");
+            replaceFCallback("setOnTempoChange", "newTempo");
+            replaceFCallback("setOnTransportChange", "isPlaying");
+            
+            s << args;
+            s << ";";
+        }
+        else
+        {
+            s << method["arguments"].toString().replace("var callback", "function()\n{\t \n}");
+        }
+
+        return s;
+    }
+    
 	String classId;
 };
 
@@ -1239,12 +1366,7 @@ struct HiseJavascriptEngine::TokenProvider::ObjectMethodToken : public TokenWith
 		link = { File(), s };
 	}
 
-	static bool hasCallbackArgument(const ValueTree& method)
-	{
-		auto s = method["name"].toString();
-
-		return s.contains("Callback") || s.contains("setPaintRoutine") || s.contains("setErrorFunction") || s.contains("setOn");
-	}
+	
 
 	Array<Range<int>> getSelectionRangeAfterInsert(const String& input) const override
 	{
@@ -1263,72 +1385,8 @@ struct HiseJavascriptEngine::TokenProvider::ObjectMethodToken : public TokenWith
 		return TokenWithDot::getSelectionRangeAfterInsert(input);
 	}
 
-	static String getContent(const ValueTree& method, const Identifier objectId)
-	{
-		String s;
-		s << objectId << "." << method["name"].toString();
-		
-		if (hasCallbackArgument(method))
-		{
-			auto args = method["arguments"].toString();
-			static const String body = "\n{\n\t \n}";
+	
 
-			auto replaceArgs = [&](const String& varName, const String& newArgs)
-			{
-				if (args.contains(varName))
-				{
-					String newF;
-					newF << "function(" << newArgs << ")" << body;
-
-					args = args.replace("var " + varName, newF);
-				}
-			};
-
-			auto replaceFCallback = [&](const String& methodName, const String& newArgs)
-			{
-				if (s.contains(methodName))
-				{
-					String func;
-					func << "function(" << newArgs << ")" << body;
-					args = args.replace("var f", func);
-				}
-			};
-
-			replaceArgs("timerCallback", "");
-			replaceArgs("paintFunction", "g");
-			replaceArgs("mouseCallbackFunction", "event");
-			replaceArgs("loadingCallback", "isPreloading");
-            replaceArgs("loadingFunction", ""); // this is peak code quality right here...
-            replaceArgs("displayFunction", "displayValue");
-			replaceArgs("contentFunction", "changedIndex");
-            
-			
-			replaceArgs("presetPreCallback", "presetData");
-			replaceArgs("presetPostCallback", "presetFile");
-			replaceArgs("newProcessFunction", "fftData, startIndex");
-			replaceArgs("backgroundTaskFunction", "thread");
-			replaceArgs("newFinishCallback", "isFinished, wasCancelled");
-
-			replaceFCallback("setOnBeatChange", "beatIndex, isNewBar");
-			replaceFCallback("setOnSignatureChange", "nom, denom");
-			replaceFCallback("setOnTempoChange", "newTempo");
-			replaceFCallback("setOnTransportChange", "isPlaying");
-			
-			s << args;
-			s << ";";
-		}
-		else
-		{
-			s << method["arguments"].toString().replace("var callback", "function()\n{\t \n}");
-		}
-
-		return s;
-	}
-
-	bool matches(const String& input, const String& previousToken, int lineNumber) const override
-	{
-		return classId.contains(previousToken.upToLastOccurrenceOf(".", false, false));
-	}
 
 	MarkdownLink getLink() const override
 	{
@@ -1344,8 +1402,9 @@ struct HiseJavascriptEngine::TokenProvider::ObjectMethodToken : public TokenWith
 struct TemplateToken : public TokenWithDot
 {
 	TemplateToken(const String& expression, const ValueTree& mTree) :
-		TokenWithDot(expression + "." + mTree["name"].toString() + mTree["arguments"].toString(), expression)
+		TokenWithDot(getContent(mTree, expression), expression)
 	{
+        // expression + "." + mTree["name"].toString() + mTree["arguments"].toString(), expression
 		priority = expression == "g" ? 100 : 110;
 		c = Colour(0xFFAAAA66);
 		markdownDescription = mTree["description"].toString();
@@ -1436,7 +1495,7 @@ struct HiseJavascriptEngine::TokenProvider::DebugInformationToken : public Token
 			link = MarkdownLink(File(), ml);
 		}
 		
-		priority = isGlobalClass ? 110 : 90;;
+        priority = 110;
 		c = c_;
 
 		if (isGlobalClass)
@@ -1518,6 +1577,17 @@ bool addObjectAPIMethods(JavascriptProcessor* jp, mcl::TokenCollection::List& to
 {
 	auto os = ptr->getTextForType();
 
+    if (auto slaf = dynamic_cast<ScriptingObjects::ScriptedLookAndFeel*>(ptr->getObject()))
+    {
+        auto l = ScriptingObjects::ScriptedLookAndFeel::getAllFunctionNames();
+
+        for (auto id : l)
+            tokens.add(new LookAndFeelToken(ptr->getTextForName(), id));
+        
+        return true;
+    }
+
+    
 	if (os.isNotEmpty())
 	{
 		Identifier oid(os);
@@ -1576,7 +1646,9 @@ static void addRecursive(JavascriptProcessor* jp, mcl::TokenCollection::List& to
 
 		Colour childColour = c2;
 
-		if (ptr->getTextForName() == "Colours")
+        bool isColour = ptr->getTextForName() == "Colours";
+        
+		if (isColour)
 		{
 			auto vs = c->getTextForValue();
             childColour = ScriptingApi::Content::Helpers::getCleanedObjectColour(vs);
@@ -1584,6 +1656,9 @@ static void addRecursive(JavascriptProcessor* jp, mcl::TokenCollection::List& to
 
 		tokens.add(new HiseJavascriptEngine::TokenProvider::DebugInformationToken(c, v, childColour, ptr));
 
+        if(isColour)
+            tokens.getLast()->priority = 60;
+        
 		if(!addObjectAPIMethods(jp, tokens, c, v))
 			addRecursive(jp, tokens, c, childColour, v);
 	}
@@ -1697,5 +1772,53 @@ void HiseJavascriptEngine::TokenProvider::addTokens(mcl::TokenCollection::List& 
 #undef X
 	}
 }
+
+hise::HiseJavascriptEngine::RootObject::OptimizationPass::OptimizationResult HiseJavascriptEngine::RootObject::OptimizationPass::executePass(Statement* rootStatementToOptimize)
+{
+	OptimizationResult r;
+	r.passName = getPassName();
+
+	callForEach(rootStatementToOptimize, [this, &r](Statement* st)
+	{
+		int index = 0;
+
+		while (auto child = st->getChildStatement(index++))
+		{
+			auto optimizedStatement = getOptimizedStatement(st, child);
+
+			if (optimizedStatement != child)
+			{
+				ScopedPointer<Statement> newExpr(optimizedStatement);
+				auto ok = st->replaceChildStatement(newExpr, child);
+				jassert(ok);
+				r.numOptimizedStatements++;
+			}
+		}
+
+		return false;
+	});
+
+	return r;
+}
+
+bool HiseJavascriptEngine::RootObject::OptimizationPass::callForEach(Statement* root, const std::function<bool(Statement* child)>& f)
+{
+	if (f(root))
+		return true;
+
+	int index = 0;
+
+	while (auto child = root->getChildStatement(index++))
+	{
+		if (callForEach(child, f))
+			return true;
+	}
+
+	return false;
+}
+
+
+
+
 
 } // namespace hise
