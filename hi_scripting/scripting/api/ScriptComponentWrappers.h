@@ -667,12 +667,21 @@ public:
 	{
 	public:
 
+		enum class Mode
+		{
+			List,
+			Table,
+			Viewport
+		};
+
 		ViewportWrapper(ScriptContentComponent* content, ScriptingApi::Content::ScriptedViewport* viewport, int index);
 		~ViewportWrapper();
 
 		void updateComponent() override;
 		void updateComponent(int index, var newValue) override;
 		void updateValue(var newValue) override;
+
+		static void tableUpdated(ViewportWrapper& w, int index);
 
 	private:
 
@@ -716,7 +725,9 @@ public:
 			StringArray list;
 		};
 
-		bool shouldUseList = false;
+		Mode mode;
+
+		ScriptTableListModel::Ptr tableModel;
 
 		ScopedPointer<ColumnListBoxModel> model;
 		ScopedPointer<LookAndFeel> slaf;

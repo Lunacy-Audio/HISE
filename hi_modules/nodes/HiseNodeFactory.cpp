@@ -300,7 +300,12 @@ struct granulator: public data::base
 	template <typename ProcessDataType> void process(ProcessDataType& d)
 	{
 		if (!ed.isEmpty() && d.getNumChannels() == 2)
-			processFix(d.template as<ProcessData<2>>());
+		{
+			if (auto s = DataTryReadLock(ed))
+			{
+				processFix(d.template as<ProcessData<2>>());
+			}
+		}
 	}
 
 	void processFix(ProcessData<2>& d)
@@ -1365,6 +1370,8 @@ namespace control
 
 	template <int NV> using dynamic_smoother_parameter = control::smoothed_parameter<NV, smoothers::dynamic<NV>>;
 
+	template <int NV> using dynamic_smoother_parameter_unscaled = control::smoothed_parameter_unscaled<NV, smoothers::dynamic<NV>>;
+
  	Factory::Factory(DspNetwork* network) :
 		NodeFactory(network)
 	{
@@ -1403,6 +1410,8 @@ namespace control
 		registerNoProcessNode<control::resetter_editor::NodeType, control::resetter_editor>();
 		registerPolyModNode<dynamic_smoother_parameter<1>, dynamic_smoother_parameter<NUM_POLYPHONIC_VOICES>, smoothers::dynamic_base::editor>();
 
+		registerPolyModNode<dynamic_smoother_parameter_unscaled<1>, dynamic_smoother_parameter_unscaled<NUM_POLYPHONIC_VOICES>, smoothers::dynamic_base::editor>();
+
 #if HISE_INCLUDE_SNEX
 		registerNoProcessNode<dynamic_expression::ControlNodeType, dynamic_expression::editor>();
 		
@@ -1412,6 +1421,8 @@ namespace control
 		registerPolyModNode<control::timer<1, snex_timer>, timer<NUM_POLYPHONIC_VOICES, snex_timer>, snex_timer::editor>();
 
 		registerNoProcessNode<control::midi_cc<parameter::dynamic_base_holder>, midi_cc_editor>();
+
+		registerNoProcessNode<control::voice_bang<parameter::dynamic_base_holder>, ModulationSourceBaseComponent>();
 
 		registerNoProcessNode<file_analysers::dynamic::NodeType, file_analysers::dynamic::editor, false>(); //>();
 

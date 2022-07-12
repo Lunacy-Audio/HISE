@@ -715,6 +715,7 @@ private:
 
 	bool overdubMode = true;
 	hise::UnorderedStack<NotePair> overdubNoteOns;
+	hise::UnorderedStack<HiseEvent> controllerEvents;
 	SimpleReadWriteLock overdubLock;
 
 	struct Updater : private PooledUIUpdater::SimpleTimer
@@ -805,8 +806,7 @@ private:
 
 
 /** Subclass this and implement your MIDI file player type. */
-class MidiPlayerBaseType : public MidiPlayer::SequenceListener,
-							   private SafeChangeListener
+class MidiPlayerBaseType : public MidiPlayer::SequenceListener
 {
 public:
 
@@ -841,16 +841,20 @@ public:
 
 protected:
 
+	void cancelUpdates()
+	{
+		if (player != nullptr)
+		{
+			player->removeSequenceListener(this);
+		}
+	}
+
 	MidiPlayerBaseType(MidiPlayer* player_);;
 
 	
 
 	MidiPlayer* getPlayer() { return player.get(); }
 	const MidiPlayer* getPlayer() const { return player.get(); }
-
-	virtual void sequenceIndexChanged() {};
-
-	virtual void trackIndexChanged() {};
 
 	Font getFont() const
 	{
@@ -860,8 +864,6 @@ protected:
 private:
 
 	Font font;
-
-	void changeListenerCallback(SafeChangeBroadcaster* b) override;
 
 	int lastTrackIndex = 0;
 	int lastSequenceIndex = -1;

@@ -716,11 +716,7 @@ hise::RLottieManager::Ptr MainController::getRLottieManager()
 
 		if (!r.wasOk())
 		{
-#if USE_BACKEND
-			debugToConsole(getMainSynthChain(), r.getErrorMessage());
-#else
-			sendOverlayMessage(DeactiveOverlay::CustomErrorMessage, r.getErrorMessage());
-#endif
+			sendOverlayMessage(OverlayMessageBroadcaster::CustomErrorMessage, r.getErrorMessage());
 		}
 	}
 
@@ -1166,18 +1162,6 @@ void MainController::skin(Component &c)
 };
 
 
-
-void MainController::setCurrentViewChanged()
-{
-#if USE_BACKEND
-	if(getMainSynthChain() != nullptr)
-	{
-		getMainSynthChain()->setCurrentViewChanged();
-	}
-#endif
-}
-
-
 void MainController::storePlayheadIntoDynamicObject(AudioPlayHead::CurrentPositionInfo &/*newPosition*/)
 {
 	//static const Identifier bpmId("bpm");
@@ -1231,10 +1215,10 @@ void MainController::prepareToPlay(double sampleRate_, int samplesPerBlock)
 		maxBufferSize = jmin<int>(maxBufferSize.get(), 1024);
 	}
 
-	// if (maxBufferSize.get() % HISE_EVENT_RASTER != 0)
-	// {
-	// 	sendOverlayMessage(DeactiveOverlay::CustomErrorMessage, "The buffer size " + String(maxBufferSize.get()) + " is not supported. Use a multiple of " + String(HISE_EVENT_RASTER));
-	// }
+	if (maxBufferSize.get() % HISE_EVENT_RASTER != 0)
+	{
+		sendOverlayMessage(State::CustomErrorMessage, "The buffer size " + String(maxBufferSize.get()) + " is not supported. Use a multiple of " + String(HISE_EVENT_RASTER));
+	}
 
     thisAsProcessor = dynamic_cast<AudioProcessor*>(this);
     

@@ -276,11 +276,14 @@ struct ScriptingApi::Message::Wrapper
 
 ScriptingApi::Message::Message(ProcessorWithScriptingContent *p) :
 ScriptingObject(p),
-ApiClass(0),
+ApiClass(2),
 messageHolder(nullptr),
 constMessageHolder(nullptr),
 allNotesOffCallback(p, var(), 0)
 {
+	addConstant("PITCH_BEND_CC", HiseEvent::PitchWheelCCNumber);
+	addConstant("AFTERTOUC_CC", HiseEvent::AfterTouchCCNumber);
+
 	memset(artificialNoteOnIds, 0, sizeof(uint16) * 128);
 
 	ADD_API_METHOD_1(setNoteNumber);
@@ -466,10 +469,7 @@ var ScriptingApi::Message::getControllerNumber() const
 	}
 #endif
 
-	if(constMessageHolder->isController())		  return constMessageHolder->getControllerNumber();
-	else if (constMessageHolder->isPitchWheel())	  return 128;
-	else if (constMessageHolder->isAftertouch())   return 129;
-	else									  return var::undefined();
+	return constMessageHolder->getControllerNumber();
 };
 
 
@@ -909,6 +909,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_0(Engine, createGlobalScriptLookAndFeel);
 	API_METHOD_WRAPPER_1(Engine, createBackgroundTask);
     API_METHOD_WRAPPER_1(Engine, createFixObjectFactory);
+	API_METHOD_WRAPPER_0(Engine, createErrorHandler);
 	API_VOID_METHOD_WRAPPER_3(Engine, showYesNoWindow);
 	API_VOID_METHOD_WRAPPER_1(Engine, addModuleStateToUserPreset);
 	API_VOID_METHOD_WRAPPER_0(Engine, rebuildCachedPools);
@@ -1059,6 +1060,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_1(loadImageIntoPool);
 	ADD_API_METHOD_1(createDspNetwork);
 	ADD_API_METHOD_0(createTransportHandler);
+	ADD_API_METHOD_0(createErrorHandler);
 	ADD_API_METHOD_1(setLatencySamples);
 	ADD_API_METHOD_0(getLatencySamples);
 	ADD_API_METHOD_2(getDspNetworkReference);
@@ -1966,36 +1968,14 @@ void ScriptingApi::Engine::setLowestKeyToDisplay(int keyNumber) { getProcessor()
 
 void ScriptingApi::Engine::showErrorMessage(String message, bool isCritical)
 {
-#if USE_FRONTEND
-
-	if (isCritical)
-	{
-		getProcessor()->getMainController()->sendOverlayMessage(isCritical ? DeactiveOverlay::State::CriticalCustomErrorMessage :
-			DeactiveOverlay::State::CustomErrorMessage,
-			message);
-	}
-
-
-
-
-#else
-
-	ignoreUnused(isCritical);
-
-	reportScriptError(message);
-
-#endif
+	getProcessor()->getMainController()->sendOverlayMessage(isCritical ? DeactiveOverlay::State::CriticalCustomErrorMessage :
+		DeactiveOverlay::State::CustomErrorMessage,
+		message);
 }
 
 void ScriptingApi::Engine::showMessage(String message)
 {
-#if USE_FRONTEND
-
 	getProcessor()->getMainController()->sendOverlayMessage(DeactiveOverlay::State::CustomInformation, message);
-
-#else
-	debugToConsole(getProcessor(), message);
-#endif
 }
 
 double ScriptingApi::Engine::getMilliSecondsForTempo(int tempoIndex) const { return (double)TempoSyncer::getTempoInMilliSeconds(getHostBpm(), (TempoSyncer::Tempo)tempoIndex); }
@@ -3012,6 +2992,11 @@ bool ScriptingApi::Engine::matchesRegex(String stringToMatch, String wildcard)
 		debugError(getProcessor(), e.what());
 		return false;
 	}
+}
+
+juce::var ScriptingApi::Engine::createErrorHandler()
+{
+	return new ScriptingObjects::ScriptErrorHandler(getScriptProcessor());
 }
 
 var ScriptingApi::Engine::getRegexMatches(String stringToMatch, String wildcard)
@@ -4489,6 +4474,7 @@ struct ScriptingApi::Synth::Wrapper
 	API_METHOD_WRAPPER_1(Synth, isArtificialEventActive);
 	API_VOID_METHOD_WRAPPER_1(Synth, setClockSpeed);
 	API_VOID_METHOD_WRAPPER_1(Synth, setShouldKillRetriggeredNote);
+	API_METHOD_WRAPPER_0(Synth, createBuilder);
 	
 };
 
@@ -4563,6 +4549,7 @@ ScriptingApi::Synth::Synth(ProcessorWithScriptingContent *p, Message* messageObj
 	ADD_API_METHOD_1(isArtificialEventActive);
 	ADD_API_METHOD_1(setClockSpeed);
 	ADD_API_METHOD_1(setShouldKillRetriggeredNote);
+	ADD_API_METHOD_0(createBuilder);
 	
 };
 
@@ -4916,11 +4903,15 @@ void ScriptingApi::Synth::sendController(int controllerNumber, int controllerVal
 			{
                 HiseEvent e;
 
-                if(controllerNumber == 129)
+                if(controllerNumber == HiseEvent::PitchWheelCCNumber)
                 {
                     e = HiseEvent(HiseEvent::Type::PitchBend, 0, 0);
                     e.setPitchWheelValue(controllerValue);
                 }
+				else if (controllerNumber == HiseEvent::AfterTouchCCNumber)
+				{
+					e = HiseEvent(HiseEvent::Type::Aftertouch, 0, controllerValue);
+				}
                 else
                 {
                     e = HiseEvent(HiseEvent::Type::Controller, (uint8)controllerNumber, (uint8)controllerValue);
@@ -5391,6 +5382,11 @@ float ScriptingApi::Synth::getAttribute(int attributeIndex) const
 	}
 
 	return owner->getAttribute(attributeIndex);
+}
+
+juce::var ScriptingApi::Synth::createBuilder()
+{
+	return var(new ScriptingObjects::ScriptBuilder(getScriptProcessor()));
 }
 
 int ScriptingApi::Synth::internalAddNoteOn(int channel, int noteNumber, int velocity, int timeStampSamples, int startOffset)

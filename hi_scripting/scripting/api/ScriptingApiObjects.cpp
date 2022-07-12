@@ -2535,21 +2535,7 @@ bool ScriptingObjects::ScriptingModulator::isBypassed() const
 
 void ScriptingObjects::ScriptingModulator::doubleClickCallback(const MouseEvent &, Component* componentToNotify)
 {
-#if USE_BACKEND
-	if (objectExists() && !objectDeleted())
-	{
-		auto *editor = GET_BACKEND_ROOT_WINDOW(componentToNotify);
-
-		Processor *p = ProcessorHelpers::getFirstProcessorWithName(editor->getMainSynthChain(), mod->getId());
-
-		if (p != nullptr)
-		{
-			editor->getMainPanel()->setRootProcessorWithUndo(p);
-		}
-	}
-#else 
 	ignoreUnused(componentToNotify);
-#endif
 }
 
 Component* ScriptingObjects::ScriptingModulator::createPopupComponent(const MouseEvent& e, Component* t)
@@ -3293,6 +3279,7 @@ struct ScriptingObjects::ScriptRoutingMatrix::Wrapper
 	API_METHOD_WRAPPER_2(ScriptRoutingMatrix, removeSendConnection);
 	API_VOID_METHOD_WRAPPER_0(ScriptRoutingMatrix, clear);
 	API_METHOD_WRAPPER_1(ScriptRoutingMatrix, getSourceGainValue);
+	API_VOID_METHOD_WRAPPER_1(ScriptRoutingMatrix, setNumChannels);
 };
 
 ScriptingObjects::ScriptRoutingMatrix::ScriptRoutingMatrix(ProcessorWithScriptingContent *p, Processor *processor):
@@ -3305,6 +3292,7 @@ ScriptingObjects::ScriptRoutingMatrix::ScriptRoutingMatrix(ProcessorWithScriptin
 	ADD_API_METHOD_2(removeSendConnection);
 	ADD_API_METHOD_0(clear);
 	ADD_API_METHOD_1(getSourceGainValue);
+	ADD_API_METHOD_1(setNumChannels);
 
 	if (auto r = dynamic_cast<RoutableProcessor*>(rp.get()))
 	{
@@ -3316,6 +3304,27 @@ ScriptingObjects::ScriptRoutingMatrix::ScriptRoutingMatrix(ProcessorWithScriptin
 		jassertfalse;
 		addConstant("NumInputs", -1);
 		addConstant("NumOutputs", -1);
+	}
+}
+
+void ScriptingObjects::ScriptRoutingMatrix::setNumChannels(int numSourceChannels)
+{
+	if (!isPositiveAndBelow(numSourceChannels, NUM_MAX_CHANNELS + 1))
+	{
+		reportScriptError("illegal channel amount: " + String(numSourceChannels));
+		RETURN_VOID_IF_NO_THROW();
+	}
+
+	if (auto r = dynamic_cast<RoutableProcessor*>(rp.get()))
+	{
+		if (!r->getMatrix().resizingIsAllowed())
+		{
+			reportScriptError("Can't resize this matrix");
+			RETURN_VOID_IF_NO_THROW();
+		}
+
+		r->getMatrix().setNumSourceChannels(numSourceChannels);
+		r->getMatrix().setNumAllowedConnections(numSourceChannels);
 	}
 }
 
@@ -4474,14 +4483,37 @@ ScriptingObjects::ScriptingMessageHolder::ScriptingMessageHolder(ProcessorWithSc
 }
 
 int ScriptingObjects::ScriptingMessageHolder::getNoteNumber() const { return (int)e.getNoteNumber(); }
-var ScriptingObjects::ScriptingMessageHolder::getControllerNumber() const { return (int)e.getControllerNumber(); }
-var ScriptingObjects::ScriptingMessageHolder::getControllerValue() const { return (int)e.getControllerValue(); }
+var ScriptingObjects::ScriptingMessageHolder::getControllerNumber() const 
+{ 
+	return (int)e.getControllerNumber();
+}
+var ScriptingObjects::ScriptingMessageHolder::getControllerValue() const 
+{ 
+	if (e.isPitchWheel())
+		return e.getPitchWheelValue();
+	else
+		return (int)e.getControllerValue(); 
+}
 int ScriptingObjects::ScriptingMessageHolder::getChannel() const { return (int)e.getChannel(); }
 void ScriptingObjects::ScriptingMessageHolder::setChannel(int newChannel) { e.setChannel(newChannel); }
 void ScriptingObjects::ScriptingMessageHolder::setNoteNumber(int newNoteNumber) { e.setNoteNumber(newNoteNumber); }
 void ScriptingObjects::ScriptingMessageHolder::setVelocity(int newVelocity) { e.setVelocity((uint8)newVelocity); }
-void ScriptingObjects::ScriptingMessageHolder::setControllerNumber(int newControllerNumber) { e.setControllerNumber(newControllerNumber);}
-void ScriptingObjects::ScriptingMessageHolder::setControllerValue(int newControllerValue) { e.setControllerValue(newControllerValue); }
+void ScriptingObjects::ScriptingMessageHolder::setControllerNumber(int newControllerNumber) 
+{ 
+	if (newControllerNumber == HiseEvent::AfterTouchCCNumber)
+		e.setType(HiseEvent::Type::Aftertouch);
+	else if (newControllerNumber == HiseEvent::PitchWheelCCNumber)
+		e.setType(HiseEvent::Type::PitchBend);
+	else
+		e.setControllerNumber(newControllerNumber);
+}
+void ScriptingObjects::ScriptingMessageHolder::setControllerValue(int newControllerValue) 
+{ 
+	if (e.isPitchWheel())
+		e.setPitchWheelValue(newControllerValue);
+	else
+		e.setControllerValue(newControllerValue); 
+}
 
 void ScriptingObjects::ScriptingMessageHolder::setType(int type)
 {
@@ -4509,16 +4541,28 @@ void ScriptingObjects::ScriptingMessageHolder::addToTimestamp(int deltaSamples) 
 void ScriptingObjects::ScriptingMessageHolder::setStartOffset(int offset) { e.setStartOffset((uint16)offset); }
 bool ScriptingObjects::ScriptingMessageHolder::isNoteOn() const { return e.isNoteOn(); }
 bool ScriptingObjects::ScriptingMessageHolder::isNoteOff() const { return e.isNoteOff(); }
-bool ScriptingObjects::ScriptingMessageHolder::isController() const { return e.isController(); }
+bool ScriptingObjects::ScriptingMessageHolder::isController() const { return e.isController() || e.isPitchWheel() || e.isAftertouch(); }
 
 String ScriptingObjects::ScriptingMessageHolder::dump() const
 {
+
 	String x;
 	x << "Type: " << e.getTypeAsString() << ", ";
 	x << "Channel: " << String(e.getChannel()) << ", ";
-	x << "Number: " << String(e.getNoteNumber()) << ", ";
-	x << "Value: " << String(e.getVelocity()) << ", ";
-	x << "EventId: " << String(e.getEventId()) << ", ";
+
+	if (e.isPitchWheel())
+	{
+		x << "Value: " << String(e.getPitchWheelValue()) << ", ";
+	}
+	else
+	{
+		x << "Number: " << String(e.getNoteNumber()) << ", ";
+		x << "Value: " << String(e.getVelocity()) << ", ";
+		x << "EventId: " << String(e.getEventId()) << ", ";
+	}
+
+	
+	
 	x << "Timestamp: " << String(e.getTimeStamp()) << ", ";
 
 	return x;
@@ -4775,6 +4819,7 @@ ScriptingObjects::ScriptedMidiPlayer::ScriptedMidiPlayer(ProcessorWithScriptingC
 
 ScriptingObjects::ScriptedMidiPlayer::~ScriptedMidiPlayer()
 {
+	cancelUpdates();
 	connectedPanel = nullptr;
 }
 
@@ -4784,26 +4829,6 @@ juce::String ScriptingObjects::ScriptedMidiPlayer::getDebugValue() const
 		return {};
 
 	return String(getPlayer()->getPlaybackPosition(), 2);
-}
-
-void ScriptingObjects::ScriptedMidiPlayer::trackIndexChanged()
-{
-	callUpdateCallback();
-
-	if (auto panel = dynamic_cast<ScriptingApi::Content::ScriptPanel*>(connectedPanel.get()))
-	{
-		panel->repaint();
-	}
-}
-
-void ScriptingObjects::ScriptedMidiPlayer::sequenceIndexChanged()
-{
-	callUpdateCallback();
-
-	if (auto panel = dynamic_cast<ScriptingApi::Content::ScriptPanel*>(connectedPanel.get()))
-	{
-		panel->repaint();
-	}
 }
 
 void ScriptingObjects::ScriptedMidiPlayer::sequencesCleared()
@@ -5298,6 +5323,7 @@ juce::Array<juce::Identifier> ApiHelpers::getGlobalApiClasses()
 
 void ApiHelpers::loadPathFromData(Path& p, var data)
 {
+	
 	if (data.isString())
 	{
 		juce::MemoryBlock mb;
@@ -5305,7 +5331,7 @@ void ApiHelpers::loadPathFromData(Path& p, var data)
 		p.clear();
 		p.loadPathFromData(mb.getData(), mb.getSize());
 	}
-	if (data.isArray())
+	else if (data.isArray())
 	{
 		p.clear();
 		Array<unsigned char> pathData;
@@ -5318,6 +5344,10 @@ void ApiHelpers::loadPathFromData(Path& p, var data)
 			pathData.add(static_cast<unsigned char>((int)varData->getUnchecked(i)));
 
 		p.loadPathFromData(pathData.getRawDataPointer(), numElements);
+	}
+	else if (auto sp = dynamic_cast<ScriptingObjects::PathObject*>(data.getObject()))
+	{
+		p = sp->getPath();
 	}
 }
 
@@ -5914,6 +5944,8 @@ ScriptingObjects::ScriptBackgroundTask::ScriptBackgroundTask(ProcessorWithScript
 	currentTask(p, var(), 1),
 	finishCallback(p, var(), 2)
 {
+	dynamic_cast<JavascriptProcessor*>(p)->getScriptEngine()->preCompileListeners.addListener(*this, recompiled, false);
+
 	ADD_API_METHOD_1(sendAbortSignal);
 	ADD_API_METHOD_0(shouldAbort);
 	ADD_API_METHOD_2(setProperty);
@@ -5927,6 +5959,11 @@ ScriptingObjects::ScriptBackgroundTask::ScriptBackgroundTask(ProcessorWithScript
 	ADD_API_METHOD_1(setStatusMessage);
 	ADD_API_METHOD_0(getStatusMessage);
 	ADD_API_METHOD_1(setForwardStatusToLoadingThread);
+}
+
+void ScriptingObjects::ScriptBackgroundTask::recompiled(ScriptBackgroundTask& task, bool unused)
+{
+	task.sendAbortSignal(true);
 }
 
 void ScriptingObjects::ScriptBackgroundTask::sendAbortSignal(bool blockUntilStopped)
@@ -7043,6 +7080,436 @@ void ScriptingObjects::ScriptedMidiAutomationHandler::setUpdateCallback(var call
 void ScriptingObjects::ScriptedMidiAutomationHandler::setConsumeAutomatedControllers(bool shouldBeConsumed)
 {
 	handler->setConsumeAutomatedControllers(shouldBeConsumed);
+}
+
+struct ScriptingObjects::ScriptBuilder::Wrapper
+{
+	API_METHOD_WRAPPER_4(ScriptBuilder, create);
+	API_METHOD_WRAPPER_2(ScriptBuilder, get);
+	API_VOID_METHOD_WRAPPER_2(ScriptBuilder, setAttributes);
+	API_VOID_METHOD_WRAPPER_0(ScriptBuilder, clear);
+	API_VOID_METHOD_WRAPPER_0(ScriptBuilder, flush);
+	API_VOID_METHOD_WRAPPER_2(ScriptBuilder, connectToScript);
+};
+
+ScriptingObjects::ScriptBuilder::ScriptBuilder(ProcessorWithScriptingContent* p) :
+	ConstScriptingObject(p, 6)
+{
+	createdModules.add(getScriptProcessor()->getMainController_()->getMainSynthChain());
+
+	createJSONConstants();
+
+	ADD_API_METHOD_0(clear);
+	ADD_API_METHOD_4(create);
+	ADD_API_METHOD_2(get);
+	ADD_API_METHOD_2(setAttributes);
+	ADD_API_METHOD_0(flush);
+	ADD_API_METHOD_2(connectToScript);
+}
+
+ScriptingObjects::ScriptBuilder::~ScriptBuilder()
+{
+	if (!flushed && !createdModules.isEmpty())
+	{
+		debugError(dynamic_cast<Processor*>(getScriptProcessor()), "forgot to flush() a Builder!");
+	}
+}
+
+template <typename T> void addScriptProcessorInterfaceID(var& ids)
+{
+	auto i = T::getClassName();
+	ids.getDynamicObject()->setProperty(i, i.toString());
+}
+
+void ScriptingObjects::ScriptBuilder::createJSONConstants()
+{
+	auto root = getScriptProcessor()->getMainController_()->getMainSynthChain();
+
+	auto createObjectForFactory = [](hise::FactoryType* f)
+	{
+		DynamicObject::Ptr p = new DynamicObject();
+
+		f->setConstrainer(nullptr);
+
+		for (auto& t : f->getAllowedTypes())
+			p->setProperty(Identifier(t.type.toString().removeCharacters(" ")), t.type.toString());
+
+		return var(p.get());
+	};
+
+	{
+		MidiProcessorFactoryType f(root);
+		addConstant("MidiProcessors", createObjectForFactory(&f));
+	}
+
+	{
+		ModulatorChainFactoryType f(NUM_POLYPHONIC_VOICES, Modulation::GainMode, root);
+		addConstant("Modulators", createObjectForFactory(&f));
+	}
+
+	{
+		ModulatorSynthChainFactoryType m(NUM_POLYPHONIC_VOICES, root);
+		addConstant("SoundGenerators", createObjectForFactory(&m));
+	}
+
+	{
+		EffectProcessorChainFactoryType e(NUM_POLYPHONIC_VOICES, root);
+		addConstant("Effects", createObjectForFactory(&e));
+	}
+	{
+		var s(new DynamicObject());
+
+		addScriptProcessorInterfaceID<ScriptingMidiProcessor>(s);
+		addScriptProcessorInterfaceID<ScriptingModulator>(s);
+		addScriptProcessorInterfaceID<ScriptingSynth>(s);
+		addScriptProcessorInterfaceID<ScriptingEffect>(s);
+		addScriptProcessorInterfaceID<ScriptingAudioSampleProcessor>(s);
+		addScriptProcessorInterfaceID<ScriptSliderPackProcessor>(s);
+		addScriptProcessorInterfaceID<ScriptingTableProcessor>(s);
+		addScriptProcessorInterfaceID<ScriptingApi::Sampler>(s);
+		addScriptProcessorInterfaceID<ScriptedMidiPlayer>(s);
+		addScriptProcessorInterfaceID<ScriptRoutingMatrix>(s);
+		addScriptProcessorInterfaceID<ScriptingSlotFX>(s);
+
+		addConstant("InterfaceTypes", s);
+	}
+	{
+		var chainIds(new DynamicObject());
+
+		chainIds.getDynamicObject()->setProperty("Direct", raw::IDs::Chains::Direct);
+		chainIds.getDynamicObject()->setProperty("Midi", raw::IDs::Chains::Midi);
+		chainIds.getDynamicObject()->setProperty("Gain", raw::IDs::Chains::Gain);
+		chainIds.getDynamicObject()->setProperty("Pitch", raw::IDs::Chains::Pitch);
+		chainIds.getDynamicObject()->setProperty("FX", raw::IDs::Chains::FX);
+		chainIds.getDynamicObject()->setProperty("GlobalMod", raw::IDs::Chains::GlobalModulatorSlot);
+
+		addConstant("ChainIndexes", chainIds);
+	}
+}
+
+int ScriptingObjects::ScriptBuilder::create(var type, var id, int rootBuildIndex, int chainIndex)
+{
+	if (!getScriptProcessor()->getScriptingContent()->interfaceCreationAllowed())
+	{
+		reportScriptError("You can't use this method after the onInit callback!");
+		RETURN_IF_NO_THROW(-1);
+	}
+	
+	if (auto p = createdModules[rootBuildIndex])
+	{
+		if (auto existing = ProcessorHelpers::getFirstProcessorWithName(p, id.toString()))
+		{
+			createdModules.add(existing);
+			return createdModules.size() - 1;
+		}
+
+		raw::Builder b(getScriptProcessor()->getMainController_());
+
+		Identifier t_(type.toString());
+
+		
+
+		auto newP = b.create(p, t_, chainIndex);
+
+		if (newP != nullptr)
+		{
+			newP->setId(id.toString(), dontSendNotification);
+			createdModules.add(newP);
+			
+			flushed = false;
+
+			return createdModules.size() - 1;
+		}
+		else
+			reportScriptError("Couldn't create module with ID " + t_.toString());
+	}
+	else
+	{
+		reportScriptError("Couldn't find parent module with index " + String(rootBuildIndex));
+	}
+
+	RETURN_IF_NO_THROW(-1);
+}
+
+bool ScriptingObjects::ScriptBuilder::connectToScript(int buildIndex, String relativePath)
+{
+	if (auto jp = dynamic_cast<JavascriptProcessor*>(createdModules[buildIndex].get()))
+	{
+		jp->setConnectedFile(relativePath, true);
+		return true;
+	}
+
+	return false;
+}
+
+juce::var ScriptingObjects::ScriptBuilder::get(int buildIndex, String interfaceType)
+{
+	if (auto p = createdModules[buildIndex])
+	{
+		Identifier id(interfaceType);
+
+#define RETURN_IF_MATCH(Type, PType) if(id == Type::getClassName() && dynamic_cast<PType*>(p.get()) != nullptr) return var(new Type(getScriptProcessor(), dynamic_cast<PType*>(p.get())));
+
+		RETURN_IF_MATCH(ScriptingMidiProcessor, hise::MidiProcessor);
+		RETURN_IF_MATCH(ScriptingModulator, hise::Modulator);
+		RETURN_IF_MATCH(ScriptingSynth, hise::ModulatorSynth);
+		RETURN_IF_MATCH(ScriptingEffect, hise::EffectProcessor);
+		RETURN_IF_MATCH(ScriptingAudioSampleProcessor, hise::Processor);
+		RETURN_IF_MATCH(ScriptSliderPackProcessor, snex::ExternalDataHolder);
+		RETURN_IF_MATCH(ScriptingTableProcessor, snex::ExternalDataHolder);
+		RETURN_IF_MATCH(ScriptingApi::Sampler, hise::ModulatorSampler);
+		RETURN_IF_MATCH(ScriptedMidiPlayer, hise::MidiPlayer);
+		RETURN_IF_MATCH(ScriptRoutingMatrix, hise::Processor);
+		RETURN_IF_MATCH(ScriptingSlotFX, hise::EffectProcessor);
+
+#undef RETURN_IF_MATCH
+
+	}
+	return var();
+}
+
+void ScriptingObjects::ScriptBuilder::setAttributes(int buildIndex, var attributeValues)
+{
+	if (auto p = createdModules[buildIndex])
+	{
+		Array<Identifier> attributeIds;
+
+		for (int i = 0; i < p->getNumParameters(); i++)
+			attributeIds.add(p->getIdentifierForParameterIndex(i));
+
+		if (auto obj = attributeValues.getDynamicObject())
+		{
+			for (const auto& a : obj->getProperties())
+			{
+				auto idx = attributeIds.indexOf(a.name);
+
+				if (idx == -1)
+				{
+					reportScriptError("Can't find attribute " + a.name);
+					break;
+				}
+				else
+				{
+					auto v = (float)a.value;
+					FloatSanitizers::sanitizeFloatNumber(v);
+
+					p->setAttribute(idx, v, dontSendNotification);
+				}
+			}
+
+			p->sendPooledChangeMessage();
+		}
+	}
+}
+
+void ScriptingObjects::ScriptBuilder::clear()
+{
+	if (getScriptProcessor()->getMainController_()->getKillStateHandler().getCurrentThread() == MainController::KillStateHandler::SampleLoadingThread)
+	{
+		debugToConsole(dynamic_cast<Processor*>(getScriptProcessor()), "skipping Builder.clear() on project load");
+		return;
+	}
+
+	auto thisAsP = dynamic_cast<Processor*>(getScriptProcessor());
+
+	raw::Builder b(getScriptProcessor()->getMainController_());
+
+	auto synthChain = getScriptProcessor()->getMainController_()->getMainSynthChain();
+	
+	for (int i = 0; i < synthChain->getNumChildProcessors(); i++)
+	{
+		if (i < ModulatorSynth::numInternalChains)
+		{
+			auto m = synthChain->getChildProcessor(i);
+
+			for (int j = 0; j < m->getNumChildProcessors(); j++)
+			{
+				auto cToRemove = m->getChildProcessor(j);
+
+				// please don't kill yourself.
+				if (cToRemove == thisAsP)
+					continue;
+
+				else
+				{
+					b.remove<Processor>(cToRemove);
+					j--;
+				}
+			}
+		}
+		else
+		{
+			b.remove<Processor>(synthChain->getChildProcessor(i--));
+		}
+	}
+
+	flushed = false;
+}
+
+
+
+void ScriptingObjects::ScriptBuilder::flush()
+{
+	flushed = true;
+
+	auto synthChain = getScriptProcessor()->getMainController_()->getMainSynthChain();
+
+	synthChain->sendRebuildMessage(true);
+
+	getScriptProcessor()->getMainController_()->getProcessorChangeHandler().sendProcessorChangeMessage(synthChain, MainController::ProcessorChangeHandler::EventType::RebuildModuleList, false);
+}
+
+struct ScriptingObjects::ScriptErrorHandler::Wrapper
+{
+	API_VOID_METHOD_WRAPPER_1(ScriptErrorHandler, setErrorCallback);
+	API_VOID_METHOD_WRAPPER_2(ScriptErrorHandler, setCustomMessageToShow);
+	API_VOID_METHOD_WRAPPER_1(ScriptErrorHandler, clearErrorLevel);
+	API_VOID_METHOD_WRAPPER_0(ScriptErrorHandler, clearAllErrors);
+	API_METHOD_WRAPPER_0(ScriptErrorHandler, getErrorMessage);
+	API_METHOD_WRAPPER_0(ScriptErrorHandler, getNumActiveErrors);
+	API_METHOD_WRAPPER_0(ScriptErrorHandler, getCurrentErrorLevel);
+	API_VOID_METHOD_WRAPPER_1(ScriptErrorHandler, simulateErrorEvent);
+};
+
+ScriptingObjects::ScriptErrorHandler::ScriptErrorHandler(ProcessorWithScriptingContent* p) :
+	ConstScriptingObject(p, OverlayMessageBroadcaster::State::numReasons),
+	callback(p, var(), 2)
+{
+	addConstant("AppDataDirectoryNotFound", (int)OverlayMessageBroadcaster::AppDataDirectoryNotFound);
+	addConstant("LicenseNotFound", (int)OverlayMessageBroadcaster::LicenseNotFound);
+	addConstant("ProductNotMatching", (int)OverlayMessageBroadcaster::ProductNotMatching);
+	addConstant("UserNameNotMatching", (int)OverlayMessageBroadcaster::UserNameNotMatching);
+	addConstant("EmailNotMatching", (int)OverlayMessageBroadcaster::EmailNotMatching);
+	addConstant("MachineNumbersNotMatching", (int)OverlayMessageBroadcaster::MachineNumbersNotMatching);
+	addConstant("LicenseExpired", (int)OverlayMessageBroadcaster::LicenseExpired);
+	addConstant("LicenseInvalid", (int)OverlayMessageBroadcaster::LicenseInvalid);
+	addConstant("CriticalCustomErrorMessage", (int)OverlayMessageBroadcaster::CriticalCustomErrorMessage);
+	addConstant("SamplesNotInstalled", (int)OverlayMessageBroadcaster::SamplesNotInstalled);
+	addConstant("SamplesNotFound", (int)OverlayMessageBroadcaster::SamplesNotFound);
+	addConstant("IllegalBufferSize", (int)OverlayMessageBroadcaster::IllegalBufferSize);
+	addConstant("CustomErrorMessage", (int)OverlayMessageBroadcaster::CustomErrorMessage);
+	addConstant("CustomInformation", (int)OverlayMessageBroadcaster::CustomInformation);
+
+	p->getMainController_()->addOverlayListener(this);
+
+	// Deactivate the default overlay if you create this object.
+	p->getMainController_()->setUseDefaultOverlay(false);
+
+	ADD_API_METHOD_1(setErrorCallback);
+	ADD_API_METHOD_2(setCustomMessageToShow);
+	ADD_API_METHOD_1(clearErrorLevel);
+	ADD_API_METHOD_0(clearAllErrors);
+	ADD_API_METHOD_0(getErrorMessage);
+	ADD_API_METHOD_0(getNumActiveErrors);
+	ADD_API_METHOD_0(getCurrentErrorLevel);
+	ADD_API_METHOD_1(simulateErrorEvent);
+
+	for (int i = 0; i < OverlayMessageBroadcaster::State::numReasons; i++)
+		customErrorMessages.add({});
+}
+
+void ScriptingObjects::ScriptErrorHandler::overlayMessageSent(int state, const String& message)
+{
+	errorStates.setBit(state, true);
+
+	if (state == OverlayMessageBroadcaster::CustomErrorMessage ||
+		state == OverlayMessageBroadcaster::CustomInformation ||
+		state == OverlayMessageBroadcaster::CriticalCustomErrorMessage)
+	{
+		customErrorMessages.set(state, message);
+	}
+
+	sendErrorForHighestState();
+}
+
+void ScriptingObjects::ScriptErrorHandler::setErrorCallback(var errorCallback)
+{
+	if (HiseJavascriptEngine::isJavascriptFunction(errorCallback))
+	{
+		callback = WeakCallbackHolder(getScriptProcessor(), errorCallback, 2);
+		callback.incRefCount();
+		callback.setThisObject(this);
+		callback.setHighPriority();
+	}
+}
+
+void ScriptingObjects::ScriptErrorHandler::setCustomMessageToShow(int state, String messageToShow)
+{
+	customErrorMessages.set(state, messageToShow);
+}
+
+void ScriptingObjects::ScriptErrorHandler::clearErrorLevel(int stateToClear)
+{
+	errorStates.clearBit(stateToClear);
+
+	if (!errorStates.isZero())
+	{
+		sendErrorForHighestState();
+	}
+}
+
+void ScriptingObjects::ScriptErrorHandler::clearAllErrors()
+{
+	errorStates.clear();
+}
+
+String ScriptingObjects::ScriptErrorHandler::getErrorMessage() const
+{
+	auto el = getCurrentErrorLevel();
+
+	if (el == -1)
+		return {};
+
+	auto m = customErrorMessages[el];
+
+	if (m.isNotEmpty())
+		return m;
+
+	return getScriptProcessor()->getMainController_()->getOverlayTextMessage((OverlayMessageBroadcaster::State)el);
+}
+
+int ScriptingObjects::ScriptErrorHandler::getNumActiveErrors() const
+{
+	return errorStates.countNumberOfSetBits();
+}
+
+int ScriptingObjects::ScriptErrorHandler::getCurrentErrorLevel() const
+{
+	if (errorStates.isZero())
+		return -1;
+
+	for (int i = 0; i < errorStates.getHighestBit() + 1; i++)
+	{
+		if (errorStates[i])
+			return i;
+	}
+
+	jassertfalse;
+	return -1;
+}
+
+void ScriptingObjects::ScriptErrorHandler::simulateErrorEvent(int state)
+{
+#if USE_BACKEND
+	getScriptProcessor()->getMainController_()->sendOverlayMessage(state);
+#else
+	ignoreUnused(state);
+#endif
+}
+
+void ScriptingObjects::ScriptErrorHandler::sendErrorForHighestState()
+{
+	if (callback)
+	{
+		args[0] = getCurrentErrorLevel();
+		args[1] = getErrorMessage();
+		callback.call(args, 2);
+	}
+}
+
+ScriptingObjects::ScriptErrorHandler::~ScriptErrorHandler()
+{
+	getScriptProcessor()->getMainController_()->removeOverlayListener(this);
 }
 
 } // namespace hise

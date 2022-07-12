@@ -209,8 +209,8 @@ void FrontendProcessor::restorePool(InputStream* inputStream, FileHandlerBase::S
 
 		if (!resourceFile.existsAsFile())
 		{
-			// sendOverlayMessage(DeactiveOverlay::CriticalCustomErrorMessage,
-			// 	"The file " + resourceFile.getFullPathName() + " can't be found.");
+			sendOverlayMessage(OverlayMessageBroadcaster::CriticalCustomErrorMessage,
+				"The file " + resourceFile.getFullPathName() + " can't be found.");
 			return;
 		}
             
@@ -342,6 +342,14 @@ updater(*this)
 	stereoCopy.setSize(2, 0);
 #endif
     
+#if USE_SCRIPT_COPY_PROTECTION
+
+	unlocker.loadKeyFile();
+
+	if (!unlocker.isUnlocked())
+		sendOverlayMessage(OverlayMessageBroadcaster::LicenseNotFound);
+#endif
+
     updater.suspendState = true;
     updater.updateDelayed();
 }

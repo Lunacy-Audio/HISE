@@ -476,7 +476,80 @@ Node::Ptr ValueTreeBuilder::parseRoutingNode(Node::Ptr u)
 
 	if (np.getIdentifier() == Identifier("matrix"))
 	{
-		jassertfalse;
+		auto mid = getNodeId(u->nodeTree).getIdentifier().toString();
+
+		mid << "_matrix";
+
+		auto b64 = ValueTreeIterator::getNodeProperty(u->nodeTree, PropertyIds::EmbeddedData).toString();
+
+		MemoryBlock mb;
+		mb.fromBase64Encoding(b64);
+
+		auto v = ValueTree::readFromGZIPData(mb.getData(), mb.getSize());
+
+		Array<int> channelIndexes;
+		Array<int> sendChannelIndexes;
+
+		bool hasSendConnections = false;
+
+		if (v.isValid())
+		{
+			for (int i = 0; i < numChannelsToCompile; i++)
+			{
+				Identifier c("Channel" + String(i));
+				Identifier s("Send" + String(i));
+
+				channelIndexes.add(v.getProperty(c, i));
+				auto si = (int)v.getProperty(s, -1);
+				hasSendConnections |= (si != -1);
+
+				sendChannelIndexes.add(si);
+			}
+		}
+
+		String bc = "routing::static_matrix<";
+		bc << String(numChannelsToCompile) << ", " << mid << ", " << (hasSendConnections ? "true" : "false") << ">";
+
+		Array<NamespacedIdentifier> bc2 = { NamespacedIdentifier::fromString(bc) };
+
+		Struct mClass(*this, Identifier(mid), bc2, {}, false);
+
+		String l1, l2;
+
+		l1 << "static constexpr int channels[" << String(numChannelsToCompile) << "] = ";
+		*this << l1;
+		{
+			StatementBlock s(*this, true);
+			String initValues;
+
+			for (int i = 0; i < numChannelsToCompile; i++)
+			{
+				initValues << String(channelIndexes[i]) << ", ";
+			}
+
+			*this << initValues.upToLastOccurrenceOf(", ", false, false);
+		}
+
+		if (hasSendConnections)
+		{
+			l2 << "static constexpr int sendChannels[" << String(numChannelsToCompile) << "] = ";
+			*this << l2;
+			{
+				StatementBlock s(*this, true);
+				String initValues;
+
+				for (int i = 0; i < numChannelsToCompile; i++)
+				{
+					initValues << String(sendChannelIndexes[i]) << ", ";
+				}
+
+				*this << initValues.upToLastOccurrenceOf(", ", false, false);
+			}
+		}
+
+		mClass.flushIfNot();
+
+		*u << mClass;
 	}
 	else if (u->hasProperty(PropertyIds::IsRoutingNode, false))
 	{
@@ -659,6 +732,20 @@ Node::Ptr ValueTreeBuilder::parseContainer(Node::Ptr u)
 		if (useSpecialWrapper && realPath.startsWith("fix"))
 		{
 			auto bs = realPath.fromFirstOccurrenceOf("fix", false, false).getIntValue();
+            
+            if(bs == 0)
+            {
+                // fetch the block size from the property
+                bs = ValueTreeIterator::getNodeProperty(u->nodeTree, PropertyIds::BlockSize);
+            }
+            
+            if(bs == 0 || !isPowerOfTwo(bs))
+            {
+                Error e;
+                e.errorMessage << "Illegal block size for fix_block container: " << String(bs);
+                throw e;
+            }
+            
 			u = wrapNode(u, NamespacedIdentifier::fromString("wrap::fix_block"), bs);
 		}
 		if (useSpecialWrapper && realPath.startsWith("oversample"))
@@ -2872,6 +2959,8 @@ Node::Ptr ValueTreeBuilder::SnexNodeBuilder::parse()
 	p = getNodePath(n->nodeTree);
 	classId = ValueTreeIterator::getSnexCode(n->nodeTree);
 
+	
+
 	if (classId.isEmpty())
 	{
 		Error e;
@@ -2899,9 +2988,13 @@ Node::Ptr ValueTreeBuilder::SnexNodeBuilder::parseWrappedSnexNode()
 	Node::Ptr wn = new Node(parent, n->scopedId.id, p);
 	wn->nodeTree = n->nodeTree;
 	
-	parent << code;
-	parent.addEmptyLine();
-
+	if (!parent.definedSnexClasses.contains(classId))
+	{
+		parent << code;
+		parent.addEmptyLine();
+		parent.definedSnexClasses.add(classId);
+	}
+		
 	if (CustomNodeProperties::nodeHasProperty(wn->nodeTree, PropertyIds::IsPolyphonic))
 		wn->addTemplateIntegerArgument("NV", true);
 
