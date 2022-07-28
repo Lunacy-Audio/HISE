@@ -318,6 +318,9 @@ public:
 		/** Creates an user preset handler. */
 		var createUserPresetHandler();
 
+		/** Creates a broadcaster that can send messages to attached listeners. */
+		var createBroadcaster(var defaultValues);
+
 		/** Creates a reference to the DSP network of another script processor. */
 		var getDspNetworkReference(String processorId, String id);
 
@@ -335,6 +338,9 @@ public:
 
 		/** Renders a MIDI event list as audio data on a background thread and calls a function when it's ready. */
 		void renderAudio(var eventList, var finishCallback);
+
+		/** Previews a audio buffer with a callback indicating the state. */
+		void playBuffer(var bufferData, var callback);
 
 		/** Sends an allNotesOff message at the next buffer. */
 		void allNotesOff();
@@ -576,11 +582,14 @@ public:
 		/** Creates an error handler that reacts on initialisation errors. */
 		var createErrorHandler();
 
-    /** Returns an array with all matches. */
-    var getRegexMatches(String stringToMatch, String regex);
+		/** Returns an array with all matches. */
+		var getRegexMatches(String stringToMatch, String regex);
 
-    /** Returns a string of the value with the supplied number of digits. */
-    String doubleToString(double value, int digits);
+		/** Returns a string of the value with the supplied number of digits. */
+		String doubleToString(double value, int digits);
+		
+		/** Returns the width of the string for the given font properties. */
+		float getStringWidth(String text, String fontName, float fontSize, float fontSpacing);
 
     	String intToHexString(int value);
 
@@ -609,6 +618,10 @@ public:
 		ScriptBaseMidiProcessor* parentMidiProcessor;
 
 		ScopedPointer<Thread> currentExportThread;
+
+		struct PreviewHandler;
+
+		ScopedPointer<PreviewHandler> previewHandler;
 
 		JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Engine);
 	};
@@ -721,6 +734,8 @@ public:
 		// ============================================================================================================
 
 	private:
+
+		
 
 		GlobalSettingManager* gm;
 		AudioProcessorDriver* driver;

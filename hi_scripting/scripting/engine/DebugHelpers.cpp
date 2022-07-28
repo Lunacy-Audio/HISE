@@ -154,15 +154,36 @@ Component* DebugInformation::createPopupComponent(const MouseEvent& e, Component
 	{
 #if USE_BACKEND
 
-		auto p = componentToNotify->findParentComponentOfClass<PanelWithProcessorConnection>()->getProcessor();
-		auto holder = dynamic_cast<ApiProviderBase::Holder*>(p);
-		jassert(holder != nullptr);
+		PanelWithProcessorConnection* pc = componentToNotify->findParentComponentOfClass<PanelWithProcessorConnection>();
 
-		auto display = new BufferViewer(this, holder);
-		return display;
-#else
-		return nullptr;
+		if (pc == nullptr)
+		{
+			auto co = dynamic_cast<ControlledObject*>(componentToNotify);
+
+			if (co == nullptr)
+				co = componentToNotify->findParentComponentOfClass<ControlledObject>();
+
+			if (co != nullptr)
+			{
+				if (auto activeEditor = co->getMainController()->getLastActiveEditor())
+				{
+					pc = activeEditor->findParentComponentOfClass<PanelWithProcessorConnection>();
+				}
+			}
+		}
+
+		if (pc != nullptr)
+		{
+			auto p = pc->getProcessor();
+			auto holder = dynamic_cast<ApiProviderBase::Holder*>(p);
+			jassert(holder != nullptr);
+
+			auto display = new BufferViewer(this, holder);
+			return display;
+		}
+
 #endif
+		return nullptr;
 	}
 
 	if (v.isObject() || v.isArray())
@@ -226,6 +247,64 @@ String DebugInformation::toString()
 	return output;
 }
 
+#if USE_BACKEND
+CodeEditorPanel* findOrCreateEditorPanel(CodeEditorPanel* panel, Processor* processor, DebugableObject::Location location)
+{
+	auto getSanitizedId = [](DebugableObject::Location l)
+	{
+		auto s = l.fileName;
+
+		if (s.isEmpty())
+			return String("onInit");
+
+		if (s.contains("("))
+			return s.removeCharacters("()");
+			
+		if (File::isAbsolutePath(s))
+			return File(s).getFileName();
+
+		return s;
+	};
+
+	auto matches = [&](CodeEditorPanel* p)
+	{
+		if (p->getConnectedProcessor() == processor)
+		{
+			StringArray indexList;
+			p->fillIndexList(indexList);
+			auto idx = p->getCurrentIndex();
+			auto id = indexList[idx];
+
+			auto expId = getSanitizedId(location);
+
+			if (expId == id)
+				return true;
+		}
+
+		return false;
+	};
+	
+	if (matches(panel))
+		return panel;
+
+	if (auto tabs = panel->getParentShell()->findParentComponentOfClass<FloatingTabComponent>())
+	{
+		int idx = 0;
+		if (location.fileName.isNotEmpty())
+		{
+			StringArray indexList;
+			panel->fillIndexList(indexList);
+
+			auto expId = getSanitizedId(location);
+			idx = indexList.indexOf(expId);
+		}
+
+		return CodeEditorPanel::showOrCreateTab(tabs, dynamic_cast<JavascriptProcessor*>(processor), idx);
+	}
+
+	return panel;
+}
+#endif
 
 void gotoLocationInternal(Processor* processor, DebugableObject::Location location)
 {
@@ -237,6 +316,8 @@ void gotoLocationInternal(Processor* processor, DebugableObject::Location locati
 
 	if (auto editorPanel = editor->findParentComponentOfClass<CodeEditorPanel>())
 	{
+		editorPanel = findOrCreateEditorPanel(editorPanel, processor, location);
+
 		editorPanel->gotoLocation(processor, location.fileName, location.charNumber);
 	}
 	else if (location.fileName.isNotEmpty())

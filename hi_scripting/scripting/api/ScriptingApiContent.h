@@ -299,6 +299,12 @@ public:
 			var value = var::undefined();
 		};
 
+		struct MouseListenerData
+		{
+			WeakReference<WeakCallbackHolder::CallableObject> listener;
+			MouseCallbackComponent::CallbackLevel mouseCallbackLevel = MouseCallbackComponent::CallbackLevel::NoCallbacks;
+		};
+
 		// ============================================================================================================
 
 		enum Properties
@@ -598,7 +604,26 @@ public:
 		/** Manually sends a repaint message for the component. */
 		void sendRepaintMessage();
 
+		/** Returns the ID of the component. */
+		String getId() const;
+
+		/** Toggles the visibility and fades a component using the global animator. */
+		void fadeComponent(bool shouldBeVisible, int milliseconds);
+
 		// End of API Methods ============================================================================================
+
+		void attachValueListener(WeakCallbackHolder::CallableObject* obj)
+		{
+			valueListener = obj;
+			sendValueListenerMessage();
+		}
+
+		void attachMouseListener(WeakCallbackHolder::CallableObject* obj, MouseCallbackComponent::CallbackLevel cl)
+		{
+			mouseListeners.add({ obj, cl });
+		}
+
+		const Array<MouseListenerData>& getMouseListeners() const { return mouseListeners; }
 
 		bool handleKeyPress(const KeyPress& k);
 
@@ -625,6 +650,12 @@ public:
 		Identifier name;
 		Content *parent;
 		bool skipRestoring;
+
+		
+
+		WeakReference<WeakCallbackHolder::CallableObject> valueListener;
+		
+		Array<MouseListenerData> mouseListeners;
 
 		struct Wrapper;
 
@@ -732,6 +763,8 @@ public:
 
 		LambdaBroadcaster<bool> repaintBroadcaster;
 
+		LambdaBroadcaster<bool, int> fadeListener;
+
 	protected:
 
 		bool isCorrectlyInitialised(int p) const
@@ -779,6 +812,8 @@ public:
 #endif
 
 	private:
+
+		void sendValueListenerMessage();
 
 		var localLookAndFeel;
 
@@ -1512,6 +1547,9 @@ public:
 		/** Registers this waveform to the script processor to be acessible from the outside. */
 		var registerAtParent(int pIndex);
 
+		/** Set the folder to be used when opening the file browser. */
+		void setDefaultFolder(var newDefaultFolder);
+
 		// ========================================================================================================
 
 		void handleDefaultDeactivatedProperties() override;
@@ -2035,7 +2073,11 @@ public:
 			setValue((int)getScriptObjectProperty(defaultValue));
 		}
 
+		void setValue(var newValue) override;
+
 		// ============================================================================ API Methods
+
+
 
 		/** Turns this viewport into a table with the given metadata. This can only be done in the onInit callback. */
 		void setTableMode(var tableMetadata);
@@ -2048,6 +2090,9 @@ public:
 
 		/** Set a function that is notified for all user interaction with the table. */
 		void setTableCallback(var callbackFunction);
+
+		/** Specify the event types that should trigger a setValue() callback. */
+		void setEventTypesForValueCallback(var eventTypeList);
 
 		// ============================================================================ API Methods
 
@@ -2348,6 +2393,8 @@ public:
 	ScriptComponent * getComponentWithName(const Identifier &componentName);
 	const ScriptComponent * getComponentWithName(const Identifier &componentName) const;
 	int getComponentIndex(const Identifier &componentName) const;
+
+	StringArray getMacroNames();
 
 	bool hasComponent(const ScriptComponent* sc) const { return components.indexOf(sc) != -1; };
 

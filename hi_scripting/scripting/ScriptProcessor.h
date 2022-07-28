@@ -255,6 +255,10 @@ public:
 
 	Result getWatchedResult(int index);
 
+	CodeDocument::Position getLastPosition(CodeDocument& docToLookFor) const;
+
+	void setWatchedFilePosition(CodeDocument::Position& newPos);
+
 	void clearFileWatchers()
 	{
 		watchers.clear();
@@ -308,6 +312,8 @@ private:
 	CodeDocument emptyDoc;
 
 	ReferenceCountedArray<ExternalScriptFile> watchers;
+
+	Array<CodeDocument::Position> lastPositions;
 
 	Array<Component::SafePointer<DocumentWindow>> currentPopups;
 
@@ -901,9 +907,12 @@ public:
 
 	void killVoicesAndExtendTimeOut(JavascriptProcessor* jp, int milliseconds=1000);
 
-	GlobalServer* getGlobalServer() { return globalServer.get(); }
+	SimpleReadWriteLock& getLookAndFeelRenderLock()
+	{
+		return lookAndFeelRenderLock;
+	}
 
-	CriticalSection& getLookAndFeelRenderLock();
+	GlobalServer* getGlobalServer() { return globalServer.get(); }
 
 	void resume()
 	{
@@ -1031,7 +1040,7 @@ private:
 
 	CriticalSection scriptLock;
 
-	CriticalSection lookAndFeelRenderLock;
+	SimpleReadWriteLock lookAndFeelRenderLock;
 
 	using CompilationTask = SuspendHelpers::Suspended<Task, SuspendHelpers::ScopedTicket>;
 	using CallbackTask = SuspendHelpers::Suspended<Task, SuspendHelpers::FreeTicket>;

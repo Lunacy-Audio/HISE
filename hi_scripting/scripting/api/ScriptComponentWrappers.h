@@ -282,6 +282,8 @@ public:
 		DropShadower shadow;
 	};
 
+	struct AdditionalMouseCallback;
+
 	/** Don't forget to deregister the listener here. */
 	virtual ~ScriptCreatedComponentWrapper();;
 
@@ -293,6 +295,8 @@ public:
 
 	/** Overwrite this method and update the value of the component. */
 	virtual void updateValue(var newValue) {};
+
+	static void updateFadeState(ScriptCreatedComponentWrapper& wrapper, bool shouldBeVisible, int fadeTime);
 
 	void sourceHasChanged(ComplexDataUIBase*, ComplexDataUIBase*) override;
 
@@ -379,6 +383,8 @@ protected:
 
     ScopedPointer<LookAndFeel> localLookAndFeel;
     
+	OwnedArray<AdditionalMouseCallback> mouseCallbacks;
+
 private:
 
 	bool wasFocused = false;
@@ -663,7 +669,8 @@ public:
 	};
 
 
-	class ViewportWrapper : public ScriptCreatedComponentWrapper
+	class ViewportWrapper : public ScriptCreatedComponentWrapper,
+							public juce::ScrollBar::Listener
 	{
 	public:
 
@@ -684,6 +691,10 @@ public:
 		static void tableUpdated(ViewportWrapper& w, int index);
 
 	private:
+
+		void scrollBarMoved(ScrollBar* scrollBarThatHasMoved,
+			double newRangeStart) override;
+
 
 		void updateItems(ScriptingApi::Content::ScriptedViewport * vpc);
 		void updateColours();
@@ -728,6 +739,8 @@ public:
 		Mode mode;
 
 		ScriptTableListModel::Ptr tableModel;
+
+		Component::SafePointer<juce::Viewport> vp;
 
 		ScopedPointer<ColumnListBoxModel> model;
 		ScopedPointer<LookAndFeel> slaf;

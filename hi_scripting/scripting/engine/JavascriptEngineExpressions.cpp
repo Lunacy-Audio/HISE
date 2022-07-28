@@ -16,7 +16,17 @@ struct HiseJavascriptEngine::RootObject::UnqualifiedName : public Expression
 {
 	UnqualifiedName(const CodeLocation& l, const Identifier& n, bool isFunction) noexcept : Expression(l), name(n), allowUnqualifiedDefinition(isFunction) {}
 
-	var getResult(const Scope& s) const override  { return s.findSymbolInParentScopes(name); }
+	var getResult(const Scope& s) const override  
+	{ 
+		static const Identifier this_("this");
+
+		auto v = s.findSymbolInParentScopes(name); 
+
+		if (v.isUndefined() && name == this_)
+			return s.root->getLocalThisObject();
+
+		return v;
+	}
 
 	Statement* getChildStatement(int) override { return nullptr; };
 
@@ -65,11 +75,15 @@ struct HiseJavascriptEngine::RootObject::ConstReference : public Expression
 
 	var getResult(const Scope& /*s*/) const override
 	{
-		return ns->constObjects.getValueAt(index);
+		if(ns != nullptr)
+			return ns->constObjects.getValueAt(index);
+
+		return var();
 	}
 
 	bool isConstant() const override
 	{
+		jassert(ns != nullptr);
 		auto v = ns->constObjects.getValueAt(index);
 
 		// objects and arrays are not constant...
@@ -83,9 +97,8 @@ struct HiseJavascriptEngine::RootObject::ConstReference : public Expression
 
 	Statement* getChildStatement(int) override { return nullptr; };
 
-	JavascriptNamespace* ns;
+	WeakReference<JavascriptNamespace> ns;
 	int index;
-
 };
 
 
@@ -248,6 +261,11 @@ struct HiseJavascriptEngine::RootObject::DotOperator : public Expression
                 location.throwError("can't find property " + child.toString());
         }
 
+		if (auto ad = dynamic_cast<AssignableDotObject*>(p.getObject()))
+		{
+			return ad->getDotProperty(child);
+		}
+
 		return var::undefined();
 	}
 
@@ -272,6 +290,11 @@ struct HiseJavascriptEngine::RootObject::DotOperator : public Expression
             else
                 location.throwError("Can't find property " + child.toString());
         }
+		else if (auto aObj = dynamic_cast<AssignableDotObject*>(v.getObject()))
+		{
+			if (!aObj->assign(child, newValue))
+				location.throwError("Cannot assign to " + child + " property");
+		}
         else
 			Expression::assign(s, newValue);
 	}
@@ -498,6 +521,7 @@ struct HiseJavascriptEngine::RootObject::ArrayDeclaration : public Expression
 //==============================================================================
 struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 														  public DebugableObject,
+														  public WeakCallbackHolder::CallableObject,
 														  public CyclicReferenceCheckBase
 {
 	FunctionObject() noexcept{}
@@ -538,11 +562,14 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 			lastScopeForCycleCheck = var(functionRoot.get());
 #endif
 
-#if ENABLE_SCRIPTING_BREAKPOINTS
-		lastScope = functionRoot;
-#endif
-
 		functionRoot->removeProperty("this");
+
+#if ENABLE_SCRIPTING_BREAKPOINTS
+		{
+			SimpleReadWriteLock::ScopedWriteLock sl(debugScopeLock);
+			lastScope = functionRoot;
+		}
+#endif
 
 		return result;
 	}
@@ -588,42 +615,51 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 
 	int getNumChildElements() const override
 	{
-		if (lastScope != nullptr)
-			return lastScope->getProperties().size() - 1;
+		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(debugScopeLock))
+		{
+			if (lastScope != nullptr)
+				return lastScope->getProperties().size();
+		}
 
 		return 0;
 	}
 
 	DebugInformationBase* getChildElement(int index) override
 	{
-		if (lastScope != nullptr)
+		DynamicObject::Ptr l;
+
+		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(debugScopeLock))
+			l = lastScope;
+			
+		if (l != nullptr)
 		{
 			WeakReference<FunctionObject> safeThis(this);
-
-			DynamicObject::Ptr l = lastScope;
 
 			auto vf = [safeThis, index]()
 			{
 				if (safeThis == nullptr)
 					return var();
 
-				if (auto l = safeThis->lastScope)
+				DynamicObject::Ptr l;
+
+				if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(safeThis->debugScopeLock))
+					l = safeThis->lastScope;
+
+				if (l != nullptr)
 				{
-					if (auto v = l->getProperties().getVarPointerAt(index + 1))
+					if (auto v = l->getProperties().getVarPointerAt(index))
 						return *v;
 				}
-
+				
 				return var();
 			};
 
 			auto& prop = l->getProperties();
 
-			
-
-			if (isPositiveAndBelow(index + 1, prop.size()))
+			if (isPositiveAndBelow(index, prop.size()))
 			{
 				String mid;
-				mid << "%PARENT%" << "." << l->getProperties().getName(index + 1);
+				mid << "%PARENT%" << "." << prop.getName(index);
 				return new LambdaValueInformation(vf, mid, {}, DebugInformation::Type::ExternalFunction, getLocation());
 			}
 		}
@@ -655,6 +691,7 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 
 	DynamicObject::Ptr unneededScope;
 
+	mutable SimpleReadWriteLock debugScopeLock;
 	mutable DynamicObject::Ptr lastScope;
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(FunctionObject);

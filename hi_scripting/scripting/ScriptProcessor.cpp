@@ -381,6 +381,31 @@ Result FileChangeListener::getWatchedResult(int index)
 	return watchers[index]->getResult();
 }
 
+juce::CodeDocument::Position FileChangeListener::getLastPosition(CodeDocument& docToLookFor) const
+{
+	for (const auto& pos : lastPositions)
+	{
+		if (pos.getOwner() == &docToLookFor)
+			return pos;
+	}
+
+	return CodeDocument::Position(docToLookFor, 0);
+}
+
+void FileChangeListener::setWatchedFilePosition(CodeDocument::Position& newPos)
+{
+	for (auto& p : lastPositions)
+	{
+		if (p.getOwner() == newPos.getOwner())
+		{
+			p = newPos;
+			return;
+		}
+	}
+
+	lastPositions.add(newPos);
+}
+
 File FileChangeListener::getWatchedFile(int index) const
 {
 	if (index < watchers.size())
@@ -1797,10 +1822,13 @@ Result JavascriptThreadPool::executeQueue(const Task::Type& t, PendingCompilatio
 	{
 		CompilationTask ct;
 
+		
+
 		allowSleep = true;
 
 		while (compilationQueue.pop(ct))
 		{
+            SimpleReadWriteLock::ScopedWriteLock sl(getLookAndFeelRenderLock());
 			SuspendHelpers::ScopedTicket ticket;
 
 			lowPriorityQueue.clear();
@@ -1809,10 +1837,9 @@ Result JavascriptThreadPool::executeQueue(const Task::Type& t, PendingCompilatio
 			killVoicesAndExtendTimeOut(ct.getFunction().getProcessor());
 
 			r = ct.call();
+
 			pendingCompilations.addIfNotAlreadyThere(ct.getFunction().getProcessor());
 		}
-
-		
 
 		return r;
 	}
@@ -1822,16 +1849,18 @@ Result JavascriptThreadPool::executeQueue(const Task::Type& t, PendingCompilatio
 
 		CallbackTask hpt;
 
-		while (highPriorityQueue.pop(hpt))
+		while (r.wasOk() && highPriorityQueue.pop(hpt))
 		{
 			jassert(hpt.getFunction().isHiPriority());
 
 			if (alreadyCompiled(hpt))
 				continue;
 
-			
 			r = hpt.call();
 		}
+
+		if (!r.wasOk())
+			lowPriorityQueue.clear();
 
 		return r;
 	}
@@ -1841,9 +1870,9 @@ Result JavascriptThreadPool::executeQueue(const Task::Type& t, PendingCompilatio
 
 		CallbackTask lpt;
 
-		while (lowPriorityQueue.pop(lpt))
+		while (r.wasOk() && lowPriorityQueue.pop(lpt))
 		{
-			ScopedLock sl(lookAndFeelRenderLock);
+			SimpleReadWriteLock::ScopedReadLock sl(getLookAndFeelRenderLock());
 
 			jassert(!lpt.getFunction().isHiPriority());
 
@@ -1853,16 +1882,26 @@ Result JavascriptThreadPool::executeQueue(const Task::Type& t, PendingCompilatio
 			r = lpt.call();
 		}
 
+		if (!r.wasOk())
+			lowPriorityQueue.clear();
+
 		WeakReference<ScriptingApi::Content::ScriptPanel> sp;
 
-		while (deferredPanels.pop(sp))
+		if (r.wasOk())
 		{
-			ScopedValueSetter<bool> svs(busy, true);
-			
-			if(sp.get() != nullptr)
-				sp->repaint();
+			while (deferredPanels.pop(sp))
+			{
+				ScopedValueSetter<bool> svs(busy, true);
+
+				if (sp.get() != nullptr)
+					sp->repaint();
+			}
 		}
-		
+		else
+		{
+			deferredPanels.clear();
+		}
+
 		return r;
 	}
 	default:
@@ -1879,8 +1918,13 @@ void JavascriptThreadPool::run()
 		Array<WeakReference<JavascriptProcessor>> compiledProcessors;
 		compiledProcessors.ensureStorageAllocated(16);
 
-		executeQueue(Task::LowPriorityCallbackExecution, compiledProcessors);
+		auto r = executeQueue(Task::LowPriorityCallbackExecution, compiledProcessors);
 		
+		if (!r.wasOk() && r.getErrorMessage() != "Engine is dangling")
+		{
+			debugError(getMainController()->getMainSynthChain(), r.getErrorMessage());
+		}
+
 		wait(500);
 	}
 }
@@ -1896,11 +1940,6 @@ void JavascriptThreadPool::killVoicesAndExtendTimeOut(JavascriptProcessor* jp, i
 	{
 		engine->extendTimeout(milliseconds);
 	}
-}
-
-juce::CriticalSection& JavascriptThreadPool::getLookAndFeelRenderLock()
-{
-	return lookAndFeelRenderLock;
 }
 
 void JavascriptThreadPool::pushToQueue(const Task::Type& t, JavascriptProcessor* p, const Task::Function& f)
