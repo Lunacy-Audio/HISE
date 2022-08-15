@@ -243,7 +243,10 @@ void ScriptCreatedComponentWrapper::asyncValueTreePropertyChanged(ValueTree& v, 
 
 void ScriptCreatedComponentWrapper::valueTreeParentChanged(ValueTree& /*v*/)
 {
-	contentComponent->updateComponentParent(this);
+    SafeAsyncCall::callAsyncIfNotOnMessageThread<ScriptCreatedComponentWrapper>(*this, [](ScriptCreatedComponentWrapper& f)
+    {
+        f.contentComponent->updateComponentParent(&f);
+    });
 }
 
 ScriptCreatedComponentWrapper::ScriptCreatedComponentWrapper(ScriptContentComponent *content, int index_) :
@@ -1297,7 +1300,8 @@ ScriptCreatedComponentWrapper(content, index)
 
 	t->setName(table->name.toString());
 	t->popupFunction = BIND_MEMBER_FUNCTION_2(TableWrapper::getTextForTablePopup);
-
+    t->setDrawTableValueLabel(false);
+    
 	table->getSourceWatcher().addSourceListener(this);
 
 	component = t;
@@ -2139,7 +2143,7 @@ void ScriptCreatedComponentWrappers::PanelWrapper::initPanel(ScriptingApi::Conte
 	bp->setEnableFileDrop(panel->fileDropLevel, panel->fileDropExtension);
 
 	
-
+    bp->setBufferedToImage(panel->getScriptObjectProperty(ScriptingApi::Content::ScriptPanel::bufferToImage));
 
 	component = bp;
 
@@ -2592,25 +2596,38 @@ ScriptCreatedComponentWrappers::FloatingTileWrapper::FloatingTileWrapper(ScriptC
 	for (const auto& c : floatingTile->getMouseListeners())
 		mouseCallbacks.add(new AdditionalMouseCallback(floatingTile, component, c));
 
-	LookAndFeel* laf = &mc->getGlobalLookAndFeel();
-
-	if (auto l = floatingTile->createLocalLookAndFeel())
-    {
-        localLookAndFeel = l;
-		laf = localLookAndFeel.get();
-    }
-
-	if (dynamic_cast<ScriptingObjects::ScriptedLookAndFeel::Laf*>(laf) != nullptr)
-	{
-		Component::callRecursive<Component>(ft, [laf](Component* c)
-		{
-			c->setLookAndFeel(laf);
-			return false;
-		});
-	}
+    updateLookAndFeel();
 }
 
+void ScriptCreatedComponentWrappers::FloatingTileWrapper::updateLookAndFeel()
+{
+    auto mc = const_cast<MainController*>(dynamic_cast<const Processor*>(getScriptComponent()->getScriptProcessor())->getMainController());
+    
+    auto ft = dynamic_cast<FloatingTile*>(getComponent());
+    auto floatingTile = getScriptComponent();
+    
+    LookAndFeel* laf = localLookAndFeel.get();
+    
+    if(laf == nullptr)
+    {
+        laf = &mc->getGlobalLookAndFeel();
 
+        if (auto l = floatingTile->createLocalLookAndFeel())
+        {
+            localLookAndFeel = l;
+            laf = localLookAndFeel.get();
+        }
+    }
+    
+    if (dynamic_cast<ScriptingObjects::ScriptedLookAndFeel::Laf*>(laf) != nullptr)
+    {
+        Component::callRecursive<Component>(ft, [laf](Component* c)
+        {
+            c->setLookAndFeel(laf);
+            return false;
+        });
+    }
+}
 
 void ScriptCreatedComponentWrappers::FloatingTileWrapper::updateComponent()
 {
@@ -2637,7 +2654,10 @@ void ScriptCreatedComponentWrappers::FloatingTileWrapper::updateComponent(int pr
 	PROPERTY_CASE::ScriptFloatingTile::Properties::Font:
 	PROPERTY_CASE::ScriptFloatingTile::Properties::FontSize:
 	PROPERTY_CASE::ScriptFloatingTile::Properties::Data :
-	PROPERTY_CASE::ScriptFloatingTile::Properties::ContentType: ft->setContent(sft->getContentData()); break;
+	PROPERTY_CASE::ScriptFloatingTile::Properties::ContentType:
+        ft->setContent(sft->getContentData());
+        updateLookAndFeel();
+        break;
 	}
 
 #if USE_BACKEND

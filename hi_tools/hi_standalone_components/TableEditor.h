@@ -307,6 +307,13 @@ public:
 		return "Table Data"; 
 	};
 
+    void setDrawTableValueLabel(bool shouldBeDisplayed)
+    {
+        displayPopup = shouldBeDisplayed;
+    }
+    
+    bool shouldDrawTableValueLabel() const { return displayPopup; }
+    
 	void copyAction() override { SystemClipboard::copyTextToClipboard(getEditedTable()->exportData()); };
 
 	virtual void pasteAction() override
@@ -484,6 +491,8 @@ public:
 private:
 
 	float margin = 0.0f;
+    
+    bool displayPopup = true;
 
 	HiseTableLookAndFeel defaultLaf;
 

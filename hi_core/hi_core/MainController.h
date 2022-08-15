@@ -1566,6 +1566,8 @@ public:
 			lastActiveEditor->repaint();
 	}
 
+    UndoManager* getLocationUndoManager() { return &locationUndoManager; }
+    
 	Component* getLastActiveEditor()
 	{
 		return lastActiveEditor.getComponent();
@@ -1928,6 +1930,7 @@ private:
 
 	Font globalFont;
 
+    UndoManager locationUndoManager;
 	Component::SafePointer<Component> lastActiveEditor;
 	int lastCharacterPositionOfSelectedEditor;
 

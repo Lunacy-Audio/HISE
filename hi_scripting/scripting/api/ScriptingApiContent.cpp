@@ -632,6 +632,8 @@ void ScriptingApi::Content::ScriptComponent::setScriptObjectPropertyWithChangeMe
 		{
 			connectedProcessor = ProcessorHelpers::getFirstProcessorWithName(getScriptProcessor()->getMainController_()->getMainSynthChain(), pId);
 		}
+        
+        updateValueFromProcessorConnection();
 	}
 	else if (id == getIdFor(parameterId))
 	{
@@ -653,9 +655,34 @@ void ScriptingApi::Content::ScriptComponent::setScriptObjectPropertyWithChangeMe
 			else
 				connectedParameterIndex = -1;
 		}
+        
+        updateValueFromProcessorConnection();
 	}
 
 	setScriptObjectProperty(propertyIds.indexOf(id), newValue, notifyEditor);
+}
+
+void ScriptingApi::Content::ScriptComponent::updateValueFromProcessorConnection()
+{
+    if(connectedProcessor != nullptr && connectedParameterIndex != -1)
+    {
+        float value = 0.0f;
+        
+        if (connectedParameterIndex == -2)
+        {
+            if (auto mod = dynamic_cast<Modulation*>(connectedProcessor.get()))
+                value = mod->getIntensity();
+        }
+        else if (connectedParameterIndex == -3)
+            value = connectedProcessor->isBypassed() ? 1.0f : 0.0f;
+        else if (connectedParameterIndex == -4)
+            value = connectedProcessor->isBypassed() ? 0.0f : 1.0f;
+        else
+            value = connectedProcessor->getAttribute(connectedParameterIndex);
+
+        FloatSanitizers::sanitizeFloatNumber(value);
+        setValue(value);
+    }
 }
 
 const Identifier ScriptingApi::Content::ScriptComponent::getIdFor(int p) const
@@ -3264,7 +3291,8 @@ void ScriptingApi::Content::ScriptPanel::init()
 	ADD_SCRIPT_PROPERTY(i10, "enableMidiLearn");	ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(i11, "holdIsRightClick");	ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(i12, "isPopupPanel");		ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
-
+    ADD_SCRIPT_PROPERTY(i13, "bufferToImage");      ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
+    
 	setDefaultValue(ScriptComponent::Properties::x, x);
 	setDefaultValue(ScriptComponent::Properties::y, y);
 	setDefaultValue(ScriptComponent::Properties::width, 100);
@@ -3287,6 +3315,7 @@ void ScriptingApi::Content::ScriptPanel::init()
 	setDefaultValue(enableMidiLearn, false);
 	setDefaultValue(holdIsRightClick, true);
 	setDefaultValue(isPopupPanel, false);
+    setDefaultValue(bufferToImage, false);
 
 	handleDefaultDeactivatedProperties();
 
@@ -3385,7 +3414,7 @@ void ScriptingApi::Content::ScriptPanel::setPaintRoutine(var paintFunction)
 {
 	paintRoutine = paintFunction;
 
-	if (!parent->allowGuiCreation)
+	if (HiseJavascriptEngine::isJavascriptFunction(paintFunction) && !parent->allowGuiCreation)
 	{
 		repaint();
 	}
