@@ -47,7 +47,7 @@
 
 #define JUCE_USE_DARK_SPLASH_SCREEN 1
 
-#define JUCE_PROJUCER_VERSION 0x60103
+#define JUCE_PROJUCER_VERSION 0x60008
 
 //==============================================================================
 #define JUCE_MODULE_AVAILABLE_hi_backend                    1
@@ -79,7 +79,6 @@
 #define JUCE_MODULE_AVAILABLE_juce_gui_basics               1
 #define JUCE_MODULE_AVAILABLE_juce_gui_extra                1
 #define JUCE_MODULE_AVAILABLE_juce_opengl                   1
-#define JUCE_MODULE_AVAILABLE_juce_osc                      1
 #define JUCE_MODULE_AVAILABLE_juce_product_unlocking        1
 
 #define JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED 1
@@ -121,12 +120,8 @@
  #define   USE_COPY_PROTECTION 0
 #endif
 
-#ifndef    USE_SCRIPT_COPY_PROTECTION
- //#define USE_SCRIPT_COPY_PROTECTION 0
-#endif
-
 #ifndef    USE_IPP
- #define   USE_IPP 0
+ #define   USE_IPP 1
 #endif
 
 #ifndef    USE_VDSP_FFT
@@ -143,10 +138,6 @@
 
 #ifndef    FORCE_INPUT_CHANNELS
  //#define FORCE_INPUT_CHANNELS 0
-#endif
-
-#ifndef    HISE_DEACTIVATE_OVERLAY
- //#define HISE_DEACTIVATE_OVERLAY 0
 #endif
 
 #ifndef    HISE_MIDIFX_PLUGIN
@@ -181,10 +172,6 @@
  #define   ENABLE_PLOTTER 1
 #endif
 
-#ifndef    HISE_NUM_MACROS
- //#define HISE_NUM_MACROS 1
-#endif
-
 #ifndef    ENABLE_SCRIPTING_SAFE_CHECKS
  #define   ENABLE_SCRIPTING_SAFE_CHECKS 1
 #endif
@@ -201,10 +188,6 @@
  //#define HISE_ENABLE_MIDI_INPUT_FOR_FX 0
 #endif
 
-#ifndef    HISE_COMPLAIN_ABOUT_ILLEGAL_BUFFER_SIZE
- //#define HISE_COMPLAIN_ABOUT_ILLEGAL_BUFFER_SIZE 1
-#endif
-
 #ifndef    ENABLE_ALL_PEAK_METERS
  #define   ENABLE_ALL_PEAK_METERS 1
 #endif
@@ -213,24 +196,12 @@
  //#define READ_ONLY_FACTORY_PRESETS 0
 #endif
 
-#ifndef    CONFIRM_PRESET_OVERWRITE
- //#define CONFIRM_PRESET_OVERWRITE 1
-#endif
-
 #ifndef    ENABLE_CONSOLE_OUTPUT
  #define   ENABLE_CONSOLE_OUTPUT 1
 #endif
 
 #ifndef    ENABLE_HOST_INFO
  #define   ENABLE_HOST_INFO 1
-#endif
-
-#ifndef    HISE_USE_OPENGL_FOR_PLUGIN
- //#define HISE_USE_OPENGL_FOR_PLUGIN 0
-#endif
-
-#ifndef    HISE_DEFAULT_OPENGL_VALUE
- //#define HISE_DEFAULT_OPENGL_VALUE 1
 #endif
 
 #ifndef    ENABLE_STARTUP_LOGGER
@@ -382,7 +353,7 @@
 #endif
 
 #ifndef    JUCE_JACK
- //#define JUCE_JACK 0
+ //#define JUCE_JACK 1
 #endif
 
 #ifndef    JUCE_BELA
@@ -496,10 +467,6 @@
  //#define JUCE_FORCE_DEBUG 0
 #endif
 
-#ifndef    JUCE_ENABLE_AUDIO_GUARD
- //#define JUCE_ENABLE_AUDIO_GUARD 0
-#endif
-
 #ifndef    JUCE_LOG_ASSERTIONS
  //#define JUCE_LOG_ASSERTIONS 0
 #endif
@@ -538,6 +505,10 @@
 
 #ifndef    JUCE_ENABLE_ALLOCATION_HOOKS
  //#define JUCE_ENABLE_ALLOCATION_HOOKS 0
+#endif
+
+#ifndef    JUCE_ENABLE_AUDIO_GUARD
+ //#define JUCE_ENABLE_AUDIO_GUARD 0
 #endif
 
 //==============================================================================
