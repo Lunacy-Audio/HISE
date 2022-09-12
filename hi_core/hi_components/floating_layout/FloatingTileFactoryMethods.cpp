@@ -76,11 +76,34 @@ void FloatingTileContent::Factory::registerAllPanelTypes()
 	registerType<PoolTableSubTypes::SampleMapPoolTable>(PopupMenuOptions::SampleMapPoolTable);
 
 #if USE_BACKEND
-	registerBackendPanelTypes();
+	registerType<GenericPanel<MacroComponent>>(PopupMenuOptions::MacroControls);
+	registerType < GenericPanel<MacroParameterTable>>(PopupMenuOptions::MacroTable);
+
+	registerType<GenericPanel<ApiCollection>>(PopupMenuOptions::ApiCollection);
+	registerType<scriptnode::DspNodeList::Panel>(PopupMenuOptions::DspNodeList);
+	registerType<GenericPanel<ModuleBrowser>>(PopupMenuOptions::ModuleBrowser);
+	registerType<GenericPanel<PatchBrowser>>(PopupMenuOptions::PatchBrowser);
+	registerType<GenericPanel<FileBrowser>>(PopupMenuOptions::FileBrowser);
+	registerType<GenericPanel<SamplePoolTable>>(PopupMenuOptions::SamplePoolTable);
+	
+	registerType<MainTopBar>(PopupMenuOptions::MenuCommandOffset);
+	registerType<BackendProcessorEditor>(PopupMenuOptions::MenuCommandOffset);
+	registerType<ScriptWatchTablePanel>(PopupMenuOptions::ScriptWatchTable);
+	registerType<ConsolePanel>(PopupMenuOptions::Console);
+	registerType<ScriptComponentList::Panel>(PopupMenuOptions::ScriptComponentList);
+	registerType<MarkdownEditorPanel>(PopupMenuOptions::MarkdownEditor);
+
+	registerType<ComplexDataManager>(PopupMenuOptions::ComplexDataManager);
+	registerType<ServerControllerPanel>(PopupMenuOptions::ServerController);
+	registerType<scriptnode::DspNetworkGraphPanel>(PopupMenuOptions::DspNetworkGraph);
+	registerType<scriptnode::NodePropertyPanel>(PopupMenuOptions::DspNodeParameterEditor);
+
 #endif
 
 	registerFrontendPanelTypes();
 
+	registerType<PopoutButtonPanel>(PopupMenuOptions::PopoutButton);
+	registerType<ActivationWindow>(PopupMenuOptions::ActivationPanel);
 	registerType<InterfaceContentPanel>(PopupMenuOptions::InterfaceContent);
 	registerType<SampleMapBrowser>(PopupMenuOptions::SampleMapBrowser);
 
@@ -95,10 +118,25 @@ void FloatingTileContent::Factory::registerAllPanelTypes()
 
 #endif
 
+#if USE_BACKEND
+	
+	registerType<SamplerTablePanel>(PopupMenuOptions::SamplerTable);
+	registerType<GlobalConnectorPanel<JavascriptProcessor>>(PopupMenuOptions::ScriptConnectorPanel);
+	registerType<CodeEditorPanel>(PopupMenuOptions::ScriptEditor);
+	registerType<ScriptContentPanel>(PopupMenuOptions::ScriptContent);
+#endif
+
 	registerType<TableEditorPanel>(PopupMenuOptions::TablePanel);
 	registerType<SliderPackPanel>(PopupMenuOptions::SliderPackPanel);
-}
+	
+	registerType<PlotterPanel>(PopupMenuOptions::Plotter);
+	
+#if USE_BACKEND
+	registerType<ScriptComponentEditPanel::Panel>(PopupMenuOptions::ScriptComponentEditPanel);
+	registerType<ApplicationCommandButtonPanel>(PopupMenuOptions::MenuCommandOffset);
+#endif
 
+}
 
 
 void FloatingTileContent::Factory::registerFrontendPanelTypes()
@@ -116,12 +154,10 @@ void FloatingTileContent::Factory::registerFrontendPanelTypes()
 	registerType<TooltipPanel>(PopupMenuOptions::TooltipPanel);
 	registerType<MidiLearnPanel>(PopupMenuOptions::MidiLearnPanel);
 	registerType<FrontendMacroPanel>(PopupMenuOptions::FrontendMacroPanel);
-	registerType<PlotterPanel>(PopupMenuOptions::Plotter);
 	registerType<AudioAnalyserComponent::Panel>(PopupMenuOptions::AudioAnalyser);
 	registerType<WaveformComponent::Panel>(PopupMenuOptions::WavetablePreview);
 	registerType<FilterGraph::Panel>(PopupMenuOptions::FilterGraphPanel);
 	registerType<FilterDragOverlay::Panel>(PopupMenuOptions::DraggableFilterPanel);
-	registerType<WaterfallComponent::Panel>(PopupMenuOptions::WavetableWaterfall);
 	registerType<MPEPanel>(PopupMenuOptions::MPEPanel);
 	
 	registerType<AhdsrEnvelope::Panel>(PopupMenuOptions::AHDSRGraph);
@@ -231,13 +267,13 @@ Path FloatingTileContent::Factory::getPath(PopupMenuOptions type)
 	}
 	case PopupMenuOptions::MacroControls:
 	{
-		path.loadPathFromData(HiBinaryData::SpecialSymbols::macros, SIZE_OF_PATH(HiBinaryData::SpecialSymbols::macros));
+		path.loadPathFromData(HiBinaryData::SpecialSymbols::macros, sizeof(HiBinaryData::SpecialSymbols::macros));
 		break;
 	}
 	case PopupMenuOptions::SnexParameterList:
 	case PopupMenuOptions::MacroTable:
 	{
-		path.loadPathFromData(MainToolbarIcons::macroControlTable, SIZE_OF_PATH(MainToolbarIcons::macroControlTable));
+		path.loadPathFromData(MainToolbarIcons::macroControlTable, sizeof(MainToolbarIcons::macroControlTable));
 
 		break;
 	}
@@ -245,23 +281,23 @@ Path FloatingTileContent::Factory::getPath(PopupMenuOptions type)
 	case PopupMenuOptions::DspNodeList:
 	case PopupMenuOptions::DspNodeParameterEditor:
 	{
-		path.loadPathFromData(ScriptnodeIcons::pinIcon, SIZE_OF_PATH(ScriptnodeIcons::pinIcon));
+		path.loadPathFromData(ScriptnodeIcons::pinIcon, sizeof(ScriptnodeIcons::pinIcon));
 		break;
 	}
 	case PopupMenuOptions::PresetBrowser:
 	{
-		path.loadPathFromData(MainToolbarIcons::presetBrowser, SIZE_OF_PATH(MainToolbarIcons::presetBrowser));
+		path.loadPathFromData(MainToolbarIcons::presetBrowser, sizeof(MainToolbarIcons::presetBrowser));
 		break;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::MidiKeyboard:
 #if USE_BACKEND
-		path.loadPathFromData(BackendBinaryData::ToolbarIcons::keyboard, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::keyboard));
+		path.loadPathFromData(BackendBinaryData::ToolbarIcons::keyboard, sizeof(BackendBinaryData::ToolbarIcons::keyboard));
 #endif
 		break;
 	case PopupMenuOptions::SampleConnector:
 	case FloatingTileContent::Factory::PopupMenuOptions::ScriptConnectorPanel:
 	{
-		path.loadPathFromData(EditorIcons::connectIcon, SIZE_OF_PATH(EditorIcons::connectIcon));
+		path.loadPathFromData(EditorIcons::connectIcon, sizeof(EditorIcons::connectIcon));
 		break;
 	}
     case PopupMenuOptions::MarkdownPreviewPanel:
@@ -278,27 +314,27 @@ Path FloatingTileContent::Factory::getPath(PopupMenuOptions type)
 	case FloatingTileContent::Factory::PopupMenuOptions::SnexEditor:
 	case FloatingTileContent::Factory::PopupMenuOptions::ScriptEditor:
 	{
-		path.loadPathFromData(HiBinaryData::SpecialSymbols::scriptProcessor, SIZE_OF_PATH(HiBinaryData::SpecialSymbols::scriptProcessor));
+		path.loadPathFromData(HiBinaryData::SpecialSymbols::scriptProcessor, sizeof(HiBinaryData::SpecialSymbols::scriptProcessor));
 		break;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::ScriptContent:
 	{
 #if USE_BACKEND
-		path.loadPathFromData(MainToolbarIcons::home, SIZE_OF_PATH(MainToolbarIcons::home));
+		path.loadPathFromData(MainToolbarIcons::home, sizeof(MainToolbarIcons::home));
 #endif
 		break;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::ServerController:
 	{
 #if USE_BACKEND
-		path.loadPathFromData(MainToolbarIcons::web, SIZE_OF_PATH(MainToolbarIcons::web));
+		path.loadPathFromData(MainToolbarIcons::web, sizeof(MainToolbarIcons::web));
 #endif
 		break;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::ScriptComponentList:
 	{
 #if USE_BACKEND
-		path.loadPathFromData(MainToolbarIcons::home, SIZE_OF_PATH(MainToolbarIcons::home));
+		path.loadPathFromData(MainToolbarIcons::home, sizeof(MainToolbarIcons::home));
 #endif
 		break;
 	}
@@ -313,13 +349,13 @@ Path FloatingTileContent::Factory::getPath(PopupMenuOptions type)
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::VisibilityToggleBar:
 	{
-		path.loadPathFromData(HiBinaryData::ProcessorEditorHeaderIcons::bypassShape, SIZE_OF_PATH(HiBinaryData::ProcessorEditorHeaderIcons::bypassShape));
+		path.loadPathFromData(HiBinaryData::ProcessorEditorHeaderIcons::bypassShape, sizeof(HiBinaryData::ProcessorEditorHeaderIcons::bypassShape));
 
 		return path;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::SnexTestDataInfo:
 	{
-		path.loadPathFromData(HnodeIcons::testIcon, SIZE_OF_PATH(HnodeIcons::testIcon));
+		path.loadPathFromData(HnodeIcons::testIcon, sizeof(HnodeIcons::testIcon));
 		return path;
 	}
 
@@ -339,7 +375,7 @@ Path FloatingTileContent::Factory::getPath(PopupMenuOptions type)
 	case FloatingTileContent::Factory::PopupMenuOptions::Console:
 	{
 #if USE_BACKEND
-		path.loadPathFromData(BackendBinaryData::ToolbarIcons::debugPanel, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::debugPanel));
+		path.loadPathFromData(BackendBinaryData::ToolbarIcons::debugPanel, sizeof(BackendBinaryData::ToolbarIcons::debugPanel));
 #endif
 		break;
 	}
@@ -361,7 +397,7 @@ Path FloatingTileContent::Factory::getPath(PopupMenuOptions type)
 	}
 	case PopupMenuOptions::SampleEditor:
 	{
-		path.loadPathFromData(MainToolbarIcons::samplerWorkspace , SIZE_OF_PATH(MainToolbarIcons::samplerWorkspace));
+		path.loadPathFromData(MainToolbarIcons::samplerWorkspace , sizeof(MainToolbarIcons::samplerWorkspace));
 		return path;
 	}
 	case PopupMenuOptions::SampleMapEditor:
@@ -412,58 +448,58 @@ Path FloatingTileContent::Factory::getPath(PopupMenuOptions type)
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::ApiCollection:
 	{
-		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::apiList, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::apiList)));
+		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::apiList, sizeof(BackendBinaryData::ToolbarIcons::apiList)));
 		break;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::ScriptWatchTable:
 	{
-		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::viewPanel, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::viewPanel)));
+		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::viewPanel, sizeof(BackendBinaryData::ToolbarIcons::viewPanel)));
 
 		break;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::ScriptComponentEditPanel:
 	{
-		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::mixer, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::mixer)));
+		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::mixer, sizeof(BackendBinaryData::ToolbarIcons::mixer)));
 		path.applyTransform(AffineTransform::rotation(float_Pi / 2.0f));
 
 		break;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::ModuleBrowser:
 	{
-		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::modulatorList, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::modulatorList)));
+		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::modulatorList, sizeof(BackendBinaryData::ToolbarIcons::modulatorList)));
 		break;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::PatchBrowser:
 	{
-		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::modulatorList, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::modulatorList)));
+		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::modulatorList, sizeof(BackendBinaryData::ToolbarIcons::modulatorList)));
 		break;
 	}
 	break;
 	case FloatingTileContent::Factory::PopupMenuOptions::ExpansionEditBar:
 	case FloatingTileContent::Factory::PopupMenuOptions::FileBrowser:
 	{
-		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::fileBrowser, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::fileBrowser)));
+		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::fileBrowser, sizeof(BackendBinaryData::ToolbarIcons::fileBrowser)));
 		break;
 	}
 	case FloatingTileContent::Factory::PopupMenuOptions::SamplePoolTable:
 	{
-		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::sampleTable, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::sampleTable)));
+		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::sampleTable, sizeof(BackendBinaryData::ToolbarIcons::sampleTable)));
 		break;
 	}
 	case PopupMenuOptions::AudioFileTable:
 	{
-		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::fileTable, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::fileTable)));
+		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::fileTable, sizeof(BackendBinaryData::ToolbarIcons::fileTable)));
 		break;
 	}
 	case PopupMenuOptions::ImageTable:
 	{
-		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::imageTable, SIZE_OF_PATH(BackendBinaryData::ToolbarIcons::imageTable)));
+		BACKEND_ONLY(path.loadPathFromData(BackendBinaryData::ToolbarIcons::imageTable, sizeof(BackendBinaryData::ToolbarIcons::imageTable)));
 		break;
 	}
 	case PopupMenuOptions::numOptions:
 	{
 		
-		path.loadPathFromData(MainToolbarIcons::mainWorkspace, SIZE_OF_PATH(MainToolbarIcons::mainWorkspace));
+		path.loadPathFromData(MainToolbarIcons::mainWorkspace, sizeof(MainToolbarIcons::mainWorkspace));
 
 		return path;
 	}
@@ -545,14 +581,11 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 			addToPopupMenu(m, PopupMenuOptions::ScriptWatchTable, "Live Variable View");
 			addToPopupMenu(m, PopupMenuOptions::ComplexDataManager, "Complex Data Manager");
 			addToPopupMenu(m, PopupMenuOptions::Console, "Console");
-			addToPopupMenu(m, PopupMenuOptions::OSCLogger, "OSC Logger");
 			addToPopupMenu(m, PopupMenuOptions::DspNodeList, "DSP Node list");
 			addToPopupMenu(m, PopupMenuOptions::DspNetworkGraph, "DSP Network Graph");
 			addToPopupMenu(m, PopupMenuOptions::DspNodeParameterEditor, "DSP Network Node Editor");
-            addToPopupMenu(m, PopupMenuOptions::DspFaustEditorPanel, "Faust Editor");
 			addToPopupMenu(m, PopupMenuOptions::RLottieDevPanel, "Lottie Dev Panel");
 			addToPopupMenu(m, PopupMenuOptions::ServerController, "Server Controller");
-			addToPopupMenu(m, PopupMenuOptions::ScriptBroadcasterMap, "ScriptBroadcaster Map");
 			addToPopupMenu(m, PopupMenuOptions::SnexEditor, "SNEX Editor");
 
 			m.addSectionHeader("Sampler Tools");
@@ -577,11 +610,10 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 
 			addToPopupMenu(m, PopupMenuOptions::PatchBrowser, "Patch Browser");
 			addToPopupMenu(m, PopupMenuOptions::FileBrowser, "File Browser");
-			addToPopupMenu(m, PopupMenuOptions::AutomationDataBrowser, "Automation Data Browser");
 			addToPopupMenu(m, PopupMenuOptions::SamplePoolTable, "SamplePoolTable");
 			addToPopupMenu(m, PopupMenuOptions::SliderPackPanel, "Array Editor");
 			addToPopupMenu(m, PopupMenuOptions::MidiKeyboard, "Virtual Keyboard");
-			addToPopupMenu(m, PopupMenuOptions::PerfettoViewer, "Perfetto Viewer");
+			addToPopupMenu(m, PopupMenuOptions::PopoutButton, "Popout Button");
 
 			addToPopupMenu(m, PopupMenuOptions::Note, "Note");
 			addToPopupMenu(m, PopupMenuOptions::AudioFileTable, "Audio File Pool Table");
@@ -599,7 +631,6 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 			addToPopupMenu(fm, PopupMenuOptions::MidiChannelList, "Midi Channel List");
 			addToPopupMenu(fm, PopupMenuOptions::TooltipPanel, "Tooltip Bar");
 			addToPopupMenu(fm, PopupMenuOptions::MidiLearnPanel, "MIDI Learn Panel");
-			addToPopupMenu(fm, PopupMenuOptions::WavetableWaterfall, "WavetableWaterfall");
 			addToPopupMenu(fm, PopupMenuOptions::MidiPlayerOverlay, "MIDI Player Overlay");
 			addToPopupMenu(fm, PopupMenuOptions::SampleMapBrowser, "Sample Map Browser");
 			addToPopupMenu(fm, PopupMenuOptions::AudioAnalyser, "Audio Analyser");
@@ -625,7 +656,7 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 	m.addItem((int)PopupMenuOptions::exportAsJSON, "Export as JSON", true, false);
 	m.addItem((int)PopupMenuOptions::loadFromJSON, "Load JSON from clipboard", parent->canBeDeleted(), false);
 
-	auto popupDir = ProjectHandler::getAppDataDirectory(nullptr).getChildFile("custom_popups");
+	auto popupDir = ProjectHandler::getAppDataDirectory().getChildFile("custom_popups");
 
 	auto fileList = popupDir.findChildFiles(File::findFiles, false, "*.json");
 	fileList.sort();
@@ -664,8 +695,6 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 
 	PopupMenuOptions resultOption = (PopupMenuOptions)result;
 
-	if(handleBackendMenu(resultOption, parent))
-		return;
 
 
 	switch (resultOption)
@@ -699,15 +728,11 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 	case PopupMenuOptions::MPEPanel:			parent->setNewContent(GET_PANEL_NAME(MPEPanel)); break;
 	case PopupMenuOptions::ScriptEditor:		parent->setNewContent(GET_PANEL_NAME(CodeEditorPanel)); break;
 	case PopupMenuOptions::ScriptContent:		parent->setNewContent(GET_PANEL_NAME(ScriptContentPanel)); break;
-	case PopupMenuOptions::OSCLogger:			parent->setNewContent(GET_PANEL_NAME(OSCLogger)); break;
-
-	
-
-
+	case PopupMenuOptions::ScriptComponentList: parent->setNewContent(GET_PANEL_NAME(ScriptComponentList::Panel)); break;
 	case PopupMenuOptions::InterfaceContent:	parent->setNewContent(GET_PANEL_NAME(InterfaceContentPanel)); break;
 	case PopupMenuOptions::Plotter:				parent->setNewContent(GET_PANEL_NAME(PlotterPanel)); break;
 	case PopupMenuOptions::AudioAnalyser:		parent->setNewContent(GET_PANEL_NAME(AudioAnalyserComponent::Panel)); break;
-	
+	case PopupMenuOptions::ScriptComponentEditPanel: parent->setNewContent(GET_PANEL_NAME(ScriptComponentEditPanel::Panel)); break;
         
     case PopupMenuOptions::MatrixPeakMeterPanel: parent->setNewContent(GET_PANEL_NAME(MatrixPeakMeter)); break;
 	case PopupMenuOptions::ComplexDataManager:  parent->setNewContent(GET_PANEL_NAME(ComplexDataManager)); break;
@@ -716,6 +741,7 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 	case PopupMenuOptions::ScriptConnectorPanel:parent->setNewContent(GET_PANEL_NAME(GlobalConnectorPanel<JavascriptProcessor>)); break;
 	case PopupMenuOptions::Console:				parent->setNewContent(GET_PANEL_NAME(ConsolePanel)); break;
 	case PopupMenuOptions::PresetBrowser:		parent->setNewContent(GET_PANEL_NAME(PresetBrowserPanel)); break;
+	case PopupMenuOptions::PopoutButton:		parent->setNewContent(GET_PANEL_NAME(PopoutButtonPanel)); break;
 	case PopupMenuOptions::ActivityLed:		    parent->setNewContent(GET_PANEL_NAME(ActivityLedPanel)); break;
 	case PopupMenuOptions::PluginSettings:		parent->setNewContent(GET_PANEL_NAME(CustomSettingsWindowPanel)); break;
 	case PopupMenuOptions::PerformanceStatistics: parent->setNewContent(GET_PANEL_NAME(PerformanceLabelPanel)); break;
@@ -724,21 +750,21 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 	case PopupMenuOptions::MidiLearnPanel:		parent->setNewContent(GET_PANEL_NAME(MidiLearnPanel)); break;
 	case PopupMenuOptions::MidiPlayerOverlay:	parent->setNewContent(GET_PANEL_NAME(MidiOverlayPanel)); break;
 	case PopupMenuOptions::TooltipPanel:		parent->setNewContent(GET_PANEL_NAME(TooltipPanel)); break;
-	case PopupMenuOptions::WavetableWaterfall:	parent->setNewContent(GET_PANEL_NAME(WaterfallComponent::Panel)); break;
-	
+	case PopupMenuOptions::DspNodeList:			parent->setNewContent(GET_PANEL_NAME(scriptnode::DspNodeList::Panel)); break;
 	case PopupMenuOptions::DspNodeParameterEditor: parent->setNewContent(GET_PANEL_NAME(scriptnode::NodePropertyPanel)); break;
-    case PopupMenuOptions::DspFaustEditorPanel: parent->setNewContent(GET_PANEL_NAME(scriptnode::FaustEditorPanel)); break;
-	
+	case PopupMenuOptions::ApiCollection:		parent->setNewContent(GET_PANEL_NAME(GenericPanel<ApiCollection>)); break;
+	case PopupMenuOptions::PatchBrowser:		parent->setNewContent(GET_PANEL_NAME(GenericPanel<PatchBrowser>)); break;
+	case PopupMenuOptions::FileBrowser:			parent->setNewContent(GET_PANEL_NAME(GenericPanel<FileBrowser>)); break;
+	case PopupMenuOptions::ModuleBrowser:		parent->setNewContent(GET_PANEL_NAME(GenericPanel<ModuleBrowser>)); break;
+	case PopupMenuOptions::SamplePoolTable:		parent->setNewContent(GET_PANEL_NAME(GenericPanel<SamplePoolTable>)); break;
 	case PopupMenuOptions::SampleMapBrowser:	parent->setNewContent(GET_PANEL_NAME(SampleMapBrowser)); break;
 	case PopupMenuOptions::ServerController:	parent->setNewContent(GET_PANEL_NAME(ServerControllerPanel)); break;
 	case PopupMenuOptions::AboutPage:			parent->setNewContent(GET_PANEL_NAME(AboutPagePanel)); break;
 	case PopupMenuOptions::SnexEditor:			parent->setNewContent(GET_PANEL_NAME(SnexEditorPanel)); break;
-	case PopupMenuOptions::ScriptBroadcasterMap:			parent->setNewContent(GET_PANEL_NAME(ScriptingObjects::ScriptBroadcasterPanel)); break;
 #if HISE_INCLUDE_RLOTTIE
 	case PopupMenuOptions::RLottieDevPanel:		parent->setNewContent(GET_PANEL_NAME(RLottieFloatingTile));
 		break;
 #endif
-    case PopupMenuOptions::PerfettoViewer:      parent->setNewContent(GET_PANEL_NAME(GenericPanel<PerfettoWebviewer>)); break;
 	case PopupMenuOptions::AudioFileTable:		parent->setNewContent(GET_PANEL_NAME(PoolTableSubTypes::AudioFilePoolTable)); break;
 	case PopupMenuOptions::SampleMapPoolTable:  parent->setNewContent(GET_PANEL_NAME(PoolTableSubTypes::SampleMapPoolTable)); break;
 	case PopupMenuOptions::ImageTable:			parent->setNewContent(GET_PANEL_NAME(PoolTableSubTypes::ImageFilePoolTable)); break;
@@ -758,6 +784,5 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 	
 #endif
 }
-
 
 } // namespace hise

@@ -36,7 +36,6 @@ CodeEditorPanel::CodeEditorPanel(FloatingTile* parent) :
 	PanelWithProcessorConnection(parent)
 {
 	tokeniser = new JavascriptTokeniser();
-	tokeniser->setUseScopeStatements(true);
 
 	getMainController()->addScriptListener(this);
 
@@ -63,8 +62,8 @@ Component* CodeEditorPanel::createContentComponent(int index)
 	int numSnippets = p->getNumSnippets();
 	int numFiles = p->getNumWatchedFiles();
 
-	const bool isCallback = scriptPath.isEmpty() && index < numSnippets;
-	const bool isExternalFile = scriptPath.isNotEmpty() || (index >= numSnippets && (index-numSnippets) < numFiles);
+	const bool isCallback = index < numSnippets;
+	const bool isExternalFile = index >= numSnippets && (index-numSnippets) < numFiles;
 
 	if (isCallback)
 	{
@@ -75,8 +74,6 @@ Component* CodeEditorPanel::createContentComponent(int index)
 			pe->getEditor()->editor.setScaleFactor(scaleFactor);
 #endif
 
-		pe->getEditor()->editor.tokenCollection = BackendRootWindow::getJavascriptTokenCollection(this);
-
 		pe->addMouseListener(this, true);
 		getProcessor()->getMainController()->setLastActiveEditor(pe->getEditor(), CodeDocument::Position());
 		pe->grabKeyboardFocusAsync();
@@ -84,22 +81,10 @@ Component* CodeEditorPanel::createContentComponent(int index)
 	}
 	else if (isExternalFile)
 	{
-        File f;
-        
-        auto scriptFolder = f = GET_PROJECT_HANDLER(dynamic_cast<Processor*>(p)).getSubDirectory(FileHandlerBase::Scripts);
-        
-        if(scriptPath.isNotEmpty())
-        {
-            f = scriptFolder.getChildFile(scriptPath);
-            refreshSelectorValue(getProcessor(), f.getFileName());
-        }
-        else
-        {
-            const int fileIndex = index - p->getNumSnippets();
-            f = p->getWatchedFile(fileIndex);
-            scriptPath = f.getRelativePathFrom(scriptFolder);
-        }
-        
+		const int fileIndex = index - p->getNumSnippets();
+
+		auto f = p->getWatchedFile(fileIndex);
+
 		if (f.getFileExtension() == ".h")
 		{
 			snex::ui::WorkbenchData* wb = new snex::ui::WorkbenchData();
@@ -114,10 +99,7 @@ Component* CodeEditorPanel::createContentComponent(int index)
         if(scaleFactor != -1.0f)
             pe->getEditor()->editor.setScaleFactor(scaleFactor);
 #endif
-
-		if(pe->isJavascript())
-			pe->getEditor()->editor.tokenCollection = BackendRootWindow::getJavascriptTokenCollection(this);
-
+        
 		if(auto ed = pe->getEditor())
 			getProcessor()->getMainController()->setLastActiveEditor(pe->getEditor(), CodeDocument::Position());
 
@@ -160,17 +142,12 @@ void CodeEditorPanel::contentChanged()
 
 void CodeEditorPanel::fromDynamicObject(const var& object)
 {
-    scriptPath = object.getProperty("ScriptFile", "").toString();
 	PanelWithProcessorConnection::fromDynamicObject(object);
 }
 
 var CodeEditorPanel::toDynamicObject() const
 {
-	var obj = PanelWithProcessorConnection::toDynamicObject();
-    
-    obj.getDynamicObject()->setProperty("ScriptFile", scriptPath);
-    
-    return obj;
+	return PanelWithProcessorConnection::toDynamicObject();
 }
 
 CodeEditorPanel* CodeEditorPanel::showOrCreateTab(FloatingTabComponent* parentTab, JavascriptProcessor* jp, int index)
@@ -213,12 +190,22 @@ void CodeEditorPanel::scriptWasCompiled(JavascriptProcessor *processor)
 		refreshIndexList();
 }
 
-void CodeEditorPanel::mouseDown(const MouseEvent& e)
+void CodeEditorPanel::mouseDown(const MouseEvent& event)
 {
-	if (e.mods.isX1ButtonDown())
-		getMainController()->getLocationUndoManager()->undo();
-	else if (e.mods.isX2ButtonDown())
-		getMainController()->getLocationUndoManager()->redo();
+	if (auto tab = findParentComponentOfClass<FloatingTabComponent>())
+	{
+		if (tab->getNumTabs() > 1)
+			return;
+	}
+
+	if (event.mods.isX2ButtonDown())
+	{
+		incIndex(true);
+	}
+	else if (event.mods.isX1ButtonDown())
+	{
+		incIndex(false);
+	}
 }
 
 var CodeEditorPanel::getAdditionalUndoInformation() const
@@ -269,17 +256,9 @@ void CodeEditorPanel::fillIndexList(StringArray& indexList)
 			indexList.add(p->getSnippet(i)->getCallbackName().toString());
 		}
 
-        auto scriptRoot = getMainController()->getActiveFileHandler()->getSubDirectory(FileHandlerBase::SubDirectories::Scripts);
-        
 		for (int i = 0; i < p->getNumWatchedFiles(); i++)
 		{
-            auto f = p->getWatchedFile(i);
-			auto path = f.getRelativePathFrom(scriptRoot);
-
-			if(p->isEmbeddedSnippetFile(i))
-				path << " (embedded)";
-
-			indexList.add(path.replaceCharacter('\\', '/'));
+			indexList.add(p->getWatchedFile(i).getFileName());
 		}
 
 		if (auto h = dynamic_cast<scriptnode::DspNetwork::Holder*>(p))
@@ -287,7 +266,10 @@ void CodeEditorPanel::fillIndexList(StringArray& indexList)
 #if HISE_INCLUDE_SNEX
 			if (auto network = h->getActiveOrDebuggedNetwork())
 			{
-				network->fillSnexObjects(indexList);
+				for (auto so : network->getSnexObjects())
+				{
+					indexList.add("SNEX Node: " + so->getId());
+				}
 			}
 #endif
 		}
@@ -322,10 +304,7 @@ void CodeEditorPanel::gotoLocation(Processor* p, const String& fileName, int cha
 
 		for (int i = 0; i < jp->getNumWatchedFiles(); i++)
 		{
-			auto f = jp->getWatchedFile(i);
-
-			if (f.getFullPathName() == fileName ||
-				f.getFileName() == fileName)
+			if (jp->getWatchedFile(i).getFullPathName() == fileName)
 			{
 				fileIndex = i;
 				break;
@@ -344,11 +323,17 @@ void CodeEditorPanel::gotoLocation(Processor* p, const String& fileName, int cha
 	{
 		PopupIncludeEditor::EditorType* editor = c->getEditor();
 
+#if HISE_USE_NEW_CODE_EDITOR
+
 		CodeDocument::Position pos(editor->editor.getDocument(), charNumber);
 
 		editor->editor.scrollToLine(pos.getLineNumber(), true);
 		mcl::Selection newSelection(pos.getLineNumber(), pos.getIndexInLine(), pos.getLineNumber(), pos.getIndexInLine());
-		editor->editor.getTextDocument().setSelection(0, newSelection, false);
+		editor->editor.getTextDocument().setSelection(0, newSelection, true);
+#else
+		CodeDocument::Position pos(editor->getDocument(), charNumber);
+		editor->scrollToLine(jmax<int>(0, pos.getLineNumber()));
+#endif
 	}
 }
 
@@ -447,18 +432,6 @@ struct ScriptContentPanel::Canvas : public ScriptEditHandler,
 		overlay->setShowEditButton(false);
 	}
 
-	~Canvas()
-	{
-		overlay = nullptr;
-		content = nullptr;
-	}
-
-	static void overlayChanged(Canvas& c, const Image& img, float alpha)
-	{
-		c.overlayImage = img;
-		c.overlayAlpha = alpha;
-		c.repaint();
-	}
 
 #if USE_BACKEND
 	void mouseDown(const MouseEvent& e) override
@@ -503,36 +476,11 @@ struct ScriptContentPanel::Canvas : public ScriptEditHandler,
 	}
 #endif
 
-	void setEnablePositioningWithMouse(bool shouldBeEnabled)
-	{
-		overlay->setEnablePositioningWithMouse(shouldBeEnabled);
-	}
-	
-	bool isMousePositioningEnabled() const
-	{
-		return overlay->isMousePositioningEnabled();
-	}
-
 	void paint(Graphics& g) override;
 
 	void selectOnInitCallback() override
 	{
 
-	}
-
-	static void centreInViewport(Component* c)
-	{
-		if (auto vp = c->findParentComponentOfClass<ZoomableViewport>())
-		{
-			auto cBounds = c->getLocalBounds();
-
-			cBounds = cBounds.withSizeKeepingCentre(vp->getWidth() / vp->zoomFactor, vp->getHeight() / vp->zoomFactor);
-
-			// do not center a zoomed in viewport...
-			if (cBounds.getX() < 0 || cBounds.getY() < 0)
-				vp->zoomToRectangle(cBounds);
-
-		}
 	}
 
 	void scriptEditHandlerCompileCallback()
@@ -572,12 +520,7 @@ public:
 		overlay->setBounds(b);
 	}
 
-	void paintOverChildren(Graphics& g) override;
-
 private:
-
-	float overlayAlpha = 0.0f;
-	Image overlayImage;
 
 	float zoomLevel = 1.0f;
 
@@ -587,15 +530,10 @@ private:
 	ScopedPointer<ScriptingContentOverlay> overlay;
 	WeakReference<Processor> processor;
 
-	JUCE_DECLARE_WEAK_REFERENCEABLE(Canvas);
-
 };
 
 void ScriptContentPanel::Canvas::paint(Graphics& g)
 {
-	if(overlay == nullptr || content == nullptr)
-		return;
-
 	g.setColour(JUCE_LIVE_CONSTANT_OFF(Colour(0xFF1b1b1b)));
 
 	auto overlayBounds = FLOAT_RECTANGLE(getLocalArea(overlay, overlay->getLocalBounds()));
@@ -621,17 +559,7 @@ void ScriptContentPanel::Canvas::paint(Graphics& g)
 	ug.draw1PxVerticalLine((int)overlayBounds.getRight(), overlayBounds.getBottom(), overlayBounds.getBottom() + 5.0f);
 }
 
-void ScriptContentPanel::Canvas::paintOverChildren(Graphics& g)
-{
-	if(overlayAlpha > 0.0f && overlayImage.isValid())
-	{
-		g.setOpacity(overlayAlpha);
-		g.drawImageWithin(overlayImage, 5, 5, getWidth()-10, getHeight()-10, RectanglePlacement::stretchToFit);
-		g.setOpacity(1.0f);
-		g.setColour(Colours::red.withAlpha(overlayAlpha));
-		g.drawRect(getLocalBounds().reduced(5).toFloat(), 1);
-	}
-}
+
 
 
 Component* ScriptContentPanel::createContentComponent(int /*index*/)
@@ -702,73 +630,6 @@ ScriptContentPanel::Editor::Editor(Canvas* c):
 	zoomSelector->setSize(100, 24);
 	klaf.setDefaultColours(*zoomSelector);
 
-	overlaySelector = new ComboBox("Zoom");
-
-	auto overlayDirectory = dynamic_cast<Processor*>(c->getScriptEditHandlerProcessor())->getMainController()->getCurrentFileHandler().getSubDirectory(FileHandlerBase::SubDirectories::Images).getChildFile("overlays");
-
-	currentOverlays = overlayDirectory.findChildFiles(File::findFiles, false, "*.png");
-
-	overlaySelector->addItem("No overlay", 1);
-	overlaySelector->setTextWhenNothingSelected("Select overlay");
-
-	for(auto l: currentOverlays)
-		overlaySelector->addItem(l.getFileNameWithoutExtension(), currentOverlays.indexOf(l) + 2);
-
-	overlaySelector->setSelectedId(1, dontSendNotification);
-	overlaySelector->setLookAndFeel(&klaf);
-	overlaySelector->setSize(128, 24);
-	overlaySelector->setTooltip("Selects a image from the Images/overlays subfolder to be painted over the interface");
-
-	overlaySelector->onChange = [this]()
-	{
-		auto idx = overlaySelector->getSelectedItemIndex();
-
-		if(idx == 0)
-			currentOverlayImage = {};
-		else
-		{
-			PNGImageFormat format;
-			currentOverlayImage = format.loadFrom(currentOverlays[idx-1]);
-		}
-
-		overlayBroadcaster.sendMessage(sendNotificationSync, currentOverlayImage, overlayAlphaSlider->getValue());
-	};
-
-	klaf.setDefaultColours(*overlaySelector);
-
-	overlayAlphaSlider = new Slider("Alpha Overlay");
-
-	overlayAlphaSlider->setRange(-1.0, 1.0, 0.0);
-	overlayAlphaSlider->setDoubleClickReturnValue(true, 0.0);
-    overlayAlphaSlider->setSliderStyle(Slider::SliderStyle::LinearHorizontal);
-    overlayAlphaSlider->setTextBoxStyle(Slider::TextEntryBoxPosition::NoTextBox, true, 0, 0);
-	overlayAlphaSlider->setLookAndFeel(&slaf);
-	overlayAlphaSlider->setSize(100, 24);
-
-	overlayAlphaSlider->onValueChange = [this]()
-    {
-        auto nAlpha = overlayAlphaSlider->getValue();
-
-		if(nAlpha < 0.0)
-		{
-			Image copy = currentOverlayImage.createCopy();
-			gin::applyInvert(copy);
-			overlayBroadcaster.sendMessage(sendNotificationSync, copy, hmath::abs(nAlpha));
-		}
-		else
-		{
-			overlayBroadcaster.sendMessage(sendNotificationSync, this->currentOverlayImage, hmath::abs(nAlpha));
-		}
-		
-		overlayAlphaSlider->setColour(Slider::trackColourId, Colours::orange.withSaturation(hmath::abs(nAlpha)).withAlpha(0.5f));
-    };
-
-	overlayAlphaSlider->setColour(Slider::backgroundColourId, Colours::white.withAlpha(0.2f));
-	overlayAlphaSlider->setColour(Slider::trackColourId, Colours::orange.withSaturation(0.0f).withAlpha(0.5f));
-
-	overlayAlphaSlider->setColour(Slider::thumbColourId, Colour(0xFFDDDDDD));
-	overlayAlphaSlider->setTooltip("Sets the alpha value for the selected overlay image");
-
 	auto shouldDrag = !canvas.getContent<Canvas>()->overlay->isEditModeEnabled();
 
 	canvas.setScrollOnDragEnabled(shouldDrag);
@@ -778,17 +639,11 @@ ScriptContentPanel::Editor::Editor(Canvas* c):
 	rebuildAfterContentChange();
 
 	canvas.setMaxZoomFactor(4.0);
-
-	overlayBroadcaster.addListener(*canvas.getContent<Canvas>(), Canvas::overlayChanged);
-
-	setPostResizeFunction(Canvas::centreInViewport);
 }
 
 
 void ScriptContentPanel::Editor::rebuildAfterContentChange()
 {
-	addButton("zoom-fit");
-
 	addCustomComponent(zoomSelector);
 
 	addButton("edit");
@@ -804,8 +659,6 @@ void ScriptContentPanel::Editor::rebuildAfterContentChange()
 	addSpacer(10);
 
 	addButton("lock");
-	addButton("move");
-	addButton("suspend");
 
 	addSpacer(10);
 
@@ -813,14 +666,6 @@ void ScriptContentPanel::Editor::rebuildAfterContentChange()
 	addButton("horizontal-align");
 	addButton("vertical-distribute");
 	addButton("horizontal-distribute");
-
-	addSpacer(10);
-
-	addButton("edit-json");
-	addButton("debug-css");
-
-	addCustomComponent(overlaySelector);
-	addCustomComponent(overlayAlphaSlider);
 
 	setWantsKeyboardFocus(true);
 	updateUndoDescription();
@@ -844,47 +689,6 @@ void ScriptContentPanel::Editor::addButton(const String& name)
 		b->actionFunction = Actions::deselectAll;
 		b->setTooltip("Deselect current item (Escape)");
 	}
-	if(name == "edit-json")
-	{
-		b->enabledFunction = isSelected;
-		b->actionFunction = Actions::editJson;
-		b->setTooltip("Edits the raw property data object as JSON (Dangerzone!)");
-	}
-	if(name == "debug-css")
-	{
-		b->enabledFunction = [](Editor& e)
-		{
-			return callRecursive<simple_css::HeaderContentFooter>(&e, [](simple_css::HeaderContentFooter*){ return true; });
-		};
-
-		b->actionFunction = Actions::debugCSS;
-		b->setTooltip("Show the CSS debugger for the current dialog");
-	}
-	if(name == "suspend")
-	{
-		b->stateFunction = [](Editor& e){ return !dynamic_cast<ProcessorWithScriptingContent*>(e.getProcessor())->simulatedSuspensionState; };
-		b->setTooltip("Simulates the suspension of the UI timers (as if all interface would be closed).");
-		b->actionFunction = Actions::toggleSuspension;
-	}
-	if (name == "zoom-fit")
-	{
-		b->actionFunction = [](Editor& e)
-		{
-			e.canvas.zoomToRectangle(e.canvas.getContentComponent()->getLocalBounds().expanded(20));
-			return false;
-		};
-
-		b->setTooltip("Zoom to fit");
-	}
-	if (name == "move")
-	{
-		b->actionFunction = Actions::move;
-		b->setTooltip("Allow dragging components by mouse");
-		b->stateFunction = [](Editor& e)
-		{
-			return e.canvas.getContent<Canvas>()->isMousePositioningEnabled();
-		};
-	}
 	if (name == "rebuild")
 	{
 		b->actionFunction = Actions::rebuild;
@@ -892,7 +696,6 @@ void ScriptContentPanel::Editor::addButton(const String& name)
 	}
 	if (name == "learn")
 	{
-		b->setTooltip("Enable automatic parameter assignment mode");
 		b->actionFunction = [](Editor& e)
 		{
 			auto bc = e.getScriptComponentEditBroadcaster();
@@ -1159,7 +962,7 @@ bool ScriptContentPanel::Editor::Actions::rebuildAndRecompile(Editor& e_)
     
 	auto p = e->getProcessor();
 
-	p->getMainController()->getKillStateHandler().killVoicesAndCall(p, f, MainController::KillStateHandler::TargetThread::ScriptingThread);
+	p->getMainController()->getKillStateHandler().killVoicesAndCall(p, f, MainController::KillStateHandler::ScriptingThread);
 
 	return true;
 }
@@ -1181,14 +984,8 @@ bool ScriptContentPanel::Editor::Actions::toggleEditMode(Editor& e)
 	auto shouldDrag = !e.canvas.getContent<Canvas>()->overlay->isEditModeEnabled();
 
 	e.canvas.setScrollOnDragEnabled(shouldDrag);
-	e.canvas.setMouseWheelScrollEnabled(true);// !shouldDrag);
+	e.canvas.setMouseWheelScrollEnabled(!shouldDrag);
 
-	return true;
-}
-
-bool ScriptContentPanel::Editor::Actions::toggleSuspension(Editor& e)
-{
-	dynamic_cast<ProcessorWithScriptingContent*>(e.getProcessor())->toggleSuspension();
 	return true;
 }
 
@@ -1286,23 +1083,6 @@ bool ScriptContentPanel::Editor::Actions::undo(Editor* e, bool shouldUndo)
 	return true;
 }
 
-bool ScriptContentPanel::Editor::Actions::editJson(Editor& e)
-{
-	e.getScriptComponentEditBroadcaster()->showJSONEditor(&e);
-	return true;
-}
-
-bool ScriptContentPanel::Editor::Actions::move(Editor& e)
-{
-	auto c = e.canvas.getContent<Canvas>();
-
-	jassert(c != nullptr);
-
-	c->setEnablePositioningWithMouse(!c->isMousePositioningEnabled());
-
-	return true;
-}
-
 void ScriptContentPanel::initKeyPresses(Component* root)
 {
 	using namespace InterfaceDesignerShortcuts;
@@ -1320,7 +1100,6 @@ void ScriptContentPanel::initKeyPresses(Component* root)
 	TopLevelWindowWithKeyMappings::addShortcut(root, cat, id_duplicate, "Duplicate selection at cursor", KeyPress('d', ModifierKeys::commandModifier, 'd'));
 
 	TopLevelWindowWithKeyMappings::addShortcut(root, cat, id_show_json, "Show JSON properties", KeyPress('j'));
-    TopLevelWindowWithKeyMappings::addShortcut(root, cat, id_show_panel_data_json, "Show Panel.data as JSON", KeyPress('p'));
 }
 
 bool ScriptContentPanel::Editor::keyPressed(const KeyPress& key)
@@ -1469,17 +1248,16 @@ struct ServerController: public Component,
 		{
 			Path p;
 
-			LOAD_EPATH_IF_URL("zoom-fit", ScriptnodeIcons::zoomFit);
-			LOAD_EPATH_IF_URL("clear", SampleMapIcons::deleteSamples);
+			LOAD_PATH_IF_URL("clear", SampleMapIcons::deleteSamples);
 			LOAD_PATH_IF_URL("edit", ServerIcons::parameters);
-			LOAD_EPATH_IF_URL("web", MainToolbarIcons::web);
+			LOAD_PATH_IF_URL("web", MainToolbarIcons::web);
 			LOAD_PATH_IF_URL("response", ServerIcons::response);
 			LOAD_PATH_IF_URL("resend", ServerIcons::resend);
 			LOAD_PATH_IF_URL("downloads", ServerIcons::downloads);
 			LOAD_PATH_IF_URL("requests", ServerIcons::requests);
 			LOAD_PATH_IF_URL("start", ServerIcons::play);
 			LOAD_PATH_IF_URL("stop", ServerIcons::pause);
-			LOAD_EPATH_IF_URL("file", SampleMapIcons::loadSampleMap);
+			LOAD_PATH_IF_URL("file", SampleMapIcons::loadSampleMap);
 
 			return p;
 		}
@@ -2216,8 +1994,7 @@ Array<PathFactory::KeyMapping> ScriptContentPanel::Factory::getKeyMapping() cons
 	km.add({ "Zoom out", '-', ModifierKeys::commandModifier });
 	km.add({ "Undo", 'z', ModifierKeys::commandModifier });
 	km.add({ "Redo", 'y', ModifierKeys::commandModifier });
-	km.add({ "Edit JSON", 'j' });
-	
+
 	return km;
 }
 
@@ -2227,23 +2004,18 @@ juce::Path ScriptContentPanel::Factory::createPath(const String& id) const
 	auto url = MarkdownLink::Helpers::getSanitizedFilename(id);
 	Path p;
 
-	LOAD_EPATH_IF_URL("zoom-fit", ScriptnodeIcons::zoomFit);
-	LOAD_EPATH_IF_URL("edit", OverlayIcons::penShape);
-	LOAD_EPATH_IF_URL("editoff", OverlayIcons::lockShape);
-	LOAD_EPATH_IF_URL("lock", OverlayIcons::lockShape);
-	LOAD_EPATH_IF_URL("move", EditorIcons::resizeIcon);
-	LOAD_EPATH_IF_URL("cancel", EditorIcons::cancelIcon);
-	LOAD_EPATH_IF_URL("undo", EditorIcons::undoIcon);
-	LOAD_EPATH_IF_URL("redo", EditorIcons::redoIcon);
+	LOAD_PATH_IF_URL("edit", OverlayIcons::penShape);
+	LOAD_PATH_IF_URL("editoff", OverlayIcons::lockShape);
+	LOAD_PATH_IF_URL("lock", OverlayIcons::lockShape);
+	LOAD_PATH_IF_URL("cancel", EditorIcons::cancelIcon);
+	LOAD_PATH_IF_URL("undo", EditorIcons::undoIcon);
+	LOAD_PATH_IF_URL("redo", EditorIcons::redoIcon);
 	LOAD_PATH_IF_URL("rebuild", ColumnIcons::moveIcon);
-	LOAD_EPATH_IF_URL("learn", EditorIcons::connectIcon);
+	LOAD_PATH_IF_URL("learn", EditorIcons::connectIcon);
 	LOAD_PATH_IF_URL("vertical-align", ColumnIcons::verticalAlign);
 	LOAD_PATH_IF_URL("horizontal-align", ColumnIcons::horizontalAlign);
 	LOAD_PATH_IF_URL("vertical-distribute", ColumnIcons::verticalDistribute);
 	LOAD_PATH_IF_URL("horizontal-distribute", ColumnIcons::horizontalDistribute);
-	LOAD_EPATH_IF_URL("edit-json", HiBinaryData::SpecialSymbols::scriptProcessor);
-	LOAD_PATH_IF_URL("debug-css", ColumnIcons::debugCSS);
-	LOAD_EPATH_IF_URL("suspend", EditorIcons::nightIcon);
 
 	return p;
 }
@@ -2368,420 +2140,5 @@ juce::Component* ComplexDataManager::createContentComponent(int index)
 
 	
 }
-
-juce::Path OSCLogger::createPath(const String& url) const
-{
-	Path p;
-
-	LOAD_PATH_IF_URL("filter", ColumnIcons::filterIcon);
-	LOAD_EPATH_IF_URL("clear", SampleMapIcons::deleteSamples);
-	LOAD_EPATH_IF_URL("pause", HiBinaryData::ProcessorEditorHeaderIcons::bypassShape);
-	LOAD_EPATH_IF_URL("scale", ScriptnodeIcons::scaleIcon);
-	LOAD_EPATH_IF_URL("script", HiBinaryData::SpecialSymbols::scriptProcessor);
-
-	return p;
-}
-
-OSCLogger::OSCLogger(FloatingTile* parent) :
-	FloatingTileContent(parent),
-	rm(scriptnode::routing::GlobalRoutingManager::Helpers::getOrCreate(parent->getMainController())),
-	clearButton("clear", nullptr, *this),
-	filterButton("filter", nullptr, *this),
-	pauseButton("pause", nullptr, *this)
-{
-	addAndMakeVisible(searchBox);
-
-	GlobalHiseLookAndFeel::setTextEditorColours(searchBox);
-
-	rm->oscListeners.addListener(*this, OSCLogger::updateConnection, false);
-
-	updateConnection(*this, rm->lastData);
-
-	clearButton.onClick = [this]()
-	{
-		oscLogList.clear();
-		triggerAsyncUpdate();
-	};
-
-	pauseButton.setToggleModeWithColourChange(true);
-	pauseButton.setToggleStateAndUpdateIcon(true);
-
-	searchBox.onReturnKey = [this]()
-	{
-		searchPattern = nullptr;
-
-		auto content = searchBox.getText();
-
-		if (content.isNotEmpty())
-		{
-			try
-			{
-				searchPattern = new OSCAddressPattern(content);
-			}
-			catch (String& e)
-			{
-				PresetHandler::showMessageWindow("OSC Address Pattern error", e, PresetHandler::IconType::Error);
-			}
-		}
-
-		triggerAsyncUpdate();
-	};
-
-	filterButton.onClick = BIND_MEMBER_FUNCTION_0(OSCLogger::triggerAsyncUpdate);
-
-	list.setColour(ListBox::ColourIds::backgroundColourId, Colours::transparentBlack);
-	list.setModel(this);
-	addAndMakeVisible(list);
-
-	addAndMakeVisible(filterButton);
-	addAndMakeVisible(clearButton);
-	addAndMakeVisible(pauseButton);
-
-	filterButton.setToggleModeWithColourChange(true);
-
-	fader.addScrollBarToAnimate(list.getVerticalScrollBar());
-	list.getViewport()->setScrollBarThickness(13);
-}
-
-OSCLogger::~OSCLogger()
-{
-	if (rm != nullptr && rm->receiver != nullptr)
-		dynamic_cast<OSCReceiver*>(rm->receiver.get())->removeListener(this);
-}
-
-void OSCLogger::paintListBoxItem(int row, Graphics& g, int width, int height, bool rowIsSelected)
-{
-	ignoreUnused(rowIsSelected);
-
-	if (isPositiveAndBelow(row, displayedItems.size()))
-	{
-		auto& data = displayedItems.getReference(row);
-
-		auto b = Rectangle<float>((float)width, (float)height);
-		auto circle = b.removeFromLeft(b.getHeight()).reduced(4.0f);
-
-		if (data.hasScriptCallback)
-		{
-			g.setColour(data.c);
-			auto p = createPath("script");
-			scalePath(p, circle);
-			g.fillPath(p);
-		}
-		else
-		{
-			g.setColour(data.c);
-			g.drawEllipse(circle, 2.0f);
-			g.fillEllipse(circle.reduced(3.0f));
-		}
-
-		
-
-		if (data.scaled)
-		{
-			auto p = createPath("scale");
-			scalePath(p, b.withWidth(b.getHeight()).reduced(2.0f));
-
-			g.setColour(Colours::white.withAlpha(0.2f));
-			g.fillPath(p);
-		}
-
-		g.setColour(Colours::white.withAlpha(data.matchesDomain ? 0.8f : 0.3f));
-
-		g.setFont(GLOBAL_MONOSPACE_FONT());
-
-		g.drawText(data.message,
-			b.toFloat(),
-			Justification::centredLeft, true);
-	}
-}
-
-void OSCLogger::addOSCMessage(const OSCMessage& message, int level /*= 0*/)
-{
-	if (!pauseButton.getToggleState())
-		return;
-
-	MessageItem m;
-	
-	auto pattern = message.getAddressPattern();
-
-	if (!pattern.containsWildcards())
-	{
-		m.address = OSCAddress(pattern.toString());
-	}
-	
-
-	m.message = getIndentationString(level)
-		+ "- osc message, address = '"
-		+ message.getAddressPattern().toString()
-		+ "', "
-		+ String(message.size())
-		+ " argument(s)";
-
-	m.isError = false;
-	m.c = Colours::white.withAlpha(0.3f);
-
-	
-
-	if (lastData != nullptr)
-	{
-		auto id = message.getAddressPattern().toString().fromFirstOccurrenceOf(lastData->domain, false, false);
-
-		for (auto c : rm->cables)
-		{
-			if (c->id == id)
-			{
-				m.c = scriptnode::routing::GlobalRoutingManager::Helpers::getColourFromId(id);
-				break;
-			}
-				
-		}
-
-		m.matchesDomain = message.getAddressPattern().toString().startsWith(lastData->domain);
-	}
-
-	oscLogList.add(m);
-
-	if (!message.isEmpty())
-	{
-		auto cableIds = scriptnode::routing::GlobalRoutingManager::Helpers::getCableIds(message, lastData->domain);
-
-		int index = 0;
-
-		for (auto& arg : message)
-			addOSCMessageArgument(m, arg, level + 1, cableIds[index++]);
-	}
-
-	triggerAsyncUpdate();
-}
-
-void OSCLogger::addOSCBundle(const OSCBundle& bundle, int level /*= 0*/)
-{
-	if (!pauseButton.getToggleState())
-		return;
-
-	OSCTimeTag timeTag = bundle.getTimeTag();
-
-	MessageItem m;
-	
-	m.message = getIndentationString(level)
-		+ "- osc bundle, time tag = "
-		+ timeTag.toTime().toString(true, true, true, true);
-
-	for (auto& element : bundle)
-	{
-		if (element.isMessage())
-			addOSCMessage(element.getMessage(), level + 1);
-		else if (element.isBundle())
-			addOSCBundle(element.getBundle(), level + 1);
-	}
-
-	triggerAsyncUpdate();
-}
-
-void OSCLogger::addOSCMessageArgument(const MessageItem& m, const OSCArgument& arg, int level, const String& cableId)
-{
-	String typeAsString;
-	String valueAsString;
-
-	if (arg.isFloat32())
-	{
-		typeAsString = "float32";
-		valueAsString = String(arg.getFloat32());
-	}
-	else if (arg.isInt32())
-	{
-		typeAsString = "int32";
-		valueAsString = String(arg.getInt32());
-	}
-	else if (arg.isString())
-	{
-		typeAsString = "string";
-		valueAsString = arg.getString();
-	}
-	else if (arg.isBlob())
-	{
-		typeAsString = "blob";
-		auto& blob = arg.getBlob();
-		valueAsString = String::fromUTF8((const char*)blob.getData(), (int)blob.getSize());
-	}
-	else
-	{
-		typeAsString = "(unknown)";
-	}
-
-	
-
-	MessageItem am;
-	
-	OSCAddress address(lastData->domain + cableId.upToFirstOccurrenceOf("[", false, false));
-
-	for (const auto& a : rm->scriptCallbackPatterns)
-	{
-		if (a.matches(address))
-		{
-			am.hasScriptCallback = true;
-			break;
-		}
-	}
-
-	for (const auto& nr : lastData->inputRanges)
-	{
-		if (nr.id == cableId)
-		{
-			am.scaled = true;
-			auto inputValue = valueAsString.getDoubleValue();
-			valueAsString << " -> " << String((float)nr.rng.convertTo0to1(inputValue, true));
-
-			valueAsString << " (Input Range: " << scriptnode::RangeHelpers::toDisplayString(nr.rng) << ")";
-
-			break;
-		}
-	}
-
-	am.address = m.address;
-	am.message = getIndentationString(level + 1) + "- " + cableId + ": " + typeAsString.paddedRight(' ', 12) + valueAsString;
-	am.c = m.c;
-	am.matchesDomain = m.matchesDomain;
-
-	if (lastData != nullptr)
-	{
-		for (auto c : rm->cables)
-		{
-			if (c->id == cableId)
-			{
-				am.c = scriptnode::routing::GlobalRoutingManager::Helpers::getColourFromId(cableId);
-				am.hasCableConnection = true;
-				break;
-			}
-
-		}
-	}
-
-	oscLogList.add(am);
-}
-
-void OSCLogger::addInvalidOSCPacket(const char* /* data */, int dataSize)
-
-{
-	MessageItem i;
-	i.message = "(" + String(dataSize) + "bytes with invalid format)";
-	i.matchesDomain = false;
-	i.isError = true;
-
-	oscLogList.add(i);
-}
-
-void OSCLogger::clear()
-{
-	oscLogList.clear();
-	triggerAsyncUpdate();
-}
-
-void OSCLogger::paint(Graphics& g)
-{
-	g.fillAll(Colour(0xFF222222));
-
-	Path searchIcon;
-	searchIcon.loadPathFromData(EditorIcons::searchIcon, sizeof(EditorIcons::searchIcon));
-	searchIcon.applyTransform(AffineTransform::rotation(float_Pi));
-
-	auto c = topRow.toFloat();
-	scalePath(searchIcon, c.removeFromLeft(c.getHeight()).reduced(2.0f));
-
-	GlobalHiseLookAndFeel::drawFake3D(g, topRow);
-
-	g.setColour(Colours::white.withAlpha(0.5f));
-	g.fillPath(searchIcon);
-
-	const float labelAlpha = 0.6f;
-	const float valueAlpha = 0.8f;
-
-	if (lastData != nullptr)
-	{
-		AttributedString stats;
-		auto lf = GLOBAL_BOLD_FONT();
-		auto vf = GLOBAL_MONOSPACE_FONT();
-
-		auto receiveOK = rm != nullptr && rm->receiver != nullptr && rm->receiver->ok;
-		auto sendOk = rm != nullptr && rm->sender != nullptr && rm->sender->ok;
-
-		stats.append("Domain: ", lf, Colours::white.withAlpha(labelAlpha));
-		stats.append(lastData->domain, vf, Colours::white.withAlpha(valueAlpha));
-		stats.append(", Input Port: ", lf, Colours::white.withAlpha(labelAlpha));
-		stats.append(String(lastData->sourcePort), vf, Colour(receiveOK ? HISE_OK_COLOUR : HISE_ERROR_COLOUR));
-		stats.append(", Output Port: ", lf, Colours::white.withAlpha(labelAlpha));
-		stats.append(String(lastData->targetPort), vf, Colour(sendOk ? HISE_OK_COLOUR : HISE_ERROR_COLOUR));
-		stats.setJustification(Justification::centredLeft);
-
-		auto copy = topRow.toFloat();
-		copy.removeFromLeft(clearButton.getRight() + 15.0f);
-
-		stats.draw(g, copy);
-	}
-
-	if (oscLogList.isEmpty())
-	{
-		g.setColour(Colours::white.withAlpha(0.2f));
-		g.setFont(GLOBAL_BOLD_FONT());
-		g.drawText("No OSC messages received", getLocalBounds().toFloat(), Justification::centred);
-	}
-}
-
-void OSCLogger::resized()
-{
-	auto b = getParentShell()->getContentBounds();
-
-	topRow = b.removeFromTop(24);
-
-	auto copy = topRow;
-
-	copy.removeFromLeft(copy.getHeight());
-
-	searchBox.setBounds(copy.removeFromLeft(150));
-
-	pauseButton.setBounds(copy.removeFromLeft(copy.getHeight()).reduced(2));
-	filterButton.setBounds(copy.removeFromLeft(copy.getHeight()).reduced(2));
-	clearButton.setBounds(copy.removeFromLeft(copy.getHeight()).reduced(2));
-
-	
-
-	list.setBounds(b);
-}
-
-void OSCLogger::updateConnection(OSCLogger& logger, OSCConnectionData::Ptr data)
-{
-	logger.lastData = data;
-
-	if (logger.rm->receiver != nullptr)
-	{
-		dynamic_cast<OSCReceiver*>(logger.rm->receiver.get())->addListener(&logger);
-		logger.repaint();
-	}
-}
-
-void OSCLogger::handleAsyncUpdate()
-{
-	displayedItems.clear();
-
-	int startIndex = jmax(0, oscLogList.size() - 128);
-
-	for(int i = startIndex; i < oscLogList.size(); i++)
-	{
-		auto item = oscLogList[i];
-
-		auto isActive = !filterButton.getToggleState() || item.matchesDomain;
-
-		auto matchesWildcard = searchPattern == nullptr || searchPattern->matches(item.address);
-
-		if (isActive && matchesWildcard)
-			displayedItems.add(item);
-	}
-	
-	list.updateContent();
-	list.scrollToEnsureRowIsOnscreen(displayedItems.size() - 1);
-	repaint();
-}
-
-
 
 } // namespace hise

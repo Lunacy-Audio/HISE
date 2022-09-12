@@ -44,7 +44,6 @@ scriptnode::routing::GlobalRoutingManager::Ptr GlobalRoutingManager::Helpers::ge
 	if(newP == nullptr)
 	{
 		newP = new GlobalRoutingManager();
-		newP->additionalEventStorage.getBroadcaster().enableLockFreeUpdate(mc->getGlobalUIUpdater());
 		mc->setGlobalRoutingManager(newP.get());
 		mc->getProcessorChangeHandler().sendProcessorChangeMessage(mc->getMainSynthChain(), MainController::ProcessorChangeHandler::EventType::RebuildModuleList, false);
 	}
@@ -101,49 +100,15 @@ void GlobalRoutingManager::Helpers::addGotoTargetCallback(Button* b, SlotBase* s
 #endif
 }
 
-int GlobalRoutingManager::Helpers::getOSCMessageIndex(const String& id)
-{
-	if (!id.startsWithChar('/'))
-		return -1;
-
-	auto bracketIndex = id.indexOfChar('[');
-
-	if (bracketIndex == -1)
-		return 0;
-
-	return id.substring(bracketIndex).getIntValue();
-}
-
-juce::StringArray GlobalRoutingManager::Helpers::getCableIds(const OSCMessage& m, const String& domain)
-{
-	auto name = m.getAddressPattern().toString().fromFirstOccurrenceOf(domain, false, false);
-
-	if (m.size() == 1)
-		return { name };
-
-	StringArray names;
-
-	int index = 0;
-
-	for (auto arg : m)
-	{
-		String n = name;
-		n << "[" << String(index++) << "]";
-		names.add(n);
-	}
-
-	return names;
-}
-
 juce::Path GlobalRoutingManager::RoutingIcons::createPath(const String& url) const
 {
 	Path p;
 
 #if USE_BACKEND
-	LOAD_EPATH_IF_URL("new", SampleMapIcons::newSampleMap);
-	LOAD_EPATH_IF_URL("debug", BackendBinaryData::ToolbarIcons::viewPanel);
+	LOAD_PATH_IF_URL("new", SampleMapIcons::newSampleMap);
+	LOAD_PATH_IF_URL("debug", BackendBinaryData::ToolbarIcons::viewPanel);
 	LOAD_PATH_IF_URL("goto", ColumnIcons::openWorkspaceIcon);
-	LOAD_EPATH_IF_URL("global", HiBinaryData::SpecialSymbols::globalCableIcon);
+	LOAD_PATH_IF_URL("global", HiBinaryData::SpecialSymbols::globalCableIcon);
 #endif
 
 	return p;
@@ -362,259 +327,6 @@ Component* GlobalRoutingManager::Helpers::createDebugViewer(MainController* mc)
 	return new DebugComponent(mc);
 }
 
-struct HiseOSCReceiver : public GlobalRoutingManager::OSCBase,
-						 public juce::OSCReceiver
-{
-	struct InternalListener : public juce::OSCReceiver::Listener<OSCReceiver::RealtimeCallback>
-	{
-		InternalListener(HiseOSCReceiver& parent_) :
-			parent(parent_)
-		{
-			parent.addListener(this);
-		};
-
-		void oscBundleReceived(const OSCBundle& bundle) override 
-		{
-			for (const auto& element : bundle)
-			{
-				if (element.isMessage())
-					oscMessageReceived(element.getMessage());
-				else if (element.isBundle())
-					oscBundleReceived(element.getBundle());
-			}
-		}
-
-		void sendInternal(const String& pattern, const OSCArgument& value)
-		{
-			auto type = value.getType();
-
-			if (!(type == 'f' || type == 'i' || type == 'b'))
-			{
-				parent.parent->sendOSCError("Illegal OSC type: " + String(type));
-				return;
-			}
-
-			double valueToSend = 0.0;
-
-			switch (type)
-			{
-			case 'f': valueToSend = (double)value.getFloat32(); break;
-			case 'i':
-			case 'b': valueToSend = (double)value.getInt32(); break;
-			}
-
-			auto lastData = parent.parent->lastData;
-
-			if (lastData != nullptr)
-			{
-				for (const auto& r : lastData->inputRanges)
-				{
-					if (r.id == pattern)
-						valueToSend = r.rng.convertTo0to1(valueToSend, true);
-				}
-			}
-
-			if (valueToSend < -0.1 || valueToSend > 1.1)
-			{
-				parent.parent->sendOSCError("OSC value outside the 0...1 range");
-				return;
-			}
-
-			for (auto c : parent.parent->cables)
-			{
-				if (c->id.startsWithChar('/') && c->id == pattern)
-				{
-					if (auto cable = dynamic_cast<GlobalRoutingManager::Cable*>(c))
-					{
-						if (cable->getLastValue() != valueToSend)
-							cable->sendValue(nullptr, valueToSend);
-					}
-					else
-						parent.parent->sendOSCError("Can't send OSC messages to signal cables");
-				}
-			}
-		}
-
-		void oscMessageReceived(const OSCMessage& message) override
-		{
-			if (!(parent.ok && parent.parent != nullptr))
-				return;
-
-			auto pattern = message.getAddressPattern().toString();
-
-			if (pattern.startsWith(parent.url))
-			{
-				pattern = pattern.fromFirstOccurrenceOf(parent.url, false, false);
-
-				auto cableIds = GlobalRoutingManager::Helpers::getCableIds(message, parent.url);
-
-				int index = 0;
-
-				for (const auto& arg : message)
-				{
-					sendInternal(cableIds[index++], arg);
-				}
-			}
-		}
-
-		~InternalListener()
-		{
-			parent.removeListener(this);
-		}
-
-		HiseOSCReceiver& parent;
-	};
-
-	HiseOSCReceiver(const String& url_, int port_, GlobalRoutingManager* rm):
-		OSCReceiver("OSC Receive: " + url_),
-		OSCBase(rm),
-		url(url_),
-		port(port_)
-	{
-		OSCReceiver::FormatErrorHandler errorHandler = std::bind(&GlobalRoutingManager::handleParsingError, rm, std::placeholders::_1, std::placeholders::_2);
-
-		juce::OSCReceiver::registerFormatErrorHandler(errorHandler);
-
-		ok = connect(port);
-
-		if(ok)
-			listener = new InternalListener(*this);
-	}
-
-	bool matches(const String& url_, int port_) const override
-	{
-		return port == port_ && url == url_;
-	}
-
-	~HiseOSCReceiver()
-	{
-		listener = nullptr;
-
-		if(ok)
-			disconnect();
-	}
-
-	
-
-	ScopedPointer<InternalListener> listener;
-	String url;
-	int port;
-};
-
-struct HiseOSCSender: public OSCSender,
-					  public GlobalRoutingManager::OSCBase
-{
-	struct OSCCableTarget : public GlobalRoutingManager::CableTargetBase
-	{
-		OSCCableTarget(HiseOSCSender* sender_, const String& cableId):
-			sender(sender_),
-			aString(sender->domain + cableId),
-			address(aString.getCharPointer().getAddress())
-		{
-			if (sender->parent->lastData != nullptr)
-			{
-				for (const auto& nr : sender->parent->lastData->inputRanges)
-				{
-					if (nr.id == cableId)
-						outputRange = nr.rng;
-				}
-			}
-		}
-
-		void selectCallback(Component* /*rootEditor*/) override
-		{
-
-		}
-
-		String getTargetId() const override
-		{
-			return "OSC Output";
-		}
-
-		Path getTargetIcon() const override
-		{
-			return {};
-		}
-
-		void sendValue(double v) override
-		{
-			if (sender != nullptr)
-			{
-				v = outputRange.convertFrom0to1(v, true);
-
-				OSCMessage m(address, (float)v);
-				sender->send(m);
-			}
-		}
-
-		WeakReference<HiseOSCSender> sender;
-		String aString;
-		OSCAddressPattern address;
-
-		InvertableParameterRange outputRange;
-	};
-
-	HiseOSCSender(const String& domain_, const String& url_, int port_, GlobalRoutingManager* rm):
-		OSCBase(rm),
-		domain(domain_),
-		url(url_),
-		port(port_)
-	{
-		ok = connect(url, port);
-	}
-
-	~HiseOSCSender()
-	{
-		if (ok)
-			disconnect();
-	}
-
-	bool matches(const String& url_, int port_) const override { return url == url_ && port == port_; }
-
-	String domain;
-	String url;
-	int port;
-
-
-	JUCE_DECLARE_WEAK_REFERENCEABLE(HiseOSCSender);
-};
-
-bool GlobalRoutingManager::connectToOSC(OSCConnectionData::Ptr data)
-{
-	if (lastData == nullptr || !(*lastData == *data))
-	{
-		lastData = data;
-
-		sender = nullptr;
-		receiver = nullptr;
-
-		receiver = new HiseOSCReceiver(data->domain, data->sourcePort, this);
-
-		if (!data->isReadOnly)
-		{
-			sender = new HiseOSCSender(data->domain, data->targetURL, data->targetPort, this);
-
-			for (auto c : cables)
-				addOSCTarget(c);
-		}
-
-		oscListeners.sendMessage(sendNotificationAsync, lastData);
-
-		return receiver->ok && (sender == nullptr || (sender != nullptr && sender->ok));
-	}
-	else
-	{
-		if (!data->isReadOnly)
-		{
-			for (auto c : cables)
-				addOSCTarget(c);
-		}
-
-		return true;
-	}
-}
-
-
 void GlobalRoutingManager::removeUnconnectedSlots(SlotBase::SlotType type)
 {
 	bool didSomething = false;
@@ -660,12 +372,11 @@ juce::ReferenceCountedObjectPtr<scriptnode::routing::GlobalRoutingManager::SlotB
 			return c;
 	}
 
-	SlotBase::Ptr newSlot;
+	ReferenceCountedObjectPtr<SlotBase> newSlot;
 
 	if (isCable)
 	{
 		newSlot = new Cable(id);
-		addOSCTarget(newSlot);
 	}
 	else
 		newSlot = new Signal(id);
@@ -675,77 +386,6 @@ juce::ReferenceCountedObjectPtr<scriptnode::routing::GlobalRoutingManager::SlotB
 
 	return newSlot;
 }
-
-void GlobalRoutingManager::sendOSCError(const String& r)
-{
-	if (oscErrorHandler != nullptr)
-	{
-		oscErrorHandler->handleErrorMessage(r);
-	}
-}
-
-bool GlobalRoutingManager::sendOSCMessageToOutput(const String& subAddress, const var& data)
-{
-	if (auto s = dynamic_cast<HiseOSCSender*>(sender.get()))
-	{
-		try
-		{
-			OSCAddressPattern address(s->domain + subAddress);
-
-			OSCMessage m(address);
-
-			auto addArgs = [&m](const var& d)
-			{
-				if (d.isDouble())
-					m.addArgument(OSCArgument((float)d));
-				else if (d.isBool() || d.isInt() || d.isInt64())
-					m.addArgument(OSCArgument((juce::int32)d));
-				else if (d.isString())
-					m.addArgument(OSCArgument(d.toString()));
-				else
-					throw String("illegal var type for OSC data");
-			};
-
-			if (!data.isArray())
-			{
-				addArgs(data);
-			}
-			else
-			{
-				for (const auto& a : *data.getArray())
-					addArgs(a);
-			}
-
-			return s->send(m);
-		}
-		catch (OSCFormatError& e)
-		{
-			throw e.description;
-		}
-		
-
-		
-	}
-
-	return false;
-}
-
-void GlobalRoutingManager::handleParsingError(const char* data, int dataSize)
-{
-	String error = "OSC parsing error: ";
-
-	if (CharPointer_UTF8::isValidString(data, dataSize))
-		error << String(data, dataSize);
-	else
-	{
-		juce::MemoryBlock mb(data, dataSize);
-		error << mb.toBase64Encoding() << "(converted to Base64)";
-	}
-
-	sendOSCError(error);
-}
-
-
 
 template <class NodeType> 
 	struct SlotBaseEditor : public ScriptnodeExtraComponent<NodeType>,
@@ -785,7 +425,6 @@ template <class NodeType>
 		v.addListener(this);
 		valueChanged(v);
 
-		
 		
 
 		slotSelector.onChange = [this]()
@@ -1340,8 +979,7 @@ GlobalCableNode::GlobalCableNode(DspNetwork* n, ValueTree d) :
 	ModulationSourceNode(n, d),
 	slotId(PropertyIds::Connection, "")
 {
-	cppgen::CustomNodeProperties::setPropertyForObject(*this, PropertyIds::IsControlNode);
-    cppgen::CustomNodeProperties::setPropertyForObject(*this, PropertyIds::IsFixRuntimeTarget);
+	cppgen::CustomNodeProperties::setPropertyForObject(*this, PropertyIds::UncompileableNode);
 
 	globalRoutingManager = GlobalRoutingManager::Helpers::getOrCreate(n->getScriptProcessor()->getMainController_());
 
@@ -1664,7 +1302,7 @@ template <int NV> struct GlobalReceiveNode : public GlobalRoutingNodeBase
 GlobalRoutingManager::Cable::Cable(const String& id_) :
 	SlotBase(id_, SlotType::Cable)
 {
-	
+
 }
 
 bool GlobalRoutingManager::Cable::cleanup()
@@ -1688,11 +1326,6 @@ scriptnode::routing::GlobalRoutingManager::SelectableTargetBase::List GlobalRout
 		l.add(t.get());
 
 	return l;
-}
-
-bool GlobalRoutingManager::Cable::containsTarget(CableTargetBase* n) const
-{
-	return targets.contains(n);
 }
 
 void GlobalRoutingManager::Cable::addTarget(CableTargetBase* n)
@@ -1794,6 +1427,8 @@ Result GlobalRoutingManager::Signal::addTarget(NodeBase* targetNode, PrepareSpec
 	}
 	else
 		return Result::fail("Unconnected");
+
+	return Result::ok();
 }
 
 bool GlobalRoutingManager::Signal::cleanup()
@@ -1816,7 +1451,7 @@ void GlobalRoutingManager::Signal::clearSignal()
 		if (sourceSpecs)
 		{
 			block b(buffer.begin(), sourceSpecs.blockSize * sourceSpecs.numChannels);
-			hmath::vmovs(b, 0.0f);
+			hmath::vset(b, 0.0f);
 		}
 	}
 }
@@ -1908,32 +1543,6 @@ Result GlobalRoutingManager::Signal::setConnection(NodeBase* n, bool shouldAdd, 
 		}
 	}
 }
-
-void GlobalRoutingManager::addOSCTarget(SlotBase::Ptr p)
-{
-	if (sender != nullptr && p->id.startsWithChar('/'))
-	{
-		if (auto c = dynamic_cast<Cable*>(p.get()))
-		{
-			for (int i = 0; i < c->targets.size(); i++)
-			{
-				auto existing = c->targets[i];
-
-				if (auto oc = dynamic_cast<HiseOSCSender::OSCCableTarget*>(existing.get()))
-				{
-					if (oc->sender != nullptr)
-						return;
-					else
-						c->targets.remove(i--);
-				}
-			}
-
-			c->addTarget(new HiseOSCSender::OSCCableTarget(dynamic_cast<HiseOSCSender*>(sender.get()), p->id));
-		}
-	}
-}
-
-
 
 }
 

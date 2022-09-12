@@ -47,19 +47,18 @@
 
 #define JUCE_USE_DARK_SPLASH_SCREEN 1
 
-#define JUCE_PROJUCER_VERSION 0x60103
+#define JUCE_PROJUCER_VERSION 0x60008
 
 //==============================================================================
 #define JUCE_MODULE_AVAILABLE_hi_backend                    1
+#define JUCE_MODULE_AVAILABLE_hi_components                 1
 #define JUCE_MODULE_AVAILABLE_hi_core                       1
+#define JUCE_MODULE_AVAILABLE_hi_dsp                        1
 #define JUCE_MODULE_AVAILABLE_hi_dsp_library                1
-#define JUCE_MODULE_AVAILABLE_hi_faust                      1
-#define JUCE_MODULE_AVAILABLE_hi_faust_jit                  1
-#define JUCE_MODULE_AVAILABLE_hi_faust_lib                  1
-#define JUCE_MODULE_AVAILABLE_hi_faust_types                1
 #define JUCE_MODULE_AVAILABLE_hi_lac                        1
-#define JUCE_MODULE_AVAILABLE_hi_loris                      1
+#define JUCE_MODULE_AVAILABLE_hi_modules                    1
 #define JUCE_MODULE_AVAILABLE_hi_rlottie                    1
+#define JUCE_MODULE_AVAILABLE_hi_sampler                    1
 #define JUCE_MODULE_AVAILABLE_hi_scripting                  1
 #define JUCE_MODULE_AVAILABLE_hi_snex                       1
 #define JUCE_MODULE_AVAILABLE_hi_streaming                  1
@@ -80,9 +79,7 @@
 #define JUCE_MODULE_AVAILABLE_juce_gui_basics               1
 #define JUCE_MODULE_AVAILABLE_juce_gui_extra                1
 #define JUCE_MODULE_AVAILABLE_juce_opengl                   1
-#define JUCE_MODULE_AVAILABLE_juce_osc                      1
 #define JUCE_MODULE_AVAILABLE_juce_product_unlocking        1
-#define JUCE_MODULE_AVAILABLE_melatonin_blur                1
 
 #define JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED 1
 
@@ -91,6 +88,13 @@
 
 #ifndef    USE_WORKBENCH_EDITOR
  //#define USE_WORKBENCH_EDITOR 0
+#endif
+
+//==============================================================================
+// hi_components flags:
+
+#ifndef    HISE_INCLUDE_SNEX_FLOATING_TILES
+ //#define HISE_INCLUDE_SNEX_FLOATING_TILES 0
 #endif
 
 //==============================================================================
@@ -105,43 +109,23 @@
 #endif
 
 #ifndef    USE_RAW_FRONTEND
- #define   USE_RAW_FRONTEND 0
+ //#define USE_RAW_FRONTEND 0
 #endif
 
 #ifndef    IS_STANDALONE_APP
  #define   IS_STANDALONE_APP 0
 #endif
 
-#ifndef    DONT_CREATE_USER_PRESET_FOLDER
- //#define DONT_CREATE_USER_PRESET_FOLDER 0
-#endif
-
-#ifndef    DONT_CREATE_EXPANSIONS_FOLDER
- //#define DONT_CREATE_EXPANSIONS_FOLDER 0
-#endif
-
-#ifndef    HISE_OVERWRITE_OLD_USER_PRESETS
- //#define HISE_OVERWRITE_OLD_USER_PRESETS 0
-#endif
-
-#ifndef    HISE_BACKEND_AS_FX
- //#define HISE_BACKEND_AS_FX 0
-#endif
-
 #ifndef    USE_COPY_PROTECTION
  #define   USE_COPY_PROTECTION 0
 #endif
 
-#ifndef    USE_SCRIPT_COPY_PROTECTION
- //#define USE_SCRIPT_COPY_PROTECTION 0
-#endif
-
 #ifndef    USE_IPP
- #define   USE_IPP 0
+ #define   USE_IPP 1
 #endif
 
 #ifndef    USE_VDSP_FFT
- //#define USE_VDSP_FFT 1
+ #define   USE_VDSP_FFT 0
 #endif
 
 #ifndef    FRONTEND_IS_PLUGIN
@@ -153,15 +137,7 @@
 #endif
 
 #ifndef    FORCE_INPUT_CHANNELS
- //#define FORCE_INPUT_CHANNELS 1
-#endif
-
-#ifndef    HI_DONT_SEND_ATTRIBUTE_UPDATES
- //#define HI_DONT_SEND_ATTRIBUTE_UPDATES 0
-#endif
-
-#ifndef    HISE_DEACTIVATE_OVERLAY
- //#define HISE_DEACTIVATE_OVERLAY 0
+ //#define FORCE_INPUT_CHANNELS 0
 #endif
 
 #ifndef    HISE_MIDIFX_PLUGIN
@@ -169,7 +145,7 @@
 #endif
 
 #ifndef    USE_CUSTOM_FRONTEND_TOOLBAR
- //#define USE_CUSTOM_FRONTEND_TOOLBAR 0
+ #define   USE_CUSTOM_FRONTEND_TOOLBAR 0
 #endif
 
 #ifndef    HI_SUPPORT_MONO_CHANNEL_LAYOUT
@@ -181,7 +157,7 @@
 #endif
 
 #ifndef    HI_SUPPORT_FULL_DYNAMICS_HLAC
- #define   HI_SUPPORT_FULL_DYNAMICS_HLAC 1
+ //#define HI_SUPPORT_FULL_DYNAMICS_HLAC 0
 #endif
 
 #ifndef    IS_STANDALONE_FRONTEND
@@ -189,15 +165,11 @@
 #endif
 
 #ifndef    USE_GLITCH_DETECTION
- //#define USE_GLITCH_DETECTION 0
+ #define   USE_GLITCH_DETECTION 1
 #endif
 
 #ifndef    ENABLE_PLOTTER
  #define   ENABLE_PLOTTER 1
-#endif
-
-#ifndef    HISE_NUM_MACROS
- //#define HISE_NUM_MACROS 1
 #endif
 
 #ifndef    ENABLE_SCRIPTING_SAFE_CHECKS
@@ -213,11 +185,7 @@
 #endif
 
 #ifndef    HISE_ENABLE_MIDI_INPUT_FOR_FX
- #define   HISE_ENABLE_MIDI_INPUT_FOR_FX 1
-#endif
-
-#ifndef    HISE_COMPLAIN_ABOUT_ILLEGAL_BUFFER_SIZE
- //#define HISE_COMPLAIN_ABOUT_ILLEGAL_BUFFER_SIZE 1
+ //#define HISE_ENABLE_MIDI_INPUT_FOR_FX 0
 #endif
 
 #ifndef    ENABLE_ALL_PEAK_METERS
@@ -228,28 +196,12 @@
  //#define READ_ONLY_FACTORY_PRESETS 0
 #endif
 
-#ifndef    CONFIRM_PRESET_OVERWRITE
- //#define CONFIRM_PRESET_OVERWRITE 1
-#endif
-
 #ifndef    ENABLE_CONSOLE_OUTPUT
  #define   ENABLE_CONSOLE_OUTPUT 1
 #endif
 
 #ifndef    ENABLE_HOST_INFO
  #define   ENABLE_HOST_INFO 1
-#endif
-
-#ifndef    HISE_USE_OPENGL_FOR_PLUGIN
- //#define HISE_USE_OPENGL_FOR_PLUGIN 0
-#endif
-
-#ifndef    HISE_DEFAULT_OPENGL_VALUE
- //#define HISE_DEFAULT_OPENGL_VALUE 1
-#endif
-
-#ifndef    HISE_USE_SYSTEM_APP_DATA_FOLDER
- //#define HISE_USE_SYSTEM_APP_DATA_FOLDER 0
 #endif
 
 #ifndef    ENABLE_STARTUP_LOGGER
@@ -261,11 +213,11 @@
 #endif
 
 #ifndef    ENABLE_CPU_MEASUREMENT
- //#define ENABLE_CPU_MEASUREMENT 1
+ #define   ENABLE_CPU_MEASUREMENT 1
 #endif
 
 #ifndef    USE_HARD_CLIPPER
- //#define USE_HARD_CLIPPER 0
+ #define   USE_HARD_CLIPPER 1
 #endif
 
 #ifndef    USE_SPLASH_SCREEN
@@ -284,10 +236,6 @@
  //#define HISE_SAMPLE_DIALOG_SHOW_LOCATE_BUTTON 1
 #endif
 
-#ifndef    HISE_MACROS_ARE_PLUGIN_PARAMETERS
- //#define HISE_MACROS_ARE_PLUGIN_PARAMETERS 0
-#endif
-
 //==============================================================================
 // hi_dsp_library flags:
 
@@ -301,32 +249,6 @@
 
 #ifndef    IS_STATIC_DSP_LIBRARY
  //#define IS_STATIC_DSP_LIBRARY 1
-#endif
-
-#ifndef    HISE_LOG_FILTER_FREQMOD
- //#define HISE_LOG_FILTER_FREQMOD 0
-#endif
-
-//==============================================================================
-// hi_faust flags:
-
-#ifndef    HISE_INCLUDE_FAUST
- //#define HISE_INCLUDE_FAUST 0
-#endif
-
-#ifndef    HISE_FAUST_USE_LLVM_JIT
- //#define HISE_FAUST_USE_LLVM_JIT 1
-#endif
-
-#ifndef    HISE_INCLUDE_FAUST_JIT
- //#define HISE_INCLUDE_FAUST_JIT 0
-#endif
-
-//==============================================================================
-// hi_faust_types flags:
-
-#ifndef    FAUST_NO_WARNING_MESSAGES
- //#define FAUST_NO_WARNING_MESSAGES 0
 #endif
 
 //==============================================================================
@@ -346,17 +268,6 @@
 
 #ifndef    HLAC_INCLUDE_TEST_SUITE
  #define   HLAC_INCLUDE_TEST_SUITE 0
-#endif
-
-//==============================================================================
-// hi_loris flags:
-
-#ifndef    HISE_INCLUDE_LORIS
- #define   HISE_INCLUDE_LORIS 1
-#endif
-
-#ifndef    HISE_USE_LORIS_DLL
- //#define HISE_USE_LORIS_DLL 0
 #endif
 
 //==============================================================================
@@ -385,11 +296,7 @@
 #endif
 
 #ifndef    HISE_INCLUDE_SNEX
- #define   HISE_INCLUDE_SNEX 1
-#endif
-
-#ifndef    SNEX_STANDALONE_PLAYGROUND
- //#define SNEX_STANDALONE_PLAYGROUND 0
+ //#define HISE_INCLUDE_SNEX 0
 #endif
 
 #ifndef    SNEX_INCLUDE_MEMORY_ADDRESS_IN_DUMP
@@ -400,11 +307,7 @@
 // hi_streaming flags:
 
 #ifndef    STANDALONE_STREAMING
- //#define STANDALONE_STREAMING 1
-#endif
-
-#ifndef    HISE_SAMPLER_CUBIC_INTERPOLATION
- //#define HISE_SAMPLER_CUBIC_INTERPOLATION 0
+ #define   STANDALONE_STREAMING 0
 #endif
 
 //==============================================================================
@@ -424,14 +327,6 @@
 
 #ifndef    HISE_INCLUDE_PITCH_DETECTION
  //#define HISE_INCLUDE_PITCH_DETECTION 1
-#endif
-
-#ifndef    HISE_INCLUDE_RT_NEURAL
- //#define HISE_INCLUDE_RT_NEURAL 1
-#endif
-
-#ifndef    HISE_USE_EXTENDED_TEMPO_VALUES
- //#define HISE_USE_EXTENDED_TEMPO_VALUES 0
 #endif
 
 //==============================================================================
@@ -458,7 +353,7 @@
 #endif
 
 #ifndef    JUCE_JACK
- //#define JUCE_JACK 0
+ //#define JUCE_JACK 1
 #endif
 
 #ifndef    JUCE_BELA
@@ -572,10 +467,6 @@
  //#define JUCE_FORCE_DEBUG 0
 #endif
 
-#ifndef    JUCE_ENABLE_AUDIO_GUARD
- //#define JUCE_ENABLE_AUDIO_GUARD 0
-#endif
-
 #ifndef    JUCE_LOG_ASSERTIONS
  //#define JUCE_LOG_ASSERTIONS 0
 #endif
@@ -597,7 +488,7 @@
 #endif
 
 #ifndef    JUCE_LOAD_CURL_SYMBOLS_LAZILY
- #define   JUCE_LOAD_CURL_SYMBOLS_LAZILY 1
+ //#define JUCE_LOAD_CURL_SYMBOLS_LAZILY 0
 #endif
 
 #ifndef    JUCE_CATCH_UNHANDLED_EXCEPTIONS
@@ -609,30 +500,34 @@
 #endif
 
 #ifndef    JUCE_STRICT_REFCOUNTEDPOINTER
- #define   JUCE_STRICT_REFCOUNTEDPOINTER 1
+ //#define JUCE_STRICT_REFCOUNTEDPOINTER 0
 #endif
 
 #ifndef    JUCE_ENABLE_ALLOCATION_HOOKS
  //#define JUCE_ENABLE_ALLOCATION_HOOKS 0
 #endif
 
+#ifndef    JUCE_ENABLE_AUDIO_GUARD
+ //#define JUCE_ENABLE_AUDIO_GUARD 0
+#endif
+
 //==============================================================================
 // juce_dsp flags:
 
 #ifndef    JUCE_ASSERTION_FIRFILTER
- //#define JUCE_ASSERTION_FIRFILTER 1
+ #define   JUCE_ASSERTION_FIRFILTER 0
 #endif
 
 #ifndef    JUCE_DSP_USE_INTEL_MKL
- //#define JUCE_DSP_USE_INTEL_MKL 0
+ #define   JUCE_DSP_USE_INTEL_MKL 0
 #endif
 
 #ifndef    JUCE_DSP_USE_SHARED_FFTW
- //#define JUCE_DSP_USE_SHARED_FFTW 0
+ #define   JUCE_DSP_USE_SHARED_FFTW 0
 #endif
 
 #ifndef    JUCE_DSP_USE_STATIC_FFTW
- //#define JUCE_DSP_USE_STATIC_FFTW 0
+ #define   JUCE_DSP_USE_STATIC_FFTW 0
 #endif
 
 #ifndef    JUCE_DSP_ENABLE_SNAP_TO_ZERO
@@ -654,7 +549,7 @@
 #endif
 
 #ifndef    JUCE_USE_DIRECTWRITE
- #define   JUCE_USE_DIRECTWRITE 1
+ //#define JUCE_USE_DIRECTWRITE 1
 #endif
 
 #ifndef    JUCE_DISABLE_COREGRAPHICS_FONT_SMOOTHING
@@ -705,13 +600,6 @@
 
 #ifndef    JUCE_ENABLE_LIVE_CONSTANT_EDITOR
  //#define JUCE_ENABLE_LIVE_CONSTANT_EDITOR 0
-#endif
-
-//==============================================================================
-// juce_product_unlocking flags:
-
-#ifndef    JUCE_USE_BETTER_MACHINE_IDS
- //#define JUCE_USE_BETTER_MACHINE_IDS 0
 #endif
 
 //==============================================================================
