@@ -301,8 +301,13 @@ public:
 
 		struct MouseListenerData
 		{
+			using StateFunction = std::function<var(int)>;
+
 			WeakReference<WeakCallbackHolder::CallableObject> listener;
 			MouseCallbackComponent::CallbackLevel mouseCallbackLevel = MouseCallbackComponent::CallbackLevel::NoCallbacks;
+			StateFunction tickedFunction, enabledFunction, textFunction;
+			StringArray popupMenuItems;
+
 		};
 
 		// ============================================================================================================
@@ -406,6 +411,13 @@ public:
 		String getDebugDataType() const override { return getObjectName().toString(); }
 		virtual void doubleClickCallback(const MouseEvent &e, Component* componentToNotify) override;
 
+		Location getLocation() const override
+		{
+			return location;
+		}
+
+		Location location;
+
 		bool isLocked() const
 		{
 			return getScriptObjectProperty(locked);
@@ -466,7 +478,7 @@ public:
 
 		void updateContentPropertyInternal(const Identifier& propertyId, const var& newValue);
 
-        void updateValueFromProcessorConnection();
+        
         
 		virtual void cancelPendingFunctions() {};
 
@@ -604,7 +616,7 @@ public:
 		void setLocalLookAndFeel(var lafObject);
 
 		/** Manually sends a repaint message for the component. */
-		void sendRepaintMessage();
+		virtual void sendRepaintMessage();
 
 		/** Returns the ID of the component. */
 		String getId() const;
@@ -612,7 +624,13 @@ public:
 		/** Toggles the visibility and fades a component using the global animator. */
 		void fadeComponent(bool shouldBeVisible, int milliseconds);
 
+		/** Updates the value from the processor connection. Call this method whenever the module state has changed and you want
+			to refresh the knob value to show the current state. */
+		void updateValueFromProcessorConnection();
+
 		// End of API Methods ============================================================================================
+
+		var getLookAndFeelObject();
 
 		void attachValueListener(WeakCallbackHolder::CallableObject* obj)
 		{
@@ -620,10 +638,18 @@ public:
 			sendValueListenerMessage();
 		}
 
-		void attachMouseListener(WeakCallbackHolder::CallableObject* obj, MouseCallbackComponent::CallbackLevel cl)
+		void attachMouseListener(WeakCallbackHolder::CallableObject* obj, MouseCallbackComponent::CallbackLevel cl, const MouseListenerData::StateFunction& sf = {}, const MouseListenerData::StateFunction& ef = {}, const MouseListenerData::StateFunction& tf = {}, const StringArray& popupItems = {})
 		{
-			mouseListeners.add({ obj, cl });
+			for (int i = 0; i < mouseListeners.size(); i++)
+			{
+				if (mouseListeners[i].listener == nullptr)
+					mouseListeners.remove(i--);
+			}
+
+			mouseListeners.add({ obj, cl, sf, ef, tf, popupItems });
 		}
+
+		
 
 		const Array<MouseListenerData>& getMouseListeners() const { return mouseListeners; }
 
@@ -1762,7 +1788,11 @@ public:
 
 		DebugInformationBase::Ptr createChildElement(DebugWatchIndex index) const;
 
-		
+		void sendRepaintMessage() override
+		{
+			ScriptComponent::sendRepaintMessage();
+			repaint();
+		}
 
 		// ======================================================================================================== API Methods
 
@@ -2215,7 +2245,7 @@ public:
 	};
 
 
-	using ScreenshotListener = ScreenshotListener;
+	using ScreenshotListener = hise::ScreenshotListener;
 
 	struct VisualGuide
 	{
@@ -2406,6 +2436,8 @@ public:
 
 	int getContentHeight() const { return height; }
 	int getContentWidth() const { return width; }
+
+	void recompileAndThrowAtDefinition(ScriptComponent* sc);
 
 	bool usesDoubleResolution() const
 	{
@@ -2637,6 +2669,8 @@ private:
 
 	Array<WeakReference<RebuildListener>> rebuildListeners;
 
+	WeakReference<ScriptComponent> componentToThrowAtDefinition;
+
 	var templateFunctions;
 	var valuePopupData;
 
@@ -2801,6 +2835,98 @@ struct ContentValueTreeHelpers
 	}
 };
 
+struct MapItemWithScriptComponentConnection : public Component,
+	public ComponentWithPreferredSize,
+	public PooledUIUpdater::SimpleTimer
+{
+	MapItemWithScriptComponentConnection(ScriptComponent* c, int width, int height);;
+
+	int getPreferredWidth() const override { return w; }
+	int getPreferredHeight() const override { return h; }
+
+	int w = 0;
+	int h = 0;
+
+	WeakReference<ScriptComponent> sc;
+};
+
+
+
+struct SimpleVarBody : public ComponentWithPreferredSize,
+	public Component
+{
+	SimpleVarBody(const var& v);
+
+	void paint(Graphics& g) override;
+
+	static ComponentWithPreferredSize* create(Component* root, const var& v)
+	{
+		return new SimpleVarBody(v);
+	};
+
+	void mouseDown(const MouseEvent& e);
+
+
+
+	String getSensibleStringRepresentation() const;
+
+	int getPreferredWidth() const override { return 128; }
+	int getPreferredHeight() const override { return 32; };
+
+	var value;
+	String s;
+};
+
+struct LiveUpdateVarBody : public SimpleVarBody,
+	public PooledUIUpdater::SimpleTimer
+{
+	enum DisplayType
+	{
+		Text,
+		Bool,
+		Colour,
+		numDisplayType
+	};
+
+	static DisplayType getDisplayType(const Identifier& id);
+
+	LiveUpdateVarBody(PooledUIUpdater* updater, const Identifier& id_, const std::function<var()>& f);;
+
+	void timerCallback() override;
+
+	String getTextToDisplay() const;
+
+	int getPreferredWidth() const override { return 35 + GLOBAL_MONOSPACE_FONT().getStringWidth(getTextToDisplay()); }
+
+	void paint(Graphics& g) override;
+
+	ModValue alpha;
+	const Identifier id;
+	std::function<var()> valueFunction;
+	const DisplayType displayType;
+};
+
+struct PrimitiveArrayDisplay : public SimpleVarBody,
+	public PooledUIUpdater::SimpleTimer
+{
+	PrimitiveArrayDisplay(Processor* jp, const var& obj);;
+
+	void timerCallback() override;
+
+	int h;
+	int w;
+
+	String id;
+
+	int getPreferredWidth() const override { return w; };
+	int getPreferredHeight() const override { return h; }
+
+	void paint(Graphics& g) override;
+
+	static ComponentWithPreferredSize* create(Component* r, const var& obj);
+
+	Array<var> lastValues;
+};
 
 
 } // namespace hise

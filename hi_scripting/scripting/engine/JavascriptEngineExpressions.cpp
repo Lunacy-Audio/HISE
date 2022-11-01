@@ -294,6 +294,14 @@ struct HiseJavascriptEngine::RootObject::DotOperator : public Expression
         }
 		else if (auto aObj = dynamic_cast<AssignableDotObject*>(v.getObject()))
 		{
+#if ENABLE_SCRIPTING_BREAKPOINTS
+            if(auto o = dynamic_cast<ApiClass*>(aObj))
+            {
+                if(o->wantsCurrentLocation())
+                    o->setCurrentLocation(location.externalFile, location.getCharIndex());
+            }
+#endif
+            
 			if (!aObj->assign(child, newValue))
 				location.throwError("Cannot assign to " + child + " property");
 		}
@@ -524,7 +532,8 @@ struct HiseJavascriptEngine::RootObject::ArrayDeclaration : public Expression
 struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 														  public DebugableObject,
 														  public WeakCallbackHolder::CallableObject,
-														  public CyclicReferenceCheckBase
+														  public CyclicReferenceCheckBase,
+                                                          public LocalScopeCreator
 {
 	FunctionObject() noexcept{}
 
@@ -544,6 +553,21 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
     bool isRealtimeSafe() const { return false; }
     
 	void prepareCycleReferenceCheck() override;
+
+    DynamicObject::Ptr createScope(RootObject* r) override
+    {
+        DynamicObject::Ptr copy = new DynamicObject();
+        
+        for(auto& x: lastScope->getProperties())
+            copy->setProperty(x.name, x.value);
+        
+        return copy;
+    };
+    
+	String getComment() const override
+	{
+		return commentDoc;
+	}
 
 	void storeCapturedLocals(NamedValueSet& setFromHolder, bool swap) override
 	{
@@ -579,6 +603,17 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 		}
 
 		var result;
+        
+#if ENABLE_SCRIPTING_BREAKPOINTS
+        
+        LocalScopeCreator::ScopedSetter sls(s.root, const_cast<FunctionObject*>(this));
+        
+        {
+            SimpleReadWriteLock::ScopedWriteLock sl(debugScopeLock);
+            lastScope = functionRoot;
+        }
+#endif
+        
 		body->perform(Scope(&s, s.root.get(), functionRoot.get()), &result);
 
 #if ENABLE_SCRIPTING_SAFE_CHECKS
@@ -588,12 +623,7 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 
 		functionRoot->removeProperty("this");
 
-#if ENABLE_SCRIPTING_BREAKPOINTS
-		{
-			SimpleReadWriteLock::ScopedWriteLock sl(debugScopeLock);
-			lastScope = functionRoot;
-		}
-#endif
+
 
 		return result;
 	}
@@ -677,6 +707,13 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 
 				if (l != nullptr)
 				{
+					if (l->getProperties().getName(index) == Identifier("this"))
+					{
+						// do not return *this* to avoid endless loops...
+						return var();
+					}
+						
+
 					if (auto v = l->getProperties().getVarPointerAt(index))
 						return *v;
 				}
@@ -735,6 +772,8 @@ struct HiseJavascriptEngine::RootObject::FunctionObject : public DynamicObject,
 	mutable var lastScopeForCycleCheck;
 
 	DynamicObject::Ptr unneededScope;
+    
+    
 
 	mutable SimpleReadWriteLock debugScopeLock;
 	mutable DynamicObject::Ptr lastScope;
@@ -799,7 +838,10 @@ var HiseJavascriptEngine::RootObject::FunctionCall::invokeFunction(const Scope& 
 		return nativeFunction(args);
 
 	if (FunctionObject* fo = dynamic_cast<FunctionObject*> (function.getObject()))
+    {
+        LocalScopeCreator::ScopedSetter sls(s.root, fo);
 		return fo->invoke(s, args);
+    }
 
 	if (DotOperator* dot = dynamic_cast<DotOperator*> (object.get()))
 		if (DynamicObject* o = thisObject.getDynamicObject())

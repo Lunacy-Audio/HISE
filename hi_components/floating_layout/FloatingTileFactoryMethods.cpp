@@ -83,6 +83,7 @@ void FloatingTileContent::Factory::registerAllPanelTypes()
 	registerType<scriptnode::DspNodeList::Panel>(PopupMenuOptions::DspNodeList);
 	registerType<GenericPanel<ModuleBrowser>>(PopupMenuOptions::ModuleBrowser);
 	registerType<GenericPanel<PatchBrowser>>(PopupMenuOptions::PatchBrowser);
+	registerType<GenericPanel<AutomationDataBrowser>>(PopupMenuOptions::AutomationDataBrowser);
 	registerType<GenericPanel<FileBrowser>>(PopupMenuOptions::FileBrowser);
 	registerType<GenericPanel<SamplePoolTable>>(PopupMenuOptions::SamplePoolTable);
 	
@@ -97,6 +98,9 @@ void FloatingTileContent::Factory::registerAllPanelTypes()
 	registerType<ServerControllerPanel>(PopupMenuOptions::ServerController);
 	registerType<scriptnode::DspNetworkGraphPanel>(PopupMenuOptions::DspNetworkGraph);
 	registerType<scriptnode::NodePropertyPanel>(PopupMenuOptions::DspNodeParameterEditor);
+    registerType<scriptnode::FaustEditorPanel>(PopupMenuOptions::DspFaustEditorPanel);
+
+	registerType<ScriptingObjects::ScriptBroadcaster::Panel>(PopupMenuOptions::ScriptBroadcasterMap);
 
 #endif
 
@@ -584,8 +588,10 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 			addToPopupMenu(m, PopupMenuOptions::DspNodeList, "DSP Node list");
 			addToPopupMenu(m, PopupMenuOptions::DspNetworkGraph, "DSP Network Graph");
 			addToPopupMenu(m, PopupMenuOptions::DspNodeParameterEditor, "DSP Network Node Editor");
+            addToPopupMenu(m, PopupMenuOptions::DspFaustEditorPanel, "Faust Editor");
 			addToPopupMenu(m, PopupMenuOptions::RLottieDevPanel, "Lottie Dev Panel");
 			addToPopupMenu(m, PopupMenuOptions::ServerController, "Server Controller");
+			addToPopupMenu(m, PopupMenuOptions::ScriptBroadcasterMap, "ScriptBroadcaster Map");
 			addToPopupMenu(m, PopupMenuOptions::SnexEditor, "SNEX Editor");
 
 			m.addSectionHeader("Sampler Tools");
@@ -610,6 +616,7 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 
 			addToPopupMenu(m, PopupMenuOptions::PatchBrowser, "Patch Browser");
 			addToPopupMenu(m, PopupMenuOptions::FileBrowser, "File Browser");
+			addToPopupMenu(m, PopupMenuOptions::AutomationDataBrowser, "Automation Data Browser");
 			addToPopupMenu(m, PopupMenuOptions::SamplePoolTable, "SamplePoolTable");
 			addToPopupMenu(m, PopupMenuOptions::SliderPackPanel, "Array Editor");
 			addToPopupMenu(m, PopupMenuOptions::MidiKeyboard, "Virtual Keyboard");
@@ -752,8 +759,10 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 	case PopupMenuOptions::TooltipPanel:		parent->setNewContent(GET_PANEL_NAME(TooltipPanel)); break;
 	case PopupMenuOptions::DspNodeList:			parent->setNewContent(GET_PANEL_NAME(scriptnode::DspNodeList::Panel)); break;
 	case PopupMenuOptions::DspNodeParameterEditor: parent->setNewContent(GET_PANEL_NAME(scriptnode::NodePropertyPanel)); break;
+    case PopupMenuOptions::DspFaustEditorPanel: parent->setNewContent(GET_PANEL_NAME(scriptnode::FaustEditorPanel)); break;
 	case PopupMenuOptions::ApiCollection:		parent->setNewContent(GET_PANEL_NAME(GenericPanel<ApiCollection>)); break;
 	case PopupMenuOptions::PatchBrowser:		parent->setNewContent(GET_PANEL_NAME(GenericPanel<PatchBrowser>)); break;
+	case PopupMenuOptions::AutomationDataBrowser: parent->setNewContent(GET_PANEL_NAME(GenericPanel<AutomationDataBrowser>)); break;
 	case PopupMenuOptions::FileBrowser:			parent->setNewContent(GET_PANEL_NAME(GenericPanel<FileBrowser>)); break;
 	case PopupMenuOptions::ModuleBrowser:		parent->setNewContent(GET_PANEL_NAME(GenericPanel<ModuleBrowser>)); break;
 	case PopupMenuOptions::SamplePoolTable:		parent->setNewContent(GET_PANEL_NAME(GenericPanel<SamplePoolTable>)); break;
@@ -761,6 +770,7 @@ void FloatingTileContent::Factory::handlePopupMenu(PopupMenu& m, FloatingTile* p
 	case PopupMenuOptions::ServerController:	parent->setNewContent(GET_PANEL_NAME(ServerControllerPanel)); break;
 	case PopupMenuOptions::AboutPage:			parent->setNewContent(GET_PANEL_NAME(AboutPagePanel)); break;
 	case PopupMenuOptions::SnexEditor:			parent->setNewContent(GET_PANEL_NAME(SnexEditorPanel)); break;
+	case PopupMenuOptions::ScriptBroadcasterMap:			parent->setNewContent(GET_PANEL_NAME(ScriptingObjects::ScriptBroadcaster::Panel)); break;
 #if HISE_INCLUDE_RLOTTIE
 	case PopupMenuOptions::RLottieDevPanel:		parent->setNewContent(GET_PANEL_NAME(RLottieFloatingTile));
 		break;

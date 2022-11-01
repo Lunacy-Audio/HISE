@@ -520,62 +520,26 @@ public:
 
 	void testIndexTypes()
 	{
+        beginTest("Test index types");
+        
 		testIntegerIndex<index::looped<9, false>>();
 		testIntegerIndex<index::looped<64, false>>();
-		testIntegerIndex<index::looped<32, true>>();
-		testIntegerIndex<index::looped<51, true>>();
-
-#if TEST_ALL_INDEXES
 		testIntegerIndex<index::wrapped<32, false>>();
 		testIntegerIndex<index::wrapped<91, false>>();
-		testIntegerIndex<index::wrapped<64, true>>();
-		testIntegerIndex<index::wrapped<51, true>>();
 		testIntegerIndex<index::clamped<32, false>>();
 		testIntegerIndex<index::clamped<91, false>>();
-		testIntegerIndex<index::clamped<64, true>>();
-		testIntegerIndex<index::clamped<51, true>>();
-		testIntegerIndex<index::unsafe<32, false>>();
 		testIntegerIndex<index::unsafe<91, false>>();
 		testIntegerIndex<index::unsafe<64, true>>();
-		testIntegerIndex<index::unsafe<51, true>>();
-#endif
 	}
 
 	void runTest() override
 	{
-		
-
-		return;
-		beginTest("Funky");
-		optimizations = OptimizationIds::getAllIds();
-        testIndexTypes();
-		runTestFiles("");
-		return;
-
-		optimizations = OptimizationIds::getAllIds();
-		testIndexTypes();
-		runTestFiles("mono_sample2");
-		//runTestFiles("");
-		
-		
-		return;
-
-		testSpanOperators();
-
-		optimizations = OptimizationIds::getDefaultIds();
-		
-
-		return;
-#if INCLUDE_SNEX_BIG_TESTSUITE
-		
 		optimizations = {};
 		testOptimizations();
 		testInlining();
 
 		runTestsWithOptimisation({});
-		runTestsWithOptimisation(OptimizationIds::getDefaultIds());
 		runTestsWithOptimisation(OptimizationIds::getAllIds());
-#endif
 	}
 
 #if INCLUDE_SNEX_BIG_TESTSUITE
@@ -840,8 +804,13 @@ public:
 			if (!isFolder && soloTest.isNotEmpty() && f.getFileName() != soloTest)
 				continue;
 
+#if JUCE_DEBUG
 			if (printDebugInfoForSingleTest)
+			{
 				DBG(f.getFileName());
+			}
+#endif
+				
 
 			int numInstances = ComplexType::numInstances;
 
@@ -2218,7 +2187,7 @@ private:
 		JitRuntime rt;
 		CodeHolder ch;
 
-		ok = ch.init(rt.codeInfo());
+        ok = ch.init(rt.environment());
 
 
 		X86Compiler cc(&ch);
@@ -2227,7 +2196,7 @@ private:
 		sig.setRetT<double>();
 		sig.addArgT<double>();
 
-		cc.addFunc(sig);
+		auto funcNode = cc.addFunc(sig);
 
 		auto r1 = cc.newXmmSd();
 		
@@ -2235,7 +2204,7 @@ private:
 		
 		st.setSize(8);
 
-		cc.setArg(0, r1);
+		funcNode->setArg(0, r1);
 
 		cc.movsd(st, r1);
 		cc.fld(st);
@@ -2272,7 +2241,7 @@ private:
         JitRuntime rt;
         CodeHolder ch;
         
-        ok = ch.init(rt.codeInfo());
+        ok = ch.init(rt.environment());
         
         
         X86Compiler cc(&ch);
@@ -2281,7 +2250,7 @@ private:
         sig.setRetT<float>();
         sig.addArgT<float>();
         
-        cc.addFunc(sig);
+        auto funcNode = cc.addFunc(sig);
         
         // a dummy external data location
         float x = 18.0f;
@@ -2303,7 +2272,7 @@ private:
         
         //auto mem = cc.newFloatConst(ConstPool::kScopeLocal, 18.0f);
         
-        ok = cc.setArg(0, r1);
+        funcNode->setArg(0, r1);
         ok = cc.movss(r1, mem);
         cc.ret(r1);
         
@@ -3458,7 +3427,7 @@ private:
 
 		span<float, 2> d1 = { 5.0f, 6.0f };
 		span<float, 3> d2 = { 5.0f, 6.0f };
-		float s = 0.8;
+		auto s = 0.8f;
 		expectEquals<float>(d1[0], 5.0f, "init assign1");
 		expectEquals<float>(d1[1], 6.0f, "init assign2");
 

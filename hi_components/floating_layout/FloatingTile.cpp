@@ -38,12 +38,12 @@ juce::Rectangle<int> FloatingTilePopup::getRectangle(RectangleType t) const
 {
 	static constexpr int BoxMargin = 12;
 	static constexpr int ContentMargin = 8;
-	static constexpr int TitleHeight = 22;
+	static constexpr int PopupTitleHeight = 22;
 	static constexpr int CloseButtonWidth = 24;
 
 	auto b = content->getLocalBounds();
 
-	auto th = hasTitle() ? TitleHeight : 0;
+	auto th = hasTitle() ? PopupTitleHeight : 0;
 
 	if (t == RectangleType::FullBounds)
 		return b.expanded(BoxMargin + ContentMargin, BoxMargin + ContentMargin + th / 2)
@@ -161,7 +161,7 @@ void FloatingTilePopup::rebuildBoxPath()
 
 	shadowImage = Image(Image::ARGB, fb.getWidth(), fb.getHeight(), true);
 	Graphics g2(shadowImage);
-	g2.setColour(Colour(JUCE_LIVE_CONSTANT(Colour(0x32000000))));
+	g2.setColour(Colour(JUCE_LIVE_CONSTANT_OFF(Colour(0x32000000))));
 	g2.fillRect(bb);
 	gin::applyStackBlur(shadowImage, 3);
 }
@@ -1389,12 +1389,30 @@ struct ResizableViewport: public Component,
     {
 		auto contentHeight = vp.getViewedComponent()->getHeight() + EdgeHeight;
 
+        auto rootBounds = getTopLevelComponent()->getLocalBounds().reduced(100);
+        
 		if (fixComponent != nullptr)
 			contentHeight += fixComponent->getHeight();
 
-        auto maxHeightToUse = jmin(maxHeight - 80, contentHeight + EdgeHeight);
         
-        setSize(getWidth(), maxHeightToUse);
+        
+        auto maxHeightToUse = jmin(maxHeight - 80, contentHeight + EdgeHeight);
+		auto contentWidth = vp.getViewedComponent()->getWidth() + EdgeHeight;
+		auto maxWidthToUse = jmin(1800 - 80, contentWidth + EdgeHeight);
+
+        maxWidthToUse = jmin(rootBounds.getWidth(), maxWidthToUse);
+        maxHeightToUse = jmin(rootBounds.getHeight(), maxHeightToUse);
+        
+        setSize(maxWidthToUse, maxHeightToUse);
+		setName(vp.getViewedComponent()->getName());
+		
+		if (auto pc = findParentComponentOfClass<FloatingTilePopup>())
+		{
+			pc->rebuildBoxPath();
+			pc->repaint();
+            pc->resized();
+		}
+		
         edge.setVisible(false);
     }
     
@@ -1480,10 +1498,10 @@ Component* FloatingTile::wrapInViewport(Component* c, bool shouldBeMaximised)
 	return vp;
 }
 
-FloatingTilePopup* FloatingTile::showComponentInRootPopup(Component* newComponent, Component* attachedComponent, Point<int> localPoint, bool shouldWrapInViewport)
+FloatingTilePopup* FloatingTile::showComponentInRootPopup(Component* newComponent, Component* attachedComponent, Point<int> localPoint, bool shouldWrapInViewport, bool maximiseViewport)
 {
     if(newComponent != nullptr && shouldWrapInViewport)
-		newComponent = wrapInViewport(newComponent, false);    
+		newComponent = wrapInViewport(newComponent, maximiseViewport);    
     
     if(attachedComponent != nullptr)
     {
@@ -2096,17 +2114,28 @@ FloatingTileDocumentWindow::FloatingTileDocumentWindow(BackendRootWindow* parent
 	if (useOpenGL)
 		setEnableOpenGL(this);
 
+    loadKeyPressMap();
+    
 	centreWithSize(500, 500);
 }
 
 FloatingTileDocumentWindow::~FloatingTileDocumentWindow()
 {
+    saved = true;
 	detachOpenGl();
 }
 
 void FloatingTileDocumentWindow::closeButtonPressed()
 {
 	parent->removeFloatingWindow(this);
+}
+
+void FloatingTileDocumentWindow::initialiseAllKeyPresses()
+{
+    mcl::FullEditor::initKeyPresses(this);
+    PopupIncludeEditor::initKeyPresses(this);
+    scriptnode::DspNetwork::initKeyPresses(this);
+    ScriptContentPanel::initKeyPresses(this);
 }
 
 bool FloatingTileDocumentWindow::keyPressed(const KeyPress& key)
@@ -2171,6 +2200,8 @@ void FloatingTilePopup::CloseButton::resized()
 	PathFactory::scalePath(p, b.reduced(JUCE_LIVE_CONSTANT_OFF(7.0f)));
 }
 
+
+
 juce::Path FloatingTilePopup::Factory::createPath(const String& url) const
 {
 	static const unsigned char pathData[] = { 110,109,45,178,1,67,231,251,35,66,108,23,25,206,66,231,251,35,66,108,23,25,206,66,57,180,148,66,108,240,103,8,67,57,180,148,66,108,240,103,8,67,236,209,62,66,108,233,102,49,67,233,102,177,66,108,240,103,8,67,45,178,1,67,108,240,103,8,67,23,25,206,66,
@@ -2183,6 +2214,12 @@ juce::Path FloatingTilePopup::Factory::createPath(const String& url) const
 
 
 	return path;
+}
+
+
+const Identifier FloatingTileHelpers::getTileID(FloatingTile* parent)
+{
+	return parent->getLayoutData().getID();
 }
 
 } // namespace hise

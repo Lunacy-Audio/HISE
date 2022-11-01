@@ -40,6 +40,11 @@ using namespace juce;
 using namespace hise;
 using namespace snex;
 
+void* SnexSource::SnexTestBaseHelper::getNodeWorkbench(NodeBase* node)
+{
+    return node->getScriptProcessor()->getMainController_()->getWorkbenchManager();
+
+}
 
 void SnexSource::recompiled(WorkbenchData::Ptr wb)
 {
@@ -399,8 +404,6 @@ int SnexSource::ComplexDataHandler::getNumDataObjects(ExternalData::DataType t) 
 	case snex::ExternalData::DataType::FilterCoefficients:  return 0;
     default: return 0;
 	}
-
-	return 0;
 }
 
 hise::FilterDataObject* SnexSource::ComplexDataHandler::getFilterData(int index) 

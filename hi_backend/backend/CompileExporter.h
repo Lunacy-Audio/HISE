@@ -252,7 +252,7 @@ protected:
 	{
 		static String getFileNameForCompiledPlugin(const HiseSettings::Data& dataObject, ModulatorSynthChain* chain, BuildOption option);
 
-		static bool isUsingVisualStudio2015(const HiseSettings::Data& dataObject);
+		static bool isUsingVisualStudio2017(const HiseSettings::Data& dataObject);
 
 		static ErrorCodes saveProjucerFile(String templateProject, CompileExporter* exporter);
 	};
@@ -279,6 +279,8 @@ protected:
 
 	struct ProjectTemplateHelpers
 	{
+		static void handleCompilerWarnings(String& templateProject);
+
 		static void handleCompilerInfo(CompileExporter* exporter, String& templateProject);
 		static void handleCompanyInfo(CompileExporter* exporter, String& templateProject);
 		static void handleVisualStudioVersion(const HiseSettings::Data& dataObject, String& templateProject);

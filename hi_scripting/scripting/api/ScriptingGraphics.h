@@ -254,10 +254,7 @@ namespace ScriptingObjects
 
 		void compileRawCode(const String& code);
 
-		
-		
-
-		struct Result processErrorMessage(const Result& r);
+		Result processErrorMessage(const Result& r);
 
 		Result r;
 
@@ -373,9 +370,9 @@ namespace ScriptingObjects
 
 	private:
 
-		struct ScriptedImageProvider;
+		class ScriptedImageProvider;
 
-		struct Preview;
+		class Preview;
 		struct Wrapper;
 	};
 
@@ -435,6 +432,9 @@ namespace ScriptingObjects
 
 		/** Draws a (non interpolated) horizontal line. */
 		void drawHorizontalLine(int y, float x1, float x2);
+
+		/** Draws a (non interpolated) vertical line. */
+		void drawVerticalLine(int x, float y1, float y2);
 
 		/** Sets a global transparency level. */
 		void setOpacity(float alphaValue);
@@ -641,7 +641,7 @@ namespace ScriptingObjects
 
 			Path createPresetBrowserIcons(const String& id) override;
 			void drawPresetBrowserBackground(Graphics& g, Component* p) override;
-			void drawColumnBackground(Graphics& g, Rectangle<int> listArea, const String& emptyText) override;
+			void drawColumnBackground(Graphics& g, int columnIndex, Rectangle<int> listArea, const String& emptyText) override;
 			void drawTag(Graphics& g, bool blinking, bool active, bool selected, const String& name, Rectangle<int> position) override;
 			void drawModalOverlay(Graphics& g, Rectangle<int> area, Rectangle<int> labelArea, const String& title, const String& command) override;
 			void drawListItem(Graphics& g, int columnIndex, int, const String& itemName, Rectangle<int> position, bool rowIsSelected, bool deleteMode, bool hover) override;
@@ -714,6 +714,7 @@ namespace ScriptingObjects
 			static void setColourOrBlack(DynamicObject* obj, const Identifier& id, Component& c, int colourId);
 
 			JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Laf);
+			JUCE_DECLARE_WEAK_REFERENCEABLE(Laf);
 		};
 
 		struct LocalLaf : public Laf
@@ -745,8 +746,6 @@ namespace ScriptingObjects
 
 		// ========================================================================================
 
-		var getOptimizableFunctions() const override;
-
 		bool callWithGraphics(Graphics& g_, const Identifier& functionname, var argsObject, Component* c);
 
 		var callDefinedFunction(const Identifier& name, var* args, int numArgs);
@@ -758,6 +757,8 @@ namespace ScriptingObjects
             
             return 0;
 		}
+
+		Location getLocation() const override;
 
 		DebugInformationBase* getChildElement(int index) override
 		{

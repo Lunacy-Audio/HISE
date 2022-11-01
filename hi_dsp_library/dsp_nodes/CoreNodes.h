@@ -181,8 +181,6 @@ public:
 
 	template <typename ProcessDataType> void process(ProcessDataType& data)
 	{
-		snex::hmath Math;
-
 		max = 0.0f;
 
 		for (auto& ch : data)
@@ -196,8 +194,6 @@ public:
 
 	template <typename FrameDataType> void processFrame(FrameDataType& data)
 	{
-		snex::hmath Math;
-
 		max = 0.0;
 
 		for (auto& s : data)
@@ -897,7 +893,8 @@ public:
 			}
 			else
 			{
-				lastValue = hmath::fmod(start + tfDelta, 1.0);
+				// use the mid point to reduce rounding errors
+				lastValue = hmath::fmod(start + tfDelta / 2.0, 1.0);
 			}
 
 			s.modValue.setModValue(lastValue);	

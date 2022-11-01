@@ -83,7 +83,7 @@ void Preprocessor::TextBlock::parseBlockStart()
 		MATCH_TOKEN(PreprocessorTokens::else_);
 		MATCH_TOKEN(PreprocessorTokens::endif_);
 		MATCH_TOKEN(PreprocessorTokens::undef_);
-#undef MATCH_TOKEN(x);
+#undef MATCH_TOKEN
 
 		auto tokenLength = String(blockType).length();
 
@@ -120,7 +120,7 @@ String Preprocessor::TextBlock::subString(String::CharPointerType location) cons
 	if (*location)
 	{
 		jassert((location - start) < (int)length);
-		auto end = start + length;
+		auto end = start + (int)length;
 		return { location, end };
 	}
 
@@ -129,7 +129,7 @@ String Preprocessor::TextBlock::subString(String::CharPointerType location) cons
 
 String::CharPointerType Preprocessor::TextBlock::getEnd() const
 {
-	return start + length;
+	return start + (int)length;
 }
 
 void Preprocessor::TextBlock::throwError(const String& error)
@@ -356,7 +356,7 @@ Array<Preprocessor::TextBlock> Preprocessor::parseTextBlocks()
 	auto end = code.getCharPointer() + code.length();
 	auto start = code.getCharPointer();
 	auto currentLine = start;
-	auto defaultNewLine = NewLine::getDefault();
+	
 	uint8 firstNewLineChar = '\n';
 	auto lineNumber = 0;
 
@@ -379,7 +379,7 @@ Array<Preprocessor::TextBlock> Preprocessor::parseTextBlocks()
 
 		TextBlock currentBlock(code.getCharPointer(), start);
 		bool isPreprocessor = *start == '#';
-		auto breakCharacter = isPreprocessor ? '\n' : '#';
+		uint8 breakCharacter = isPreprocessor ? '\n' : '#';
 
 		while (start < end)
 		{
@@ -558,6 +558,7 @@ juce::SparseSet<int> Preprocessor::getDeactivatedLines()
 	catch (ParserHelpers::Error& e)
 	{
 		DBG(e.toString());
+		ignoreUnused(e);
 	}
 
 	return deactivatedLines;

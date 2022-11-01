@@ -800,7 +800,7 @@ void ScriptingObjects::ScriptShader::compileRawCode(const String& code)
 	dirty = true;
 }
 
-struct Result ScriptingObjects::ScriptShader::processErrorMessage(const Result& r)
+Result ScriptingObjects::ScriptShader::processErrorMessage(const Result& r)
 {
 	return r;
 }
@@ -1295,6 +1295,7 @@ struct ScriptingObjects::GraphicsObject::Wrapper
 	API_VOID_METHOD_WRAPPER_2(GraphicsObject, fillRoundedRectangle);
 	API_VOID_METHOD_WRAPPER_5(GraphicsObject, drawLine);
 	API_VOID_METHOD_WRAPPER_3(GraphicsObject, drawHorizontalLine);
+	API_VOID_METHOD_WRAPPER_3(GraphicsObject, drawVerticalLine);
 	API_VOID_METHOD_WRAPPER_2(GraphicsObject, setFont);
 	API_VOID_METHOD_WRAPPER_3(GraphicsObject, setFontWithSpacing);
 	API_VOID_METHOD_WRAPPER_2(GraphicsObject, drawText);
@@ -1348,6 +1349,7 @@ ScriptingObjects::GraphicsObject::GraphicsObject(ProcessorWithScriptingContent *
 	ADD_API_METHOD_2(fillRoundedRectangle);
 	ADD_API_METHOD_5(drawLine);
 	ADD_API_METHOD_3(drawHorizontalLine);
+	ADD_API_METHOD_3(drawVerticalLine);
 	ADD_API_METHOD_2(setFont);
 	ADD_API_METHOD_3(setFontWithSpacing);
 	ADD_API_METHOD_2(drawText);
@@ -1646,6 +1648,11 @@ void ScriptingObjects::GraphicsObject::drawRoundedRectangle(var area, var corner
 void ScriptingObjects::GraphicsObject::drawHorizontalLine(int y, float x1, float x2)
 {
 	drawActionHandler.addDrawAction(new ScriptedDrawActions::drawHorizontalLine(y, SANITIZED(x1), SANITIZED(x2)));
+}
+
+void ScriptingObjects::GraphicsObject::drawVerticalLine(int x, float y1, float y2)
+{
+	drawActionHandler.addDrawAction(new ScriptedDrawActions::drawVerticalLine(x, SANITIZED(y1), SANITIZED(y2)));
 }
 
 void ScriptingObjects::GraphicsObject::setOpacity(float alphaValue)
@@ -2061,6 +2068,7 @@ void ScriptingObjects::ScriptedLookAndFeel::registerFunction(var functionName, v
 {
 	if (HiseJavascriptEngine::isJavascriptFunction(function))
 	{
+		addOptimizableFunction(function);
 		functions.getDynamicObject()->setProperty(Identifier(functionName.toString()), function);
 	}
 }
@@ -2247,6 +2255,19 @@ var ScriptingObjects::ScriptedLookAndFeel::callDefinedFunction(const Identifier&
 	}
 
 	return {};
+}
+
+hise::DebugableObjectBase::Location ScriptingObjects::ScriptedLookAndFeel::getLocation() const
+{
+	for (const auto& s : functions.getDynamicObject()->getProperties())
+	{
+		if (auto obj = dynamic_cast<DebugableObjectBase*>(s.value.getObject()))
+		{
+			return obj->getLocation();
+		}
+	}
+
+	return Location();
 }
 
 Identifier ScriptingObjects::ScriptedLookAndFeel::Laf::getIdOfParentFloatingTile(Component& c)
@@ -2905,12 +2926,13 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawPresetBrowserBackground(Gra
 	PresetBrowserLookAndFeelMethods::drawPresetBrowserBackground(g_, p);
 }
 
-void ScriptingObjects::ScriptedLookAndFeel::Laf::drawColumnBackground(Graphics& g_, Rectangle<int> listArea, const String& emptyText)
+void ScriptingObjects::ScriptedLookAndFeel::Laf::drawColumnBackground(Graphics& g_, int columnIndex, Rectangle<int> listArea, const String& emptyText)
 {
 	if (functionDefined("drawPresetBrowserColumnBackground"))
 	{
 		auto obj = new DynamicObject();
 		obj->setProperty("area", ApiHelpers::getVarRectangle(listArea.toFloat()));
+		obj->setProperty("columnIndex", columnIndex);
 		obj->setProperty("text", emptyText);
 		obj->setProperty("bgColour", backgroundColour.getARGB());
 		obj->setProperty("itemColour", highlightColour.getARGB());
@@ -2921,7 +2943,7 @@ void ScriptingObjects::ScriptedLookAndFeel::Laf::drawColumnBackground(Graphics& 
 			return;
 	}
 
-	PresetBrowserLookAndFeelMethods::drawColumnBackground(g_, listArea, emptyText);
+	PresetBrowserLookAndFeelMethods::drawColumnBackground(g_, columnIndex, listArea, emptyText);
 }
 
 void ScriptingObjects::ScriptedLookAndFeel::Laf::drawListItem(Graphics& g_, int columnIndex, int rowIndex, const String& itemName, Rectangle<int> position, bool rowIsSelected, bool deleteMode, bool hover)
@@ -3828,10 +3850,7 @@ void ScriptingObjects::ScriptedLookAndFeel::loadImage(String imageName, String p
 
 
 
-juce::var ScriptingObjects::ScriptedLookAndFeel::getOptimizableFunctions() const
-{
-	return functions;
-}
+
 
 ScriptingObjects::ScriptedLookAndFeel::LocalLaf::LocalLaf(ScriptedLookAndFeel* l) :
 	Laf(l->getScriptProcessor()->getMainController_()),

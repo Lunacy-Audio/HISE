@@ -1163,7 +1163,7 @@ struct SpecNode: public NodeBase
 			ScriptnodeExceptionHandler::validateMidiProcessingContext(this);
 			processMidi = true;
 		}
-		catch (scriptnode::Error& e)
+		catch (scriptnode::Error& )
 		{
 			processMidi = false;
 		}
@@ -1455,6 +1455,16 @@ namespace control
 		registerPolyNoProcessNode<control::change<1, parameter::dynamic_base_holder>, control::change<NUM_POLYPHONIC_VOICES, parameter::dynamic_base_holder>, ModulationSourceBaseComponent>();
 
         registerNoProcessNode<dynamic_pack_resizer, data::ui::sliderpack_editor>();
+        
+        ;
+        
+        registerNoProcessNode<wrap::data<pack2_writer, data::dynamic::sliderpack>, data::ui::sliderpack_editor_without_mod>();
+        registerNoProcessNode<wrap::data<pack3_writer, data::dynamic::sliderpack>, data::ui::sliderpack_editor_without_mod>();
+        registerNoProcessNode<wrap::data<pack4_writer, data::dynamic::sliderpack>, data::ui::sliderpack_editor_without_mod>();
+        registerNoProcessNode<wrap::data<pack5_writer, data::dynamic::sliderpack>, data::ui::sliderpack_editor_without_mod>();
+        registerNoProcessNode<wrap::data<pack6_writer, data::dynamic::sliderpack>, data::ui::sliderpack_editor_without_mod>();
+        registerNoProcessNode<wrap::data<pack7_writer, data::dynamic::sliderpack>, data::ui::sliderpack_editor_without_mod>();
+        registerNoProcessNode<wrap::data<pack8_writer, data::dynamic::sliderpack>, data::ui::sliderpack_editor_without_mod>();
         
 		registerNoProcessNode<control::sliderbank_editor::NodeType, control::sliderbank_editor, false>();
 		registerNoProcessNode<dynamic_cable_pack, data::ui::sliderpack_editor>();
@@ -1750,9 +1760,29 @@ namespace core
 template <typename T> using dp = wrap::data<T, data::dynamic::displaybuffer>;
 
 
+#if !HISE_INCLUDE_FAUST_JIT
+struct faust : public mothernode
+{
+	SNEX_NODE(faust);
 
+	constexpr bool isPolyphonic() const { return false; }
 
-
+	SN_EMPTY_CREATE_PARAM;
+	
+	SN_EMPTY_MOD;
+	SN_EMPTY_PROCESS;
+	SN_EMPTY_PROCESS_FRAME;
+	SN_EMPTY_RESET;
+	SN_EMPTY_HANDLE_EVENT;
+    
+    template <int P> void setParameter(double){};
+    
+	void prepare(PrepareSpecs )
+	{
+		Error::throwError(Error::IllegalFaustNode);
+	}
+};
+#endif
 
 
 Factory::Factory(DspNetwork* network) :
@@ -1782,6 +1812,12 @@ Factory::Factory(DspNetwork* network) :
 	registerModNode<core::snex_node, core::snex_node::editor>();
 	registerNode<waveshapers::dynamic::NodeType, waveshapers::dynamic::editor>();
 #endif
+
+#if HISE_INCLUDE_FAUST_JIT
+	registerPolyNodeRaw<faust::faust_jit_node<1>, faust::faust_jit_node<NUM_POLYPHONIC_VOICES>>();
+#else
+	registerNode<faust>();
+#endif // HISE_INCLUDE_FAUST_JIT
 
 	registerModNode<dp<extra_mod>, data::ui::displaybuffer_editor>();
 	registerModNode<dp<pitch_mod>, data::ui::displaybuffer_editor>();

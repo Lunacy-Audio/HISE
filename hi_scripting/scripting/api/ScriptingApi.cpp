@@ -280,7 +280,7 @@ ScriptingObject(p),
 ApiClass(2),
 messageHolder(nullptr),
 constMessageHolder(nullptr),
-allNotesOffCallback(p, var(), 0)
+allNotesOffCallback(p, nullptr, var(), 0)
 {
 	addConstant("PITCH_BEND_CC", HiseEvent::PitchWheelCCNumber);
 	addConstant("AFTERTOUC_CC", HiseEvent::AfterTouchCCNumber);
@@ -777,7 +777,7 @@ bool ScriptingApi::Message::isArtificial() const
 
 void ScriptingApi::Message::setAllNotesOffCallback(var onAllNotesOffCallback)
 {
-	allNotesOffCallback = WeakCallbackHolder(getScriptProcessor(), onAllNotesOffCallback, 0);
+	allNotesOffCallback = WeakCallbackHolder(getScriptProcessor(), this, onAllNotesOffCallback, 0);
 	allNotesOffCallback.incRefCount();
 }
 
@@ -1595,7 +1595,8 @@ void ScriptingApi::Engine::showYesNoWindow(String title, String markdownMessage,
 	//auto p = dynamic_cast<JavascriptProcessor*>(getScriptProcessor());
 	auto p = getScriptProcessor();
 
-	WeakCallbackHolder cb(p, callback, 1);
+	WeakCallbackHolder cb(p, this, callback, 1);
+	cb.incRefCount();
 
 	auto f = [markdownMessage, title, cb]() mutable
 	{
@@ -1673,8 +1674,7 @@ struct AudioRenderer : public Thread,
 	AudioRenderer(ProcessorWithScriptingContent* pwsc, var eventList_, var finishCallback_):
 		Thread("AudioExportThread"),
 		ControlledObject(pwsc->getMainController_()),
-
-		finishCallback(pwsc, finishCallback_, 1)
+		finishCallback(pwsc, nullptr, finishCallback_, 1)
 	{
 		finishCallback.incRefCount();
 		finishCallback.setHighPriority();
@@ -1692,7 +1692,7 @@ struct AudioRenderer : public Thread,
 
 		if (!events.isEmpty())
 		{
-			if (bufferSize = getMainController()->getMainSynthChain()->getLargestBlockSize())
+			if ((bufferSize = getMainController()->getMainSynthChain()->getLargestBlockSize()) != 0)
 			{
 				numSamplesToRender = (int)events.getEvent(events.getNumUsed() - 1).getTimeStamp();
 
@@ -1926,7 +1926,7 @@ struct ScriptingApi::Engine::PreviewHandler: public ControlledObject,
 			ControlledObject(p->getMainController_()),
 			SimpleTimer(p->getMainController_()->getGlobalUIUpdater(), true),
 			bufferToPreview(buffer),
-			callback(p, callbackFunction, 2)
+			callback(p, nullptr, callbackFunction, 2)
 		{
 			callback.incRefCount();
 			memset(channels, 0, sizeof(float*) * HISE_NUM_PLUGIN_CHANNELS);
@@ -3203,25 +3203,28 @@ var ScriptingApi::Engine::getRegexMatches(String stringToMatch, String wildcard)
         std::regex reg(wildcard.toStdString());
         std::smatch match;
 
-        if (std::regex_search(s, match, reg))
+		var returnArray = var();
+
+		// If you're trying to find more than 100000 matches here
+		// then you need to step back and evaluate some life choices that
+		// lead you to this moment.
+		int safeCount = 0;
+
+        while (std::regex_search(s, match, reg) && ++safeCount < 100000)
         {
-            var returnArray = var();
-
-            for (auto x:match)
-            {
+			for (auto x:match)
                 returnArray.insert(-1, String(x));
-            }
 
-            return returnArray;
+			s = match.suffix();
         }
+
+		return returnArray;
     }
     catch (std::regex_error e)
     {
         debugError(getProcessor(), e.what());
         return var::undefined();
     }
-
-    return var::undefined();
 }
 
 String ScriptingApi::Engine::doubleToString(double value, int digits)
@@ -5349,7 +5352,7 @@ var ScriptingApi::Synth::getAllEffects(String regex)
         return var(list);
     }
 
-	RETURN_IF_NO_THROW(var());
+	RETURN_IF_NO_THROW({});
 }
 
 ScriptingObjects::ScriptingAudioSampleProcessor * ScriptingApi::Synth::getAudioSampleProcessor(const String &name)
@@ -6539,6 +6542,8 @@ var ScriptingApi::FileSystem::findFiles(var directory, String wildcard, bool rec
 	{
 		if (root->isDirectory())
 		{
+			HiseJavascriptEngine::TimeoutExtender ts(dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine());
+
 			auto list = root->f.findChildFiles(File::findFilesAndDirectories | File::ignoreHiddenFiles, recursive, wildcard);
 
 			for (auto sf : list)
@@ -6619,7 +6624,7 @@ void ScriptingApi::FileSystem::browseInternally(File f, bool forSaving, bool isD
 {
 	auto p_ = p;
 
-	WeakCallbackHolder wc(p_, callback, 1);
+	WeakCallbackHolder wc(p_, this, callback, 1);
 	wc.setHighPriority();
 	wc.incRefCount();
 
@@ -6775,7 +6780,7 @@ ScriptingApi::Server::Server(JavascriptProcessor* jp_):
 	ScriptingObject(dynamic_cast<ProcessorWithScriptingContent*>(jp_)),
 	jp(jp_),
 	globalServer(*getScriptProcessor()->getMainController_()->getJavascriptThreadPool().getGlobalServer()),
-	serverCallback(getScriptProcessor(), {}, 1)
+	serverCallback(getScriptProcessor(), this, {}, 1)
 {
 	globalServer.addListener(this);
 
@@ -6908,7 +6913,7 @@ void ScriptingApi::Server::cleanFinishedDownloads()
 
 void ScriptingApi::Server::setServerCallback(var callback)
 {
-	serverCallback = WeakCallbackHolder(getScriptProcessor(), callback, 1);
+	serverCallback = WeakCallbackHolder(getScriptProcessor(), this, callback, 1);
 	serverCallback.incRefCount();
 }
 
@@ -6918,13 +6923,15 @@ bool ScriptingApi::Server::isEmailAddress(String email)
 	return u.isProbablyAnEmailAddress(email);
 }
 
-ScriptingApi::TransportHandler::Callback::Callback(TransportHandler* p, const var& f, bool sync, int numArgs_) :
-	callback(p->getScriptProcessor(), f, numArgs_),
+ScriptingApi::TransportHandler::Callback::Callback(TransportHandler* p, const String& name, const var& f, bool sync, int numArgs_) :
+	callback(p->getScriptProcessor(), p, f, numArgs_),
 	jp(dynamic_cast<JavascriptProcessor*>(p->getScriptProcessor())),
 	synchronous(sync),
 	th(p),
 	numArgs(numArgs_)
 {
+	callback.addAsSource(p, name);
+
 	if (synchronous)
 	{
 		auto fObj = dynamic_cast<HiseJavascriptEngine::RootObject::InlineFunction::Object*>(f.getObject());
@@ -7025,14 +7032,14 @@ void ScriptingApi::TransportHandler::setOnTempoChange(bool sync, var f)
 	{
 		clearIf(tempoChangeCallbackAsync, f);
 
-		tempoChangeCallback = new Callback(this, f, sync, 1);
+		tempoChangeCallback = new Callback(this, "onTempoChange", f, sync, 1);
 		tempoChangeCallback->call(bpm, {}, {}, true);
 	}
 	else
 	{
 		clearIf(tempoChangeCallback, f);
 
-		tempoChangeCallbackAsync = new Callback(this, f, sync, 1);
+		tempoChangeCallbackAsync = new Callback(this, "onTempoChange", f, sync, 1);
 		tempoChangeCallbackAsync->call(bpm, {}, {}, true);
 	}
 }
@@ -7043,14 +7050,14 @@ void ScriptingApi::TransportHandler::setOnTransportChange(bool sync, var f)
 	{
 		clearIf(tempoChangeCallbackAsync, f);
 
-		transportChangeCallback = new Callback(this, f, sync, 1);
+		transportChangeCallback = new Callback(this, "onTransportChange", f, sync, 1);
 		transportChangeCallback->call(play, {}, {}, true);
 	}
 	else
 	{
 		clearIf(transportChangeCallback, f);
 
-		transportChangeCallbackAsync = new Callback(this, f, sync, 1);
+		transportChangeCallbackAsync = new Callback(this, "onTransportChange", f, sync, 1);
 		transportChangeCallbackAsync->call(play, {}, {}, true);
 	}
 	
@@ -7062,14 +7069,14 @@ void ScriptingApi::TransportHandler::setOnSignatureChange(bool sync, var f)
 	{
 		clearIf(timeSignatureCallbackAsync, f);
 
-		timeSignatureCallback = new Callback(this, f, sync, 2);
+		timeSignatureCallback = new Callback(this, "onTimeSignatureChange", f, sync, 2);
 		timeSignatureCallback->call(nom, denom, {}, true);
 	}
 	else
 	{
 		clearIf(timeSignatureCallback, f);
 
-		timeSignatureCallbackAsync = new Callback(this, f, sync, 2);
+		timeSignatureCallbackAsync = new Callback(this, "onTimeSignatureChange", f, sync, 2);
 		timeSignatureCallbackAsync->call(nom, denom, {}, true);
 	}
 }
@@ -7146,12 +7153,12 @@ void ScriptingApi::TransportHandler::setOnBeatChange(bool sync, var f)
 		if (sync)
 		{
 			clearIf(beatCallbackAsync, f);
-			beatCallback = new Callback(this, f, sync, 2);
+			beatCallback = new Callback(this, "onBeatChange", f, sync, 2);
 		}
 		else
 		{
 			clearIf(beatCallback, f);
-			beatCallbackAsync = new Callback(this, f, sync, 2);
+			beatCallbackAsync = new Callback(this, "onBeatChange", f, sync, 2);
 		}
 	}
 }
@@ -7167,12 +7174,12 @@ void ScriptingApi::TransportHandler::setOnGridChange(bool sync, var f)
 		if (sync)
 		{
 			clearIf(gridCallbackAsync, f);
-			gridCallback = new Callback(this, f, sync, 3);
+			gridCallback = new Callback(this, "onGridChange", f, sync, 3);
 		}
 		else
 		{
 			clearIf(gridCallback, f);
-			gridCallbackAsync = new Callback(this, f, sync, 3);
+			gridCallbackAsync = new Callback(this, "onGridChange", f, sync, 3);
 		}
 	}
 }

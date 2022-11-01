@@ -657,7 +657,7 @@ public:
 
 	void editJSON();
 
-	FloatingTilePopup* showComponentInRootPopup(Component* newComponent, Component* attachedComponent, Point<int> localPoint, bool wrapInViewport=false);
+	FloatingTilePopup* showComponentInRootPopup(Component* newComponent, Component* attachedComponent, Point<int> localPoint, bool wrapInViewport=false, bool maximiseViewport=false);
 
 	FloatingTilePopup* showComponentAsDetachedPopup(Component* newComponent, Component* attachedComponent, Point<int> localPoint, bool wrapInViewport = false);
 
@@ -862,6 +862,7 @@ private:
 class FloatingTileDocumentWindow : public DocumentWindow,
 								   public ComponentWithBackendConnection,
 								   public TopLevelWindowWithOptionalOpenGL,
+                                   public TopLevelWindowWithKeyMappings,
 							       public ModalBaseWindow
 {
 public:
@@ -888,6 +889,14 @@ public:
 	virtual const MainController* getMainControllerToUse() const;
 	virtual MainController* getMainControllerToUse();
 
+    void initialiseAllKeyPresses() override;
+    
+    
+    File getKeyPressSettingFile() const override
+    {
+        return ProjectHandler::getAppDataDirectory().getChildFile("KeyPressMapping.xml");
+    }
+    
 private:
 
 	BackendRootWindow* parent;
@@ -898,13 +907,15 @@ private:
 
 struct FloatingTileHelpers
 {
+	static const Identifier getTileID(FloatingTile* parent);
 	template <class ContentType> static ContentType* findTileWithId(FloatingTile* root, const Identifier& id)
 	{
 		FloatingTile::Iterator<ContentType> iter(root);
 
 		while (auto t = iter.getNextPanel())
 		{
-			if (t->getParentShell()->getLayoutData().getID() == id || id.isNull())
+			auto tid = getTileID(t->getParentShell());
+			if (tid == id || id.isNull())
 				return t;
 		}
 

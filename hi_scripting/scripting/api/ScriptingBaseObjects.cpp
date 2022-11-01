@@ -404,9 +404,52 @@ juce::var ValueTreeConverters::convertStringIfNumeric(const var& value)
 	{
 		auto asString = value.toString();
 
-		if (asString.containsOnly("1234567890"))
+		auto s = asString.begin();
+		auto e = asString.end();
+
+		int numNonNumeric = 0;
+		int numDigits = 0;
+		int numDots = 0;
+
+		// Unfortunately, this will parse version numbers (1.0.0) as double,
+		// so we need to do a better way of detecting double numbers...
+		//if (asString.containsOnly("1234567890."))
+		//	return var((double)value);
+
+		// This beauty will be used in programming 101 books from now on...
+		while (s != e)
+		{
+			auto isDigit = CharacterFunctions::isDigit(*s) || 
+						   *s == '-'; // because of negative numbers, yo.
+
+			numDigits += (int)isDigit;
+			
+			if (!isDigit)
+			{
+				numDots += (int)(*s == '.'); // because branching is for losers.
+				numNonNumeric++;
+			}
+			
+			// We've seen enough, thanks.
+			if (numNonNumeric > 1)
+				break;
+
+			++s;
+		}
+
+		auto isAnIntForSure = numDigits != 0 && numNonNumeric == 0 && numDots == 0;
+
+		auto isAnInt64ForSure = isAnIntForSure && (std::abs((int64)value) > (int64)(INT_MAX));
+
+		auto isADoubleForSure = numDigits != 0 && numNonNumeric == 1 && numDots == 1;
+
+		if (isAnInt64ForSure)
+			return var((int64)value);
+
+		if (isAnIntForSure)
 			return var((int)value);
-		else if (asString.containsOnly("1234567890."))
+
+		if (isADoubleForSure)
 			return var((double)value);
 	}
 
@@ -549,11 +592,14 @@ bool ValueTreeConverters::isLikelyVarArray(const ValueTree& v)
 	return true;
 }
 
-WeakCallbackHolder::WeakCallbackHolder(ProcessorWithScriptingContent* p, const var& callback, int numExpectedArgs_) :
+WeakCallbackHolder::WeakCallbackHolder(ProcessorWithScriptingContent* p, ApiClass* parentObject, const var& callback, int numExpectedArgs_) :
 	ScriptingObject(p),
 	r(Result::ok()),
 	numExpectedArgs(numExpectedArgs_)
 {
+	if (parentObject != nullptr)
+		parentObject->addOptimizableFunction(callback);
+
 	if (auto jp = dynamic_cast<JavascriptProcessor*>(p))
 	{
 		engineToUse = jp->getScriptEngine();
@@ -584,6 +630,7 @@ WeakCallbackHolder::WeakCallbackHolder(const WeakCallbackHolder& copy) :
 	engineToUse(copy.engineToUse),
 	anonymousFunctionRef(copy.anonymousFunctionRef),
 	thisObject(copy.thisObject),
+	refCountedThisObject(copy.refCountedThisObject),
 	capturedLocals(copy.capturedLocals)
 {
 	args.addArray(copy.args);
@@ -597,6 +644,7 @@ WeakCallbackHolder::WeakCallbackHolder(WeakCallbackHolder&& other):
 	highPriority(other.highPriority),
 	anonymousFunctionRef(other.anonymousFunctionRef),
 	engineToUse(other.engineToUse),
+	refCountedThisObject(other.refCountedThisObject),
 	thisObject(other.thisObject),
 	capturedLocals(other.capturedLocals)
 {
@@ -620,6 +668,7 @@ hise::WeakCallbackHolder& WeakCallbackHolder::operator=(WeakCallbackHolder&& oth
 	highPriority = other.highPriority;
 	anonymousFunctionRef = other.anonymousFunctionRef;
 	engineToUse = other.engineToUse;
+	refCountedThisObject = other.refCountedThisObject;
 	thisObject = other.thisObject;
 	capturedLocals = other.capturedLocals;
 	args.swapWith(other.args);
@@ -634,8 +683,19 @@ hise::DebugInformationBase* WeakCallbackHolder::createDebugObject(const String& 
 	{
 		return new ObjectDebugInformationWithCustomName(dynamic_cast<DebugableObjectBase*>(weakCallback.get()), (int)DebugInformation::Type::Callback, "%PARENT%." + n);
 	}
+	else
+	{
+		return new DebugInformation(DebugInformation::Type::Constant);
+	}
+}
 
-	return nullptr;
+void WeakCallbackHolder::addAsSource(DebugableObjectBase* sourceObject, const String& callbackId)
+{
+	if (weakCallback != nullptr)
+	{
+		auto id = sourceObject->getDebugName() + "." + callbackId;
+		weakCallback->addAsSource(sourceObject, Identifier(id));
+	}
 }
 
 void WeakCallbackHolder::clear()
@@ -656,6 +716,11 @@ void WeakCallbackHolder::setThisObject(ReferenceCountedObject* thisObj)
 	jassert(anonymousFunctionRef.isObject());
 }
 
+void WeakCallbackHolder::setThisObjectRefCounted(const var& t)
+{
+	refCountedThisObject = t;
+}
+
 bool WeakCallbackHolder::matches(const var& f) const
 {
 	return weakCallback == dynamic_cast<CallableObject*>(f.getObject());
@@ -663,6 +728,9 @@ bool WeakCallbackHolder::matches(const var& f) const
 
 juce::var WeakCallbackHolder::getThisObject()
 {
+	if (refCountedThisObject.isObject())
+		return refCountedThisObject;
+
 	if (auto d = dynamic_cast<ReferenceCountedObject*>(thisObject.get()))
 	{
 		return var(d);
@@ -673,21 +741,24 @@ juce::var WeakCallbackHolder::getThisObject()
 
 void WeakCallbackHolder::call(var* arguments, int numArgs)
 {
+	call(var::NativeFunctionArgs(var(), arguments, numArgs));
+}
+
+void WeakCallbackHolder::call(const var::NativeFunctionArgs& args)
+{
 	try
 	{
 		if (weakCallback != nullptr && getScriptProcessor() != nullptr)
 		{
-			checkArguments("external call", numArgs, numExpectedArgs);
+			checkArguments("external call", args.numArguments, numExpectedArgs);
 			auto copy = *this;
-			copy.args.addArray(arguments, numArgs);
+			copy.args.addArray(args.arguments, args.numArguments);
 
-			var thisObj;
-
-			if (thisObject.get() != nullptr)
-				thisObj = var(dynamic_cast<ReferenceCountedObject*>(thisObject.get()));
-
-			var::NativeFunctionArgs args_(thisObj, arguments, numArgs);
-			checkValidArguments(args_);
+			{
+				var::NativeFunctionArgs args_(var(), args.arguments, args.numArguments);
+				checkValidArguments(args_);
+			}
+			
 			auto t = highPriority ? JavascriptThreadPool::Task::HiPriorityCallbackExecution : JavascriptThreadPool::Task::LowPriorityCallbackExecution;
 			getScriptProcessor()->getMainController_()->getJavascriptThreadPool().addJob(t, dynamic_cast<JavascriptProcessor*>(getScriptProcessor()), copy);
 		}
@@ -713,7 +784,7 @@ Result WeakCallbackHolder::callSync(const var::NativeFunctionArgs& a, var* retur
 	if (engineToUse.get() == nullptr || engineToUse->getRootObject() == nullptr)
 	{
 		clear();
-		return Result::fail("Engine is dangling");
+        return Result::ok();
 	}
 
 	if (weakCallback.get() != nullptr)
@@ -906,6 +977,16 @@ Result WeakCallbackHolder::CallableObject::call(HiseJavascriptEngine* engine, co
 		*returnValue = rv;
 
 	return lastResult;
+}
+
+void ConstScriptingObject::gotoLocationWithDatabaseLookup()
+{
+	auto p = dynamic_cast<Processor*>(getScriptProcessor());
+	
+	if (auto loc = DebugableObject::Helpers::getLocationFromProvider(p, this))
+	{
+		DebugableObject::Helpers::gotoLocation(nullptr, dynamic_cast<JavascriptProcessor*>(p), loc);
+	}
 }
 
 } // namespace hise
