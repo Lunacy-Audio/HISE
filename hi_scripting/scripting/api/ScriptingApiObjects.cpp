@@ -194,8 +194,7 @@ struct ScriptingObjects::ScriptFile::Wrapper
 	API_METHOD_WRAPPER_1(ScriptFile, toString);
 	API_METHOD_WRAPPER_0(ScriptFile, isFile);
 	API_METHOD_WRAPPER_0(ScriptFile, isDirectory);
-	API_METHOD_WRAPPER_1(ScriptFile, moveFileTo);
-	API_METHOD_WRAPPER_1(ScriptFile, copyFileTo);
+	API_METHOD_WRAPPER_0(ScriptFile, hasWriteAccess);
 	API_METHOD_WRAPPER_1(ScriptFile, writeObject);
 	API_METHOD_WRAPPER_2(ScriptFile, writeAsXmlFile);
 	API_METHOD_WRAPPER_0(ScriptFile, loadFromXmlFile);
@@ -254,9 +253,8 @@ ScriptingObjects::ScriptFile::ScriptFile(ProcessorWithScriptingContent* p, const
 	ADD_API_METHOD_1(setExecutePermission);
 	ADD_API_METHOD_1(startAsProcess);
 	ADD_API_METHOD_0(isDirectory);
-	ADD_API_METHOD_1(moveFileTo);
-	ADD_API_METHOD_1(copyFileTo);
 	ADD_API_METHOD_0(deleteFileOrDirectory);
+	ADD_API_METHOD_0(hasWriteAccess);
 	ADD_API_METHOD_1(writeObject);
 	ADD_API_METHOD_1(writeString);
 	ADD_API_METHOD_2(writeEncryptedObject);
@@ -330,6 +328,12 @@ String ScriptingObjects::ScriptFile::getHash()
 	return SHA256(f).toHexString();
 };
 
+bool ScriptingObjects::ScriptFile::hasWriteAccess()
+{
+	return f.hasWriteAccess();
+};
+
+
 String ScriptingObjects::ScriptFile::toString(int formatType) const
 {
 	switch (formatType)
@@ -379,24 +383,6 @@ bool ScriptingObjects::ScriptFile::isFile() const
 bool ScriptingObjects::ScriptFile::isDirectory() const
 {
 	return f.isDirectory();
-}
-
-bool ScriptingObjects::ScriptFile::moveFileTo(String targetLocation)
-{
-	if (targetLocation.isNotEmpty()) {
-		File targetFile = f.getSiblingFile(targetLocation);
-		return f.moveFileTo(targetFile);
-	}
-	return false;
-}
-
-bool ScriptingObjects::ScriptFile::copyFileTo(String targetLocation)
-{
-	if (targetLocation.isNotEmpty()) {
-		File targetFile = f.getSiblingFile(targetLocation);
-		return f.copyFileTo(targetFile);
-	}
-	return false;
 }
 
 bool ScriptingObjects::ScriptFile::deleteFileOrDirectory()
@@ -6613,6 +6599,9 @@ void ScriptingObjects::ScriptFFT::applyInverseFFT(int numChannelsThisTime)
 struct ScriptingObjects::GlobalRoutingManagerReference::Wrapper
 {
 	API_METHOD_WRAPPER_1(GlobalRoutingManagerReference, getCable);
+	API_METHOD_WRAPPER_2(GlobalRoutingManagerReference, connectToOSC);
+	API_METHOD_WRAPPER_2(GlobalRoutingManagerReference, sendOSCMessage);
+	API_VOID_METHOD_WRAPPER_2(GlobalRoutingManagerReference, addOSCCallback);
 };
 
 
@@ -6625,6 +6614,21 @@ ScriptingObjects::GlobalRoutingManagerReference::GlobalRoutingManagerReference(P
 	manager = ptr.get();
 
 	ADD_API_METHOD_1(getCable);
+	ADD_API_METHOD_2(connectToOSC);
+	ADD_API_METHOD_2(sendOSCMessage);
+	ADD_API_METHOD_2(addOSCCallback);
+}
+
+ScriptingObjects::GlobalRoutingManagerReference::~GlobalRoutingManagerReference()
+{
+	if (auto m = dynamic_cast<scriptnode::routing::GlobalRoutingManager*>(manager.getObject()))
+	{
+		if (auto r = dynamic_cast<OSCReceiver*>(m->receiver.get()))
+			r->removeListener(this);
+
+		for (auto c : callbacks)
+			m->scriptCallbackPatterns.removeAllInstancesOf(c->fullAddress);
+	}
 }
 
 scriptnode::routing::GlobalRoutingManager::Cable* getCableFromVar(const var& v)
@@ -6640,6 +6644,38 @@ scriptnode::routing::GlobalRoutingManager::Cable* getCableFromVar(const var& v)
 Component* ScriptingObjects::GlobalRoutingManagerReference::createPopupComponent(const MouseEvent& e, Component *c)
 {
 	return scriptnode::routing::GlobalRoutingManager::Helpers::createDebugViewer(getScriptProcessor()->getMainController_());
+}
+
+void ScriptingObjects::GlobalRoutingManagerReference::oscBundleReceived(const OSCBundle& bundle)
+{
+	for (const auto& element : bundle)
+	{
+		if (element.isMessage())
+			oscMessageReceived(element.getMessage());
+		else if (element.isBundle())
+			oscBundleReceived(element.getBundle());
+	}
+}
+
+void ScriptingObjects::GlobalRoutingManagerReference::oscMessageReceived(const OSCMessage& message)
+{
+	if (auto m = dynamic_cast<scriptnode::routing::GlobalRoutingManager*>(manager.getObject()))
+	{
+		auto ap = message.getAddressPattern();
+
+		if (!ap.containsWildcards())
+		{
+			OSCAddress a(ap.toString());
+
+			for (auto c : callbacks)
+			{
+				if (c->shouldFire(a))
+				{
+					c->callForMessage(message);
+				}
+			}
+		}
+	}
 }
 
 juce::var ScriptingObjects::GlobalRoutingManagerReference::getCable(String cableId)
@@ -6895,10 +6931,15 @@ struct ScriptingObjects::GlobalCableReference::Callback: public scriptnode::rout
 		id << dynamic_cast<Processor*>(p.getScriptProcessor())->getId();
 		id << ".";
 
-		if (auto ilf = dynamic_cast<HiseJavascriptEngine::RootObject::InlineFunction::Object*>(f.getObject()))
+		auto ilf = dynamic_cast<WeakCallbackHolder::CallableObject*>(f.getObject());
+
+		if (ilf != nullptr && (!synchronous || ilf->isRealtimeSafe()))
 		{
-			id << ilf->name;
-			funcLocation = ilf->getLocation();
+			if (auto dobj = dynamic_cast<DebugableObjectBase*>(ilf))
+			{
+				id << dobj->getDebugName();
+				funcLocation = dobj->getLocation();
+			}
 
 			callback.incRefCount();
 			callback.setHighPriority();
@@ -7674,6 +7715,8 @@ ScriptingObjects::ScriptErrorHandler::~ScriptErrorHandler()
 {
 	getScriptProcessor()->getMainController_()->removeOverlayListener(this);
 }
+
+
 
 
 

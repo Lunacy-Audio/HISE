@@ -990,4 +990,3 @@ void ConstScriptingObject::gotoLocationWithDatabaseLookup()
 }
 
 } // namespace hise
-

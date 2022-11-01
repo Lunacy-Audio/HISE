@@ -16,10 +16,9 @@
 //==============================================================================
 // [BEGIN_USER_CODE_SECTION]
 
-#define JUCE_ENABLE_AUDIO_GUARD 0
-#define JUCE_DONT_ASSERT_ON_GLSL_COMPILE_ERROR 1
-
 // (You can add your own code in this section, and the Projucer will not overwrite it)
+
+#define DONT_SET_USING_JUCE_NAMESPACE 1
 
 // [END_USER_CODE_SECTION]
 
@@ -56,8 +55,6 @@
 #define JUCE_MODULE_AVAILABLE_hi_dsp_library              1
 #define JUCE_MODULE_AVAILABLE_hi_faust                    1
 #define JUCE_MODULE_AVAILABLE_hi_faust_jit                1
-#define JUCE_MODULE_AVAILABLE_hi_faust_lib                1
-#define JUCE_MODULE_AVAILABLE_hi_faust_types              1
 #define JUCE_MODULE_AVAILABLE_hi_lac                      1
 #define JUCE_MODULE_AVAILABLE_hi_modules                  1
 #define JUCE_MODULE_AVAILABLE_hi_rlottie                  1
@@ -130,8 +127,12 @@
  #define   USE_COPY_PROTECTION 0
 #endif
 
+#ifndef    USE_SCRIPT_COPY_PROTECTION
+ //#define USE_SCRIPT_COPY_PROTECTION 0
+#endif
+
 #ifndef    USE_IPP
- #define   USE_IPP 0
+ #define   USE_IPP 1
 #endif
 
 #ifndef    USE_VDSP_FFT
@@ -148,6 +149,10 @@
 
 #ifndef    FORCE_INPUT_CHANNELS
  //#define FORCE_INPUT_CHANNELS 0
+#endif
+
+#ifndef    HISE_DEACTIVATE_OVERLAY
+ //#define HISE_DEACTIVATE_OVERLAY 0
 #endif
 
 #ifndef    HISE_MIDIFX_PLUGIN
@@ -182,6 +187,10 @@
  #define   ENABLE_PLOTTER 1
 #endif
 
+#ifndef    HISE_NUM_MACROS
+ //#define HISE_NUM_MACROS 1
+#endif
+
 #ifndef    ENABLE_SCRIPTING_SAFE_CHECKS
  #define   ENABLE_SCRIPTING_SAFE_CHECKS 1
 #endif
@@ -198,6 +207,10 @@
  #define   HISE_ENABLE_MIDI_INPUT_FOR_FX 1
 #endif
 
+#ifndef    HISE_COMPLAIN_ABOUT_ILLEGAL_BUFFER_SIZE
+ //#define HISE_COMPLAIN_ABOUT_ILLEGAL_BUFFER_SIZE 1
+#endif
+
 #ifndef    ENABLE_ALL_PEAK_METERS
  #define   ENABLE_ALL_PEAK_METERS 1
 #endif
@@ -206,12 +219,24 @@
  //#define READ_ONLY_FACTORY_PRESETS 0
 #endif
 
+#ifndef    CONFIRM_PRESET_OVERWRITE
+ //#define CONFIRM_PRESET_OVERWRITE 1
+#endif
+
 #ifndef    ENABLE_CONSOLE_OUTPUT
  //#define ENABLE_CONSOLE_OUTPUT 1
 #endif
 
 #ifndef    ENABLE_HOST_INFO
  //#define ENABLE_HOST_INFO 1
+#endif
+
+#ifndef    HISE_USE_OPENGL_FOR_PLUGIN
+ //#define HISE_USE_OPENGL_FOR_PLUGIN 0
+#endif
+
+#ifndef    HISE_DEFAULT_OPENGL_VALUE
+ //#define HISE_DEFAULT_OPENGL_VALUE 1
 #endif
 
 #ifndef    ENABLE_STARTUP_LOGGER
@@ -469,6 +494,10 @@
  //#define JUCE_FORCE_DEBUG 0
 #endif
 
+#ifndef    JUCE_ENABLE_AUDIO_GUARD
+ //#define JUCE_ENABLE_AUDIO_GUARD 0
+#endif
+
 #ifndef    JUCE_LOG_ASSERTIONS
  //#define JUCE_LOG_ASSERTIONS 0
 #endif
@@ -598,6 +627,13 @@
 
 #ifndef    JUCE_ENABLE_LIVE_CONSTANT_EDITOR
  //#define JUCE_ENABLE_LIVE_CONSTANT_EDITOR 0
+#endif
+
+//==============================================================================
+// juce_product_unlocking flags:
+
+#ifndef    JUCE_USE_BETTER_MACHINE_IDS
+ //#define JUCE_USE_BETTER_MACHINE_IDS 0
 #endif
 
 //==============================================================================

@@ -304,6 +304,9 @@ namespace ScriptingObjects
 		/** Reads a file and generates the hash of its contents. */
 		String getHash();
 
+		/** true if it's possible to create and write to this file. If the file doesn't already exist, this will check its parent directory to see if writing is allowed. */
+		bool hasWriteAccess();
+
 		/** Returns a String representation of that file. */
 		String toString(int formatType) const;
 		
@@ -315,12 +318,6 @@ namespace ScriptingObjects
 
 		/** Checks if this file exists and is a directory. */
 		bool isDirectory() const;
-
-		/** Moves or renames file and returns true if operation succeeded */
-		bool moveFileTo(String targetLocation);
-
-		/** Copies file and returns true if operation succeeded */
-		bool copyFileTo(String targetLocation);
 
 		/** Deletes the file or directory WITHOUT confirmation. */
 		bool deleteFileOrDirectory();
@@ -2204,18 +2201,42 @@ namespace ScriptingObjects
 
 
 	struct GlobalRoutingManagerReference : public ConstScriptingObject,
-										  public ControlledObject
+										   public ControlledObject,
+										   public WeakErrorHandler,
+										   public OSCReceiver::Listener<OSCReceiver::RealtimeCallback>
+										   
 	{
 		GlobalRoutingManagerReference(ProcessorWithScriptingContent* sp);;
+
+		~GlobalRoutingManagerReference();
 
 		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("GlobalRoutingManager"); }
 
 		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
+		void handleErrorMessage(const String& error) override
+		{
+			if(errorCallback)
+				errorCallback.call1(error);
+		}
+
+		void oscBundleReceived(const OSCBundle& bundle) override;
+
+		void oscMessageReceived(const OSCMessage& message) override;
+
 		// =============================================================================================
 
 		/** Returns a scripted reference to the global cable (and creates a cable with this ID if it can't be found. */
 		var getCable(String cableId);
+
+		/** Allows the global routing manager to send and receive OSC messages through the cables. */
+		bool connectToOSC(var connectionData, var errorFunction);
+
+		/** Register a scripting callback to be executed when a OSC message that matches the subAddress is received. */
+		void addOSCCallback(String oscSubAddress, var callback);
+
+		/** Send an OSC message to the output port. */
+		bool sendOSCMessage(String oscSubAddress, var data);
 
 		// =============================================================================================
 
