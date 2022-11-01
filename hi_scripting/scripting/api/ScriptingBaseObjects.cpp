@@ -595,8 +595,7 @@ bool ValueTreeConverters::isLikelyVarArray(const ValueTree& v)
 WeakCallbackHolder::WeakCallbackHolder(ProcessorWithScriptingContent* p, ApiClass* parentObject, const var& callback, int numExpectedArgs_) :
 	ScriptingObject(p),
 	r(Result::ok()),
-	numExpectedArgs(numExpectedArgs_),
-	trackIndex(0)
+	numExpectedArgs(numExpectedArgs_)
 {
 	if (parentObject != nullptr)
 		parentObject->addOptimizableFunction(callback);
@@ -632,8 +631,7 @@ WeakCallbackHolder::WeakCallbackHolder(const WeakCallbackHolder& copy) :
 	anonymousFunctionRef(copy.anonymousFunctionRef),
 	thisObject(copy.thisObject),
 	refCountedThisObject(copy.refCountedThisObject),
-	capturedLocals(copy.capturedLocals),
-	trackIndex(copy.trackIndex)
+	capturedLocals(copy.capturedLocals)
 {
 	args.addArray(copy.args);
 }
@@ -648,8 +646,7 @@ WeakCallbackHolder::WeakCallbackHolder(WeakCallbackHolder&& other):
 	engineToUse(other.engineToUse),
 	refCountedThisObject(other.refCountedThisObject),
 	thisObject(other.thisObject),
-	capturedLocals(other.capturedLocals),
-	trackIndex(other.trackIndex)
+	capturedLocals(other.capturedLocals)
 {
 	args.swapWith(other.args);
 }
@@ -675,8 +672,8 @@ hise::WeakCallbackHolder& WeakCallbackHolder::operator=(WeakCallbackHolder&& oth
 	thisObject = other.thisObject;
 	capturedLocals = other.capturedLocals;
 	args.swapWith(other.args);
-	trackIndex = other.trackIndex;
-	
+
+
 	return *this;
 }
 
@@ -697,8 +694,7 @@ void WeakCallbackHolder::addAsSource(DebugableObjectBase* sourceObject, const St
 	if (weakCallback != nullptr)
 	{
 		auto id = sourceObject->getDebugName() + "." + callbackId;
-		cid = Identifier(id);
-		weakCallback->addAsSource(sourceObject, callbackId);
+		weakCallback->addAsSource(sourceObject, Identifier(id));
 	}
 }
 
@@ -717,7 +713,7 @@ void WeakCallbackHolder::setThisObject(ReferenceCountedObject* thisObj)
 	thisObject = dynamic_cast<DebugableObjectBase*>(thisObj);
 
 	// Must call incRefCount before this method
-	jassert(weakCallback == nullptr || (anonymousFunctionRef.isObject() || !weakCallback->allowRefCount()));
+	jassert(anonymousFunctionRef.isObject());
 }
 
 void WeakCallbackHolder::setThisObjectRefCounted(const var& t)
@@ -728,12 +724,6 @@ void WeakCallbackHolder::setThisObjectRefCounted(const var& t)
 bool WeakCallbackHolder::matches(const var& f) const
 {
 	return weakCallback == dynamic_cast<CallableObject*>(f.getObject());
-}
-
-void WeakCallbackHolder::reportError(const Result& r)
-{
-	if(!r.wasOk())
-		debugToConsole(dynamic_cast<Processor*>(getScriptProcessor()), r.getErrorMessage());
 }
 
 juce::var WeakCallbackHolder::getThisObject()
@@ -768,19 +758,7 @@ void WeakCallbackHolder::call(const var::NativeFunctionArgs& args)
 				var::NativeFunctionArgs args_(var(), args.arguments, args.numArguments);
 				checkValidArguments(args_);
 			}
-
-			if(trackIndex == 0)
-				trackIndex = getScriptProcessor()->getMainController_()->getRootDispatcher().bumpFlowCounter();
-
-			dispatch::StringBuilder b;
-
-			if(cid.isValid())
-				b << cid;
-			else
-				b << "callback";
-
-			TRACE_EVENT("dispatch", DYNAMIC_STRING_BUILDER(b), perfetto::Flow::ProcessScoped(trackIndex));
-
+			
 			auto t = highPriority ? JavascriptThreadPool::Task::HiPriorityCallbackExecution : JavascriptThreadPool::Task::LowPriorityCallbackExecution;
 			getScriptProcessor()->getMainController_()->getJavascriptThreadPool().addJob(t, dynamic_cast<JavascriptProcessor*>(getScriptProcessor()), copy);
 		}
@@ -797,15 +775,12 @@ void WeakCallbackHolder::call(const var::NativeFunctionArgs& args)
 
 Result WeakCallbackHolder::callSync(var* arguments, int numArgs, var* returnValue)
 {
-    auto to = getThisObject();
-	auto a = var::NativeFunctionArgs(to, arguments, numArgs);
+	auto a = var::NativeFunctionArgs(getThisObject(), arguments, numArgs);
 	return callSync(a, returnValue);
 }
 
 Result WeakCallbackHolder::callSync(const var::NativeFunctionArgs& a, var* returnValue /*= nullptr*/)
 {
-	TRACE_EVENT("dispatch", "callback", perfetto::TerminatingFlow::ProcessScoped(trackIndex));
-
 	if (engineToUse.get() == nullptr || engineToUse->getRootObject() == nullptr)
 	{
 		clear();
@@ -840,6 +815,117 @@ juce::Result WeakCallbackHolder::operator()(JavascriptProcessor* p)
 		debugError(dynamic_cast<Processor*>(p), r.getErrorMessage());
 
 	return r;
+}
+
+var JSONConversionHelpers::valueTreeToJSON(const ValueTree& v)
+{
+	DynamicObject::Ptr p = new DynamicObject();
+
+	for (int i = 0; i < v.getNumProperties(); i++)
+	{
+		auto id = v.getPropertyName(i);
+		p->setProperty(id, v[id]);
+	}
+
+	bool hasChildrenWithSameName = v.getNumChildren() > 0;
+	auto firstType = v.getChild(0).getType();
+
+	for (auto c : v)
+	{
+		if (c.getType() != firstType)
+		{
+			hasChildrenWithSameName = false;
+			break;
+		}
+	}
+
+	Array<var> childList;
+
+
+
+	for (auto c : v)
+	{
+		if (c.getNumChildren() == 0 && c.getNumProperties() == 0)
+		{
+			p->setProperty(c.getType(), new DynamicObject());
+			continue;
+		}
+
+		auto jsonChild = valueTreeToJSON(c);
+
+		if (hasChildrenWithSameName)
+			childList.add(jsonChild);
+		else
+			p->setProperty(c.getType(), jsonChild);
+	}
+
+	if (hasChildrenWithSameName)
+	{
+		p->setProperty("ChildId", firstType.toString());
+		p->setProperty("Children", var(childList));
+	}
+
+	return var(p.get());
+}
+
+juce::ValueTree JSONConversionHelpers::jsonToValueTree(var data, const Identifier& typeId, bool isParentData /*= true*/)
+{
+	if (isParentData)
+	{
+		data = data.getProperty(typeId, {});
+		jassert(data.isObject());
+	}
+
+	ValueTree v(typeId);
+
+	if (data.hasProperty("ChildId"))
+	{
+		Identifier childId(data.getProperty("ChildId", "").toString());
+
+		for (auto& nv : data.getDynamicObject()->getProperties())
+		{
+			if (nv.name.toString() == "ChildId")
+				continue;
+
+			if (nv.name.toString() == "Children")
+				continue;
+
+			v.setProperty(nv.name, nv.value, nullptr);
+		}
+
+		auto lv = data.getProperty("Children", var());
+		if (auto l = lv.getArray())
+		{
+			for (auto& c : *l)
+			{
+				v.addChild(jsonToValueTree(c, childId, false), -1, nullptr);
+			}
+		}
+	}
+	else
+	{
+		if (auto dyn = data.getDynamicObject())
+		{
+			for (const auto& nv : dyn->getProperties())
+			{
+				if (nv.value.isObject())
+				{
+					v.addChild(jsonToValueTree(nv.value, nv.name, false), -1, nullptr);
+				}
+				else if (nv.value.isArray())
+				{
+					// must not happen
+					jassertfalse;
+				}
+				else
+				{
+					v.setProperty(nv.name, nv.value, nullptr);
+				}
+			}
+		}
+	}
+
+	return v;
 }
 
 var JSONConversionHelpers::convertBase64Data(const String& d, const ValueTree& cTree)
@@ -903,38 +989,4 @@ void ConstScriptingObject::gotoLocationWithDatabaseLookup()
 	}
 }
 
-DynamicScriptingObject::DynamicScriptingObject(ProcessorWithScriptingContent* p):
-	ScriptingObject(p)
-{
-	setMethod("exists", Wrappers::checkExists);
-		
-}
-
-DynamicScriptingObject::~DynamicScriptingObject()
-{}
-
-String DynamicScriptingObject::getInstanceName() const
-{ return name; }
-
-bool DynamicScriptingObject::checkValidObject() const
-{
-	if(!objectExists())
-	{
-		reportScriptError(getObjectName().toString() + " " + getInstanceName() + " does not exist.");
-		RETURN_IF_NO_THROW(false)
-	}
-
-	if(objectDeleted())
-	{
-		reportScriptError(getObjectName().toString() + " " + getInstanceName() + " was deleted");	
-		RETURN_IF_NO_THROW(false)
-	}
-
-	return true;
-}
-
-void DynamicScriptingObject::setName(const String& name_) noexcept
-{ name = name_; }
-
 } // namespace hise
-

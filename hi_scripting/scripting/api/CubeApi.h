@@ -118,8 +118,8 @@ struct Cube : public juce::ReferenceCountedObject
 
 	// This object is made exactly for the purpose of storing external callbacks
 	// and making sure the lifetime is managed properly
-	ScopedPointer<hise::WeakCallbackHolder> cornerButtonCallback;
-	ScopedPointer<hise::WeakCallbackHolder> orbDragCallback;
+	ScopedPointer<WeakCallbackHolder> cornerButtonCallback;
+	ScopedPointer<WeakCallbackHolder> orbDragCallback;
 };
 
 // The Cube Javascript API.
