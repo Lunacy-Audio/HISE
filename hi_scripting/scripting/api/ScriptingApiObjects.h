@@ -2204,42 +2204,18 @@ namespace ScriptingObjects
 
 
 	struct GlobalRoutingManagerReference : public ConstScriptingObject,
-										   public ControlledObject,
-										   public WeakErrorHandler,
-										   public OSCReceiver::Listener<OSCReceiver::RealtimeCallback>
-										   
+										  public ControlledObject
 	{
 		GlobalRoutingManagerReference(ProcessorWithScriptingContent* sp);;
-
-		~GlobalRoutingManagerReference();
 
 		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("GlobalRoutingManager"); }
 
 		Component* createPopupComponent(const MouseEvent& e, Component *c) override;
 
-		void handleErrorMessage(const String& error) override
-		{
-			if(errorCallback)
-				errorCallback.call1(error);
-		}
-
-		void oscBundleReceived(const OSCBundle& bundle) override;
-
-		void oscMessageReceived(const OSCMessage& message) override;
-
 		// =============================================================================================
 
 		/** Returns a scripted reference to the global cable (and creates a cable with this ID if it can't be found. */
 		var getCable(String cableId);
-
-		/** Allows the global routing manager to send and receive OSC messages through the cables. */
-		bool connectToOSC(var connectionData, var errorFunction);
-
-		/** Register a scripting callback to be executed when a OSC message that matches the subAddress is received. */
-		void addOSCCallback(String oscSubAddress, var callback);
-
-		/** Send an OSC message to the output port. */
-		bool sendOSCMessage(String oscSubAddress, var data);
 
 		// =============================================================================================
 
