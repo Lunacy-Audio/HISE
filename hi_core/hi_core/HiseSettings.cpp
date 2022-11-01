@@ -97,6 +97,7 @@ Array<juce::Identifier> HiseSettings::Project::getAllIds()
 	ids.add(LinkExpansionsToProject);
 	ids.add(ReadOnlyFactoryPresets);
     ids.add(ForceStereoOutput);
+		ids.add(AdminPermissions);
 
 	return ids;
 }
@@ -112,6 +113,8 @@ Array<juce::Identifier> HiseSettings::Compiler::getAllIds()
 	ids.add(RebuildPoolFiles);
 	ids.add(Support32BitMacOS);
 	ids.add(CustomNodePath);
+	ids.add(FaustPath);
+    ids.add(FaustExternalEditor);
 
 	return ids;
 }
@@ -393,7 +396,7 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 		D("If enabled, the exported plugins will use the VST3 SDK standard instead of the VST 2.x SDK. Until further notice, this is a experimental feature so proceed with caution.");
 		D("> Be aware that Steinberg stopped support for the VST 2.4 SDK in October 2018 so if you don't have a valid VST2 license agreement in place, you must use the VST3 SDK.");
 		P_();
-		
+				
 		P(HiseSettings::Project::UseRawFrontend);
 		D("If enabled, the project will not use the preset structure and scripted user interface and lets you use HISE as C++ framework.");
 		D("You will have to implement a custom C++ class in the `AdditionalSourceCode` subfolder.");
@@ -403,7 +406,12 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
         D("If you export a plugin with HISE it will create as much channels as the routing matrix of the master container requires.");
         D(" If you don't want this behaviour, you can enable this option to force the plugin to just use a stereo channel configuration");
         P_();
-        
+    
+				P(HiseSettings::Project::AdminPermissions);
+				D("If enabled, standalone builds on Windows will prompt the user for administrator privileges.");
+				D(" This is neccessary for tasks that access restricted locations such as the user's VST3 directory.");
+				P_();
+		    
 		P(HiseSettings::User::Company);
 		D("Your company name. This will be used for the path to the app data directory so make sure you don't use weird characters here");
 		P_();
@@ -432,11 +440,22 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 		P_();
 
 		P(HiseSettings::Compiler::UseIPP);
-		D("If enabled, HISE uses the FFT routines from the Intel Performance Primitive library (which can be downloaded for free) in order");
+		D("If enabled, HISE uses the FFT routines from the Intel Performance Primitive library (which can be downloaded for free) in order ");
 		D("to speed up the convolution reverb");
 		D("> If you use the convolution reverb in your project, this is almost mandatory, but there are a few other places that benefit from having this library");
 		P_();
 
+		P(HiseSettings::Compiler::FaustPath);
+		D("Set the path to your Faust installation here. ");
+		D("It will be used to look up the standard faust libraries on platforms which don't have a default path. ");
+		D("There should be at least the following directories inside: \"share\", \"lib\", \"include\"");
+		P_();
+
+        P(HiseSettings::Compiler::FaustExternalEditor);
+        D("If enabled, the edit button in the faust node will launch an external editor for ");
+        D("editing the faust source files. If disabled, it will use a FaustCodeEditor floating tile");
+        P_();
+        
         P(HiseSettings::Compiler::LegacyCPUSupport);
 		D("If enabled, then all SSE instructions are replaced by their native implementation. This can be used to compile a version that runs on legacy CPU models."); 
 		P_();
@@ -619,15 +638,19 @@ juce::File HiseSettings::Data::getFileForSetting(const Identifier& id) const
 
 	auto handler_ = &GET_PROJECT_HANDLER(mc->getMainSynthChain());
 
-	if (id == SettingFiles::ProjectSettings)	return handler_->getWorkDirectory().getChildFile("project_info.xml");
-	else if (id == SettingFiles::UserSettings)		return handler_->getWorkDirectory().getChildFile("user_info.xml");
-	else if (id == SettingFiles::CompilerSettings)	return appDataFolder.getChildFile("compilerSettings.xml");
+	auto wd = handler_->getWorkDirectory();
+
+	if (wd.isDirectory())
+	{
+		if (id == SettingFiles::ProjectSettings)	return handler_->getWorkDirectory().getChildFile("project_info.xml");
+		else if (id == SettingFiles::UserSettings)	return handler_->getWorkDirectory().getChildFile("user_info.xml");
+	}
+
+	if (id == SettingFiles::CompilerSettings)	return appDataFolder.getChildFile("compilerSettings.xml");
 	else if (id == SettingFiles::ScriptingSettings)	return appDataFolder.getChildFile("ScriptSettings.xml");
 	else if (id == SettingFiles::OtherSettings)		return appDataFolder.getChildFile("OtherSettings.xml");
 	else if (id == SettingFiles::DocSettings)		return appDataFolder.getChildFile("DocSettings.xml");
 	else if (id == SettingFiles::SnexWorkbenchSettings) return appDataFolder.getChildFile("SnexWorkbench.xml");
-
-	jassertfalse;
 
 #endif
 	
@@ -659,6 +682,16 @@ void HiseSettings::Data::loadSettingsFromFile(const Identifier& id)
 	data.addChild(v, -1, nullptr);
 
 	addMissingSettings(v, id);
+}
+
+File HiseSettings::Data::getFaustPath() const
+{
+#if JUCE_MAC
+    auto hisePath = File(getSetting(HiseSettings::Compiler::HisePath).toString());
+    return hisePath.getChildFile("tools").getChildFile("faust");
+#else
+	return File(getSetting(HiseSettings::Compiler::FaustPath).toString());
+#endif
 }
 
 var HiseSettings::Data::getSetting(const Identifier& id) const
@@ -713,6 +746,7 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
 		id == Other::EnableShaderLineNumbers ||
 		id == Compiler::RebuildPoolFiles ||
 		id == Compiler::Support32BitMacOS ||
+        id == Compiler::FaustExternalEditor ||
 		id == Project::SupportMonoFX ||
 		id == Project::EnableMidiInputFX ||
         id == Project::EnableMidiOut ||
@@ -723,6 +757,7 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
 		id == Project::SupportFullDynamicsHLAC ||
 		id == Project::ReadOnlyFactoryPresets ||
         id == Project::ForceStereoOutput ||
+				id == Project::AdminPermissions ||
 		id == Documentation::RefreshOnStartup ||
 		id == SnexWorkbench::PlayOnRecompile ||
 		id == SnexWorkbench::AddFade ||
@@ -730,7 +765,7 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
 	    return { "Yes", "No" };
 
 	if (id == Compiler::VisualStudioVersion)
-		return { "Visual Studio 2015", "Visual Studio 2017" };
+		return { "Visual Studio 2017", "Visual Studio 2022" };
 
 	if (id == Project::ExpansionType)
 	{
@@ -820,6 +855,7 @@ bool HiseSettings::Data::isFileId(const Identifier& id)
 		   id == Scripting::GlobalScriptPath || 
 		   id == Project::RedirectSampleFolder ||
 		   id == Compiler::CustomNodePath ||
+		   id == Compiler::FaustPath ||
 		   id == Other::GlobalSamplePath ||
 		   id == Other::ExternalEditorPath ||
 		   id == Documentation::DocRepository;
@@ -904,6 +940,7 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	else if (id == Project::EnableSoundGeneratorsFX) return "No";
 	else if (id == Project::ReadOnlyFactoryPresets) return "No";
     else if (id == Project::ForceStereoOutput)      return "No";
+		else if (id == Project::AdminPermissions) return "No";
 	else if (id == Project::VST3Support)			return "No";
 	else if (id == Project::UseRawFrontend)			return "No";
 	else if (id == Project::ExpansionType)			return "Disabled";
@@ -922,11 +959,16 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	else if (id == Scripting::EnableOptimizations)	return "No";
 	else if (id == Scripting::CompileTimeout)		return 5.0;
 	else if (id == Scripting::SaveConnectedFilesOnCompile) return "No";
+#if HISE_USE_VS2022
+	else if (id == Compiler::VisualStudioVersion)	return "Visual Studio 2022";
+#else
 	else if (id == Compiler::VisualStudioVersion)	return "Visual Studio 2017";
+#endif
 	else if (id == Compiler::UseIPP)				return "Yes";
 	else if (id == Compiler::LegacyCPUSupport) 		return "No";
 	else if (id == Compiler::RebuildPoolFiles)		return "Yes";
 	else if (id == Compiler::Support32BitMacOS)		return "Yes";
+    else if (id == Compiler::FaustExternalEditor)   return "No";
 	else if (id == SnexWorkbench::AddFade)			return "Yes";
 	else if (id == SnexWorkbench::PlayOnRecompile)  return "Yes";
 	else if (id == User::CompanyURL)				return "http://yourcompany.com";

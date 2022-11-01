@@ -58,7 +58,7 @@ void UserPresetHelpers::saveUserPreset(ModulatorSynthChain *chain, const String&
     
 #if CONFIRM_PRESET_OVERWRITE
 
-	if (presetFile.existsAsFile() && PresetHandler::showYesNoWindow("Confirm overwrite", "Do you want to overwrite the preset (Press cancel to create a new user preset?"))
+	if (presetFile.existsAsFile() && (!MessageManager::getInstance()->isThisTheMessageThread() || PresetHandler::showYesNoWindow("Confirm overwrite", "Do you want to overwrite the preset (Press cancel to create a new user preset?")))
 	{
         existingNote = PresetBrowser::DataBaseHelpers::getNoteFromXml(presetFile);
         existingTags = PresetBrowser::DataBaseHelpers::getTagsFromXml(presetFile);
@@ -288,7 +288,7 @@ void UserPresetHelpers::restoreModuleStates(ModulatorSynthChain* chain, const Va
 			// We might need to update the custom automation data values.
 			for (int i = 0; i < numDataObjects; i++)
 			{
-				uph.getCustomAutomationData(i)->updateFromProcessorConnection(0);
+				uph.getCustomAutomationData(i)->updateFromConnectionValue(0);
 			}
 		}
 	}
@@ -468,7 +468,7 @@ juce::StringArray UserPresetHelpers::getExpansionsForUserPreset(const File& user
 
 void UserPresetHelpers::extractUserPresets(const char* userPresetData, size_t size)
 {
-#if USE_FRONTEND
+#if USE_FRONTEND && !DONT_CREATE_USER_PRESET_FOLDER
 	auto userPresetDirectory = FrontendHandler::getUserPresetDirectory();
 
 	if (userPresetDirectory.isDirectory())
@@ -1508,21 +1508,13 @@ File FrontendHandler::getUserPresetDirectory(bool getRedirect)
         userPresetDirectory.createDirectory();
         
         factoryPresets.copyDirectoryTo(userPresetDirectory);
-        
-        
-        
     }
     
     return userPresetDirectory;
     
 #else
-    
 	File presetDir = getAppDataDirectory().getChildFile("User Presets");
-	
     return FileHandlerBase::getFolderOrRedirect(presetDir);
-
-	return presetDir;
-    
 #endif
 }
 
@@ -2020,27 +2012,38 @@ void PresetHandler::buildProcessorDataBase(Processor *root)
 
 	ScopedPointer<FactoryType> t = new ModulatorSynthChainFactoryType(NUM_POLYPHONIC_VOICES, root);
 
-	xml->addChildElement(buildFactory(t, "ModulatorSynths"));
+	
 
-	t = new MidiProcessorFactoryType(root);
-	xml->addChildElement(buildFactory(t, "MidiProcessors"));
+	{
+		MainController::ScopedBadBabysitter sb(root->getMainController());
+
+		xml->addChildElement(buildFactory(t, "ModulatorSynths"));
+
+		t = new MidiProcessorFactoryType(root);
+		xml->addChildElement(buildFactory(t, "MidiProcessors"));
 
 
-	t = new VoiceStartModulatorFactoryType(NUM_POLYPHONIC_VOICES, Modulation::GainMode, root);
-	xml->addChildElement(buildFactory(t, "VoiceStartModulators"));
+		t = new VoiceStartModulatorFactoryType(NUM_POLYPHONIC_VOICES, Modulation::GainMode, root);
+		xml->addChildElement(buildFactory(t, "VoiceStartModulators"));
 
-	t = new TimeVariantModulatorFactoryType(Modulation::GainMode, root);
+		t = new TimeVariantModulatorFactoryType(Modulation::GainMode, root);
 
-	xml->addChildElement(buildFactory(t, "TimeVariantModulators"));
+		xml->addChildElement(buildFactory(t, "TimeVariantModulators"));
 
-	t = new EnvelopeModulatorFactoryType(NUM_POLYPHONIC_VOICES, Modulation::GainMode, root);
+		t = new EnvelopeModulatorFactoryType(NUM_POLYPHONIC_VOICES, Modulation::GainMode, root);
 
-	xml->addChildElement(buildFactory(t, "EnvelopeModulators"));
+		xml->addChildElement(buildFactory(t, "EnvelopeModulators"));
 
-	t = new EffectProcessorChainFactoryType(NUM_POLYPHONIC_VOICES, root);
+		t = new EffectProcessorChainFactoryType(NUM_POLYPHONIC_VOICES, root);
 
-	xml->addChildElement(buildFactory(t, "Effects"));
+		xml->addChildElement(buildFactory(t, "Effects"));
 
+		t = nullptr;
+	}
+
+	
+
+	
 
 	xml->writeToFile(f, "");
 #endif
@@ -2058,7 +2061,10 @@ XmlElement * PresetHandler::buildFactory(FactoryType *t, const String &factoryNa
 
 		if (p == nullptr) continue;
 
-		XmlElement *child = new XmlElement(p->getType());
+		// "Hardcoded Master FX", aaarg!
+		auto tagName = p->getType().toString().removeCharacters(" ");
+
+		XmlElement *child = new XmlElement(tagName);
 
 		for (int i = 0; i < p->getNumParameters(); i++)
 		{
@@ -2667,6 +2673,9 @@ void FileHandlerBase::checkSubDirectories()
 {
 	subDirectories.clear();
 
+	if (!getRootFolder().isDirectory())
+		return;
+
 	auto subDirList = getSubDirectoryIds();
 
 	for (auto dir : subDirList)
@@ -2799,6 +2808,7 @@ juce::Result FileHandlerBase::updateSampleMapIds(bool silentMode)
 
 juce::File FileHandlerBase::checkSubDirectory(SubDirectories dir)
 {
+	
 	File subDirectory = getRootFolder().getChildFile(getIdentifier(dir));
 
 	jassert(subDirectory.exists());

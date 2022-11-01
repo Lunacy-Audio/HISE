@@ -105,3 +105,11 @@ extras/demo_project/AdditionalSourceCode/nodes/
 extras/hball/
 extras/demo_project/UserPresets/
 hi_snex/xml/
+# emacs backup files:
+\#*\#
+.\#*
+*~
+tools/faust/include
+tools/faust/share
+tools/faust/lib
+tools/faust/bin

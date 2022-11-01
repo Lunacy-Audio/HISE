@@ -312,7 +312,8 @@ struct HiseJavascriptEngine::RootObject::InlineFunction
 	struct Object : public DynamicObject,
 					public DebugableObjectBase,
 					public WeakCallbackHolder::CallableObject,
-					public CyclicReferenceCheckBase
+					public CyclicReferenceCheckBase,
+                    public LocalScopeCreator
 	{
 	public:
 
@@ -349,6 +350,29 @@ struct HiseJavascriptEngine::RootObject::InlineFunction
 			return location;
 		}
 
+        DynamicObject::Ptr createScope(RootObject* r) override
+        {
+            DynamicObject::Ptr n = new DynamicObject();
+
+            for (auto& v : *localProperties)
+                n->setProperty(v.name, v.value);
+            
+            auto fToUse = e.get();
+            
+            if(fToUse == nullptr)
+                fToUse = dynamicFunctionCall;
+            
+            if(fToUse != nullptr)
+            {
+                int index = 0;
+
+                for (auto& p : parameterNames)
+                    n->setProperty(p, fToUse->parameterResults[index++]);
+            }
+            
+            return n;
+        }
+        
 		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("InlineFunction"); }
 
 		String getDebugValue() const override { return lastReturnValue->toString(); }
@@ -357,6 +381,8 @@ struct HiseJavascriptEngine::RootObject::InlineFunction
 		String getDebugName() const override { return functionDef; }
 
 		String getDebugDataType() const override { return "function"; }
+
+		String getComment() const override { return commentDoc; }
 
 		int getNumChildElements() const override
 		{
@@ -408,6 +434,13 @@ struct HiseJavascriptEngine::RootObject::InlineFunction
 
 		void setFunctionCall(const FunctionCall *e_)
 		{
+#if SEE_YOU_LATER_BUDDY
+			if (e_ != nullptr && e.get() == e_)
+			{
+				e_->location.throwError("Inline functions can't be called recursively");
+			}
+#endif
+
 			e.get() = e_;
 		}
 
@@ -444,6 +477,8 @@ struct HiseJavascriptEngine::RootObject::InlineFunction
 
 		var performDynamically(const Scope& s, const var* args, int numArgs)
 		{
+            LocalScopeCreator::ScopedSetter sls(s.root, this);
+            
 			setFunctionCall(dynamicFunctionCall);
 
 			for (int i = 0; i < numArgs; i++)
@@ -559,7 +594,7 @@ struct HiseJavascriptEngine::RootObject::InlineFunction
 
 			for (int i = 0; i < numArgs; i++)
 			{
-				parameterResults.add(var::undefined());
+                parameterResults.add({});
 			}
 		};
 
@@ -578,6 +613,8 @@ struct HiseJavascriptEngine::RootObject::InlineFunction
 		{
 			f->setFunctionCall(this);
 
+            LocalScopeCreator::ScopedSetter svs(s.root, f);
+            
 			for (int i = 0; i < numArgs; i++)
 			{
                 auto v = parameterExpressions.getUnchecked(i)->getResult(s);
@@ -721,9 +758,9 @@ struct HiseJavascriptEngine::RootObject::GlobalReference : public Expression
 
 
 
-struct HiseJavascriptEngine::RootObject::LocalVarStatement : public Statement
+struct HiseJavascriptEngine::RootObject::LocalVarStatement : public Expression
 {
-	LocalVarStatement(const CodeLocation& l, InlineFunction::Object* parentFunction_) noexcept : Statement(l), parentFunction(parentFunction_) {}
+	LocalVarStatement(const CodeLocation& l, InlineFunction::Object* parentFunction_) noexcept : Expression(l), parentFunction(parentFunction_) {}
 
 	ResultCode perform(const Scope& s, var*) const override
 	{
@@ -850,6 +887,48 @@ struct ConstantFolding : public HiseJavascriptEngine::RootObject::OptimizationPa
 	}
 };
 
+struct LocationInjector : public HiseJavascriptEngine::RootObject::OptimizationPass
+{
+	using Statement = HiseJavascriptEngine::RootObject::Statement;
+
+	LocationInjector()
+	{}
+
+	String getPassName() const override { return "Location Injector"; };
+
+	Statement* getOptimizedStatement(Statement* parent, Statement* statementToOptimize) override
+	{
+		if (auto dot = dynamic_cast<HiseJavascriptEngine::RootObject::DotOperator*>(statementToOptimize))
+		{
+			if (auto cr = dynamic_cast<HiseJavascriptEngine::RootObject::ConstReference*>(dot->parent.get()))
+			{
+				HiseJavascriptEngine::RootObject::Scope s(nullptr, nullptr, nullptr);
+
+				auto obj = cr->getResult(s);
+
+				if (auto cso = dynamic_cast<ConstScriptingObject*>(obj.getObject()))
+				{
+					DebugableObjectBase::Location loc;
+					loc.charNumber = dot->location.getCharIndex();
+					loc.fileName = dot->location.externalFile;
+
+					try
+					{
+						cso->addLocationForFunctionCall(dot->child, loc);
+					}
+					catch (String& e)
+					{
+						dot->location.throwError(e);
+					}
+					
+				}
+			}
+		}
+
+		return statementToOptimize;
+	}
+};
+
 struct BlockRemover : public HiseJavascriptEngine::RootObject::OptimizationPass
 {
 	using Statement = HiseJavascriptEngine::RootObject::Statement;
@@ -918,7 +997,11 @@ void HiseJavascriptEngine::RootObject::HiseSpecialData::registerOptimisationPass
 	
 	shouldOptimize = enable == "1";
 
+	optimizations.add(new LocationInjector());
+
 #endif
+
+
 
 	if (shouldOptimize)
 	{
@@ -926,6 +1009,8 @@ void HiseJavascriptEngine::RootObject::HiseSpecialData::registerOptimisationPass
 		optimizations.add(new BlockRemover());
 		optimizations.add(new FunctionInliner());
 	}
+
+	
 }
 
 

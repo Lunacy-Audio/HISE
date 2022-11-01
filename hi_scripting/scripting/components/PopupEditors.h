@@ -39,10 +39,89 @@ namespace hise { using namespace juce;
 class JavascriptCodeEditor;
 class DebugConsoleTextEditor;
 
+struct EditorBottomBar : public Component,
+						 public ControlledObject,
+					     public Timer,
+						 public ButtonListener
+{
+	static constexpr int BOTTOM_HEIGHT = 24;
+
+	EditorBottomBar(JavascriptProcessor* jp);
+
+	void resized() override;
+
+	void buttonClicked(Button* b) override;
+
+	void recompile();
+
+	void setShowResume(bool on, int lineNumber);
+
+	void setError(const String& errorMessage);
+
+	ScopedPointer<DebugConsoleTextEditor> resultLabel;
+
+	struct Factory : public PathFactory
+	{
+		Path createPath(const String& url) const override
+		{
+			Path p;
+
+			LOAD_PATH_IF_URL("error", ColumnIcons::errorIcon);
+
+			return p;
+		}
+	} factory;
+
+	void paint(Graphics& g);
+
+	void setCompileFunction(const std::function<void()>& f)
+	{
+		compileFunction = f;
+	}
+
+	struct ButtonLAF : public LookAndFeel_V4
+	{
+		void drawButtonText(Graphics &g, TextButton &button, bool isMouseOverButton, bool isButtonDown) override
+		{
+			float alpha = 0.6f;
+
+			if (isMouseOverButton)
+				alpha += 0.2f;
+
+			if (isButtonDown)
+				alpha += 0.2f;
+
+			g.setFont(GLOBAL_BOLD_FONT());
+			g.setColour(Colours::white.withAlpha(alpha));
+
+			g.drawText(button.getButtonText(), button.getLocalBounds().toFloat(), Justification::centred);
+		}
+
+		void drawButtonBackground(Graphics& g, Button& button, const Colour& /*backgroundColour*/,
+			bool isMouseOverButton, bool isButtonDown) override
+		{
+			if (isMouseOverButton)
+				g.fillAll(Colours::white.withAlpha(0.04f));
+		}
+
+	} blaf;
+
+	void timerCallback();
+
+	ScopedPointer<TextButton> compileButton;
+	ScopedPointer<TextButton> resumeButton;
+
+	ScopedPointer<HiseShapeButton> errorButton;
+
+	bool isHalted = false;
+	bool lastCompileOk = false;
+	
+private:
+	std::function<void()> compileFunction;
+};
+
 
 class PopupIncludeEditor : public Component,
-						   public Timer,
-						   public ButtonListener,
 						   public Dispatchable, 
 						   public mcl::GutterComponent::BreakpointListener,
 						   public JavascriptThreadPool::SleepListener
@@ -63,7 +142,6 @@ public:
 	
 	~PopupIncludeEditor();
 
-	void timerCallback();
 	bool keyPressed(const KeyPress& key) override;
 
 	static void runTimeErrorsOccured(PopupIncludeEditor& t, Array<ExternalScriptFile::RuntimeError>* errors);
@@ -71,8 +149,6 @@ public:
 	void resized() override;;
 
 	void gotoChar(int character, int lineNumber = -1);
-
-	void buttonClicked(Button* b) override;
 
 	void breakpointsChanged(mcl::GutterComponent& g) override;
 
@@ -107,7 +183,7 @@ public:
 
 	ExternalScriptFile::Ptr externalFile;
 
-	ScopedPointer<DebugConsoleTextEditor> resultLabel;
+	ScopedPointer<EditorBottomBar> bottomBar;
 
 private:
 
@@ -122,12 +198,7 @@ private:
 	int fontSize;
 
 	ScopedPointer<JavascriptTokeniser> tokeniser;
-	ScopedPointer<TextButton> compileButton;
-	ScopedPointer<TextButton> resumeButton;
-
-	bool isHalted = false;
-	bool lastCompileOk;
-
+	
 	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(PopupIncludeEditor);
 	JUCE_DECLARE_WEAK_REFERENCEABLE(PopupIncludeEditor);
 

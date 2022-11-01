@@ -89,6 +89,7 @@ DECLARE_ID(EncryptionKey);
 DECLARE_ID(LinkExpansionsToProject);
 DECLARE_ID(ReadOnlyFactoryPresets);
 DECLARE_ID(ForceStereoOutput);
+DECLARE_ID(AdminPermissions);
 
 Array<Identifier> getAllIds();
 
@@ -103,6 +104,8 @@ DECLARE_ID(LegacyCPUSupport);
 DECLARE_ID(RebuildPoolFiles);
 DECLARE_ID(Support32BitMacOS);
 DECLARE_ID(CustomNodePath);
+DECLARE_ID(FaustPath);
+DECLARE_ID(FaustExternalEditor);
 
 Array<Identifier> getAllIds();
 
@@ -196,6 +199,8 @@ struct Data: public SafeChangeBroadcaster
 
 	File getFileForSetting(const Identifier& id) const;
 
+    File getFaustPath() const;
+    
 	void loadDataFromFiles();
 	void refreshProjectData();
 	void loadSettingsFromFile(const Identifier& id);

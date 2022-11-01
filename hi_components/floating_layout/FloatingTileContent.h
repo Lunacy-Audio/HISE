@@ -540,6 +540,8 @@ public:
 		return parent; 
 	}
 
+	Rectangle<int> getParentContentBounds();
+
 	virtual String getTitle() const { return getIdentifierForBaseClass().toString(); };
 	virtual Identifier getIdentifierForBaseClass() const = 0;
 
@@ -631,9 +633,12 @@ public:
 			DspNetworkGraph,
 			DspNodeList,
 			DspNodeParameterEditor,
+            DspFaustEditorPanel,
+			ScriptBroadcasterMap,
 			ExpansionEditBar,
 			ModuleBrowser,
 			PatchBrowser,
+			AutomationDataBrowser,
 			FileBrowser,
 			ImageTable,
 			AudioFileTable,
@@ -974,6 +979,7 @@ namespace FloatingTileKeyPressIds
 	DECLARE_ID(fold_browser)
 	DECLARE_ID(focus_editor);
 	DECLARE_ID(fold_watch);
+    DECLARE_ID(fold_map);
 	DECLARE_ID(fold_list);
 	DECLARE_ID(fold_console);
 	DECLARE_ID(fold_properties);

@@ -601,16 +601,21 @@ public:
 			JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(StoredModuleData);
 		};
 
-		struct CustomAutomationData : public ReferenceCountedObject
+		struct CustomAutomationData : public ReferenceCountedObject,
+									  public ControlledObject
 		{
+			using WeakPtr = WeakReference<CustomAutomationData>;
 			using Ptr = ReferenceCountedObjectPtr<CustomAutomationData>;
 			using List = ReferenceCountedArray<CustomAutomationData>;
 
-			CustomAutomationData(MainController* mc, int index_, const var& d);
+			CustomAutomationData(CustomAutomationData::List newList, MainController* mc, int index_, const var& d);
 
-			void call(float newValue, bool sendToListeners=true);
+			
 
-			void updateFromProcessorConnection(int preferredIndex);
+			void updateFromConnectionValue(int preferredIndex);
+
+			bool isConnectedToMidi() const;
+			bool isConnectedToComponent() const;
 
 			const int index;
 			Identifier id;
@@ -624,22 +629,78 @@ public:
 			LambdaBroadcaster<var*> syncListeners;
 			LambdaBroadcaster<int, float> asyncListeners;
 
-			struct ProcessorConnection
+			struct ConnectionBase: public ReferenceCountedObject
+			{
+				using Ptr = ReferenceCountedObjectPtr<ConnectionBase>;
+				using List = ReferenceCountedArray<ConnectionBase>;
+				
+				virtual ~ConnectionBase() {};
+				
+				virtual bool isValid() const = 0;
+				virtual void call(float v) const = 0;
+
+				virtual String getDisplayString() const = 0;
+
+				virtual float getLastValue() const = 0;
+
+				operator bool() const { return isValid(); }
+			};
+
+			void call(float newValue, bool sendToListeners = true, const std::function<bool(ConnectionBase*)>& connectionFilter = {});
+
+			ConnectionBase::Ptr parse(CustomAutomationData::List newList, MainController* mc, const var& jsonData);
+
+			struct MetaConnection : public ConnectionBase
+			{
+				void call(float v) const final override
+				{
+					target->call(v, true);
+				}
+
+				bool isValid() const final override
+				{
+					return target != nullptr;
+				}
+
+				String getDisplayString() const override
+				{
+					return "Automation: " + target->id;
+				}
+
+				float getLastValue() const final override
+				{
+					if (target != nullptr)
+						return target->lastValue;
+                    
+                    return 0.0;
+				}
+
+				CustomAutomationData::Ptr target;
+			};
+
+			struct CableConnection;
+
+			struct ProcessorConnection : public ConnectionBase
 			{
 				WeakReference<Processor> connectedProcessor;
 				int connectedParameterIndex = -1;
 
-				operator bool() const
+				bool isValid() const final override
 				{
 					return connectedProcessor != nullptr && connectedParameterIndex != -1;
 				}
 
-				void call(float v) const;
+				String getDisplayString() const final override;
+
+				float getLastValue() const final override;
+
+				void call(float v) const final override;
 			};
 
-			Array<ProcessorConnection> processorConnections;
+			ConnectionBase::List connectionList;
 
 			JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(CustomAutomationData);
+			JUCE_DECLARE_WEAK_REFERENCEABLE(CustomAutomationData);
 		};
 
 		struct UndoableUserPresetLoad : public ControlledObject,
@@ -805,9 +866,9 @@ public:
 
 		int getNumCustomAutomationData() const { return customAutomationData.size(); }
 
-		CustomAutomationData::Ptr getCustomAutomationData(const Identifier& id);
+		CustomAutomationData::Ptr getCustomAutomationData(const Identifier& id) const;
 
-		CustomAutomationData::Ptr getCustomAutomationData(int index);
+		CustomAutomationData::Ptr getCustomAutomationData(int index) const;
 
 		StoredModuleData::List& getStoredModuleData() { return storedModuleData; }
 
@@ -835,6 +896,8 @@ public:
 		bool setCustomAutomationData(CustomAutomationData::List newList);
 
 		void setUseCustomDataModel(bool shouldUseCustomModel, bool usePersistentObject);
+
+		LambdaBroadcaster<bool> deferredAutomationListener;
 
 #if READ_ONLY_FACTORY_PRESETS
 	private:
@@ -1512,24 +1575,53 @@ public:
 	
 	void setWatchedScriptProcessor(JavascriptProcessor *p, Component *editor);
 
+	/** Use this and the main controller will ignore all threading issues and just does what it wants until the
+		bad babysitter leaves the scope.
 	
-
-#endif
-
-	void setAllowFlakyThreading(bool shouldAllowWeirdThreadingStuff)
+		This is mostly used for creating objects during documentation generation or other non-critical tasks
+		which couldn't care less about race conditions...
+	*/
+	struct ScopedBadBabysitter
 	{
-		flakyThreadingAllowed = shouldAllowWeirdThreadingStuff;
-	}
+		ScopedBadBabysitter(MainController* mc_):
+			mc(mc_),
+			prevValue(mc->flakyThreadingAllowed)
+		{
+			mc->flakyThreadingAllowed = true;
+		}
+		
+		~ScopedBadBabysitter()
+		{
+			mc->flakyThreadingAllowed = prevValue;
+		}
+
+		MainController* mc;
+		bool prevValue;
+	};
 
 	bool isFlakyThreadingAllowed() const noexcept 
 	{ 
 		return flakyThreadingAllowed; 
 	}
 
+#else
+
+	/** There is no use for a bad babysitter in exported projects so this is just a dummy class. */
+	struct ScopedBadBabysitter
+	{
+		ScopedBadBabysitter(MainController*) {};
+	};
+
+	bool isFlakyThreadingAllowed() const noexcept
+	{
+		return false;
+	}
+
+#endif
+
+
 	void setPlotter(Plotter *p);
 
-	
-	
 	DynamicObject *getGlobalVariableObject() { return globalVariableObject.get(); };
 
 	DynamicObject *getHostInfoObject() { return hostInfo.get(); }

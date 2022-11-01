@@ -147,6 +147,8 @@ public:
 
 	void setPopupMenuItems(const StringArray &newItemList);
 
+	static PopupMenu parseFromStringArray(const StringArray& itemList, Array<int> activeIndexes, LookAndFeel* laf);
+
 	void setActivePopupItem(int menuId)
 	{
 		activePopupId = menuId;
@@ -677,13 +679,13 @@ public:
 
 	void registerToTopLevelComponent()
 	{
-		return;
-
+#if 0
 		if (srs == nullptr)
 		{
 			if (auto tc = findParentComponentOfClass<TopLevelWindowWithOptionalOpenGL>())
 				srs = new TopLevelWindowWithOptionalOpenGL::ScopedRegisterState(*tc, this);
 		}
+#endif
 	}
 
 	void resized() override

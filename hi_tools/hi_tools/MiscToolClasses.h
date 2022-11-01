@@ -653,12 +653,12 @@ protected:
 
 	virtual File getKeyPressSettingFile() const = 0;
 
-	
+    bool saved = false;
 
 private:
 
 	bool initialised = false;
-	bool saved = false;
+	
 	bool loaded = false;
 
 	static TopLevelWindowWithKeyMappings* getFromComponent(Component* c)
@@ -1802,6 +1802,8 @@ template <typename ReturnType, typename... Ps> struct SafeLambdaBase
 	virtual bool isValid() const = 0;
 
 	virtual bool matches(void* other) const = 0;
+
+	
 };
 
 template <class T, typename ReturnType, typename...Ps> struct SafeLambda : public SafeLambdaBase<ReturnType, Ps...>
@@ -1882,6 +1884,22 @@ template <typename...Ps> struct LambdaBroadcaster final
 
 		if(sendWithInitialValue)
 			std::apply(*listeners.getLast(), lastValue);
+	}
+
+	/** Returns the number of listeners with the given class T (!= not a base class) that are registered to this object. */
+	template <typename T> int getNumListenersWithClass() const
+	{
+		using TypeToLookFor = SafeLambda<T, void, Ps...>;
+
+		int numListeners = 0;
+
+		for (auto l : listeners)
+		{
+			if (l->isValid() && dynamic_cast<TypeToLookFor*>(l) != nullptr)
+				numListeners++;
+		}
+
+		return numListeners;
 	}
 
 	/** Removes all callbacks for the given object. 
@@ -2481,7 +2499,16 @@ public:
 	/** The note values. */
 	enum Tempo
 	{
+#if HISE_USE_EXTENDED_TEMPO_VALUES
+		EightBar = 0,
+		SixBar,
+		FourBar,
+		ThreeBar,
+		TwoBars,
+		Whole,
+#else
 		Whole = 0, ///< a whole note (1/1)
+#endif
 		HalfDuet, ///< a half note duole (1/2D)
 		Half, ///< a half note (1/2)
 		HalfTriplet, ///< a half triplet note (1/2T)

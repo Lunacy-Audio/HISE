@@ -35,7 +35,7 @@ namespace hise { using namespace juce;
 ScriptTableListModel::ScriptTableListModel(ProcessorWithScriptingContent* p, const var& td) :
 	TableListBoxModel(),
 	tableMetadata(td),
-	cellCallback(p, var(), 3),
+	cellCallback(p, nullptr, var(), 3),
 	pwsc(p)
 {
 	tableRefreshBroadcaster.enableLockFreeUpdate(p->getMainController_()->getGlobalUIUpdater());
@@ -183,7 +183,6 @@ Component* ScriptTableListModel::refreshComponentForCell(int rowNumber, int colu
 		{
 			jassertfalse;
 			break;
-			return existingComponentToUpdate;
 		}
 		}
 
@@ -473,7 +472,7 @@ void ScriptTableListModel::setCallback(var callback)
 {
 	if (HiseJavascriptEngine::isJavascriptFunction(callback))
 	{
-		cellCallback = WeakCallbackHolder(pwsc, callback, 1);
+		cellCallback = WeakCallbackHolder(pwsc, nullptr, callback, 1);
 		cellCallback.incRefCount();
 	}
 }
@@ -636,8 +635,6 @@ void ScriptTableListModel::TableRepainter::repaintIfCellChange(const MouseEvent&
 	Point<int> s;
 
 	s.y = t.getComponent()->getRowContainingPosition(pos.x, pos.y);
-
-	int index = 0;
 
 	for (int i = 0; i < parent.columnMetadata.size(); i++)
 	{

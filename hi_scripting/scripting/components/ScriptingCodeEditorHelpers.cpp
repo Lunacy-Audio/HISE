@@ -487,10 +487,9 @@ public:
 
         getButton("Cancel")->addListener(this);
         
+		currentOptions.parse(initSearchTerm);
 		rebuildLines();
 
-        
-        
 		getTextEditor("searchTerm")->grabKeyboardFocusAsync();
 
 		numFixedComponents = getNumCustomComponents();
@@ -580,6 +579,21 @@ public:
 							c->setSize(c->getWidth(), 250);
 							debugComponentRow->addCustomComponent(c);
 							addedSomething = true;
+						}
+						else
+						{
+							auto text = info->getDescription().getText();
+
+							if (text.isNotEmpty())
+							{
+								auto c = new SimpleMarkdownDisplay();
+								c->setText(text);
+								auto h = c->r.getHeightForWidth(table->getWidth());
+								c->setSize(table->getWidth(), h);
+								debugComponentRow->addCustomComponent(c);
+								addedSomething = true;
+								break;
+							}
 						}
 					}
 				}
@@ -1489,7 +1503,6 @@ bool JavascriptProcessor::performPopupMenuAction(int menuId, Component* c)
 		auto replacer = new CodeReplacer(CommonEditorFunctions::as(c));
 		replacer->setModalBaseWindowComponent(GET_BACKEND_ROOT_WINDOW(c));
 		replacer->getTextEditor("search")->grabKeyboardFocus();
-		return true;
 		return true;
 	}
 	default:

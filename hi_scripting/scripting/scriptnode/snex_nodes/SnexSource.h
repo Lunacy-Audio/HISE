@@ -39,10 +39,18 @@ using namespace hise;
 using namespace snex;
 using namespace snex::ui;
 
-struct SnexSource : public WorkbenchData::Listener,
+class SnexSource : public WorkbenchData::Listener,
 					public SimpleRingBuffer::WriterBase
 {
+public:
+
 	using SnexTestBase = snex::ui::WorkbenchData::TestRunnerBase;
+
+	struct SnexTestBaseHelper
+	{
+	    static void *getNodeWorkbench(NodeBase* node);
+	};
+
 
     enum class ErrorLevel
     {
@@ -328,7 +336,8 @@ struct SnexSource : public WorkbenchData::Listener,
 		OwnedArray<snex::ExternalDataHolder> audioFiles;
 	};
 
-	struct CallbackHandlerBase : public HandlerBase
+	struct CallbackHandlerBase : public HandlerBase,
+	                             public SnexTestBaseHelper
 	{
 		CallbackHandlerBase(SnexSource& p, ObjectStorageType& o) :
 			HandlerBase(p, o)
@@ -383,7 +392,7 @@ struct SnexSource : public WorkbenchData::Listener,
 	protected:
 
 		
-		friend class ScopedDeactivator;
+		friend struct ScopedDeactivator;
 
 		/** Use this in every callback and it will check that the read lock was
 			acquired and the compilation was ok. */
@@ -410,7 +419,8 @@ struct SnexSource : public WorkbenchData::Listener,
 		std::atomic<bool> ok = { false };
 	};
 
-	template <class T, bool UseRootTest=false> struct Tester: public SnexTestBase
+	template <class T, bool UseRootTest=false> struct Tester: public SnexTestBase,
+	                                                          public SnexTestBaseHelper
 	{
 		Tester(SnexSource& s) :
 			dataHandler(s, obj),
@@ -487,7 +497,7 @@ struct SnexSource : public WorkbenchData::Listener,
 
 			if (callbacks.runRootTest())
 			{
-				auto wb = static_cast<snex::ui::WorkbenchManager*>(original.getParentNode()->getScriptProcessor()->getMainController_()->getWorkbenchManager());
+				auto wb = static_cast<snex::ui::WorkbenchManager*>(getNodeWorkbench(original.getParentNode()));
 
 				if (auto rwb = wb->getRootWorkbench())
 				{

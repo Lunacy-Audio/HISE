@@ -225,7 +225,7 @@ void JavascriptMidiProcessor::runScriptCallbacks()
 	breakpointWasHit(-1);
 #endif
 
-	scriptEngine->maximumExecutionTime = isDeferred() ? RelativeTime(0.5) : RelativeTime(0.03);
+	scriptEngine->maximumExecutionTime = HiseJavascriptEngine::getDefaultTimeOut();
 
 	synthObject->handleNoteCounter(*currentEvent);
 
@@ -331,7 +331,7 @@ void JavascriptMidiProcessor::runTimerCallback(int /*offsetInBuffer*//*=-1*/)
 {
 	if (isBypassed() || onTimerCallback->isSnippetEmpty()) return;
 
-	scriptEngine->maximumExecutionTime = isDeferred() ? RelativeTime(0.5) : RelativeTime(0.002);
+	scriptEngine->maximumExecutionTime = HiseJavascriptEngine::getDefaultTimeOut();
 
 	if (lastResult.failed()) return;
 

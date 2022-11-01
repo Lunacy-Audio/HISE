@@ -819,6 +819,10 @@ private:
 		ns->constObjects.set(s->name, uninitialised); // Will be initialied at runtime
 		s->ns = ns;
 
+		ns->comments.set(s->name, lastComment);
+
+		clearLastComment();
+
 		return s.release();
 	}
 
@@ -830,6 +834,9 @@ private:
 
 			ns->varRegister.addRegister(name, var::undefined());
             ns->registerLocations.add(preparser->createDebugLocation());
+
+			ns->comments.set(name, preparser->lastComment);
+			preparser->clearLastComment();
 
 			if (ns->registerLocations.size() != ns->varRegister.getNumUsedRegisters())
 			{
@@ -1402,13 +1409,53 @@ private:
 
 		const bool isVarInitialiser = matchIf(TokenTypes::var);
 		
+        if(currentInlineFunction && isVarInitialiser)
+        {
+            location.throwError("Can't use var initialiser inside inline function");
+        }
+        
 		Expression *iter = parseExpression();
 
 		// Allow unqualified names in for loop initialisation for convenience
 		if (auto assignment = dynamic_cast<Assignment*>(iter))
 		{
 			if (auto un = dynamic_cast<UnqualifiedName*>(assignment->target.get()))
+            {
 				un->allowUnqualifiedDefinition = true;
+                
+                ScopedPointer<Expression> newExpression;
+                
+                auto id = un->getVariableName();
+                
+                // replace the anonymous initialiser with a local / var assignment
+                // in order to prevent global leakage
+                
+                if(auto fo = dynamic_cast<FunctionObject*>(currentFunctionObject))
+                {
+                    auto s = new VarStatement(location);
+                    s->name = id;
+
+                    hiseSpecialData->checkIfExistsInOtherStorage(HiseSpecialData::VariableStorageType::RootScope, id, location);
+
+                    s->initialiser.swapWith(assignment->newValue);
+                    
+                    newExpression = assignment;
+                    iter = s;
+                }
+                else if(auto ifo = dynamic_cast<InlineFunction::Object*>(currentInlineFunction))
+                {
+                    auto lv = new LocalVarStatement(location, ifo);
+                    lv->name = id;
+                    
+                    hiseSpecialData->checkIfExistsInOtherStorage(HiseSpecialData::VariableStorageType::LocalScope, id, location);
+                    
+                    ifo->localProperties->set(lv->name, {});
+                    lv->initialiser.swapWith(assignment->newValue);
+                    
+                    newExpression = assignment;
+                    iter = lv;
+                }
+            }
 		}
 
 		if (!isVarInitialiser && currentType == TokenTypes::closeParen)
@@ -1768,6 +1815,18 @@ private:
 			}
 			else
 			{
+                if(auto fo = dynamic_cast<FunctionObject*>(currentFunctionObject))
+                {
+                    for(auto cl : fo->capturedLocals)
+                    {
+                        if(cl->getVariableName() == id)
+                        {
+                            return parseSuffixes(new UnqualifiedName(location, parseIdentifier(), false));
+                        }
+                    }
+                }
+                
+                
 				if (JavascriptNamespace* inlineNamespace = getNamespaceForStorageType(JavascriptNamespace::StorageType::InlineFunction, ns, id))
 				{
 					InlineFunction::Object *obj = getInlineFunction(id, inlineNamespace);
@@ -2326,7 +2385,20 @@ var HiseJavascriptEngine::RootObject::evaluate(const String& code)
 {
 	ExpressionTreeBuilder tb(code, String());
 	tb.setupApiData(hiseSpecialData, code);
-	return ExpPtr(tb.parseExpression())->getResult(Scope(nullptr, this, this));
+    
+	auto& cp = currentLocalScopeCreator.get();
+
+    DynamicObject::Ptr localScope = cp != nullptr ? cp->createScope(this) : nullptr;
+    
+    if(localScope == nullptr)
+        localScope = this;
+    else
+    {
+        for(const auto& x: getProperties())
+            localScope->setProperty(x.name, x.value);
+    }
+    
+	return ExpPtr(tb.parseExpression())->getResult(Scope(nullptr, this, localScope.get()));
 }
 
 void HiseJavascriptEngine::RootObject::execute(const String& code, bool allowConstDeclarations)
@@ -2351,8 +2423,11 @@ void HiseJavascriptEngine::RootObject::execute(const String& code, bool allowCon
 	auto before = Time::getMillisecondCounter();
 
 	for (auto o : hiseSpecialData.optimizations)
-		results.add(hiseSpecialData.runOptimisation(o));
-
+	{
+		if(auto or_ = hiseSpecialData.runOptimisation(o))
+			results.add(or_);
+	}
+	
 	auto after = Time::getMillisecondCounter();
 	
 	auto optimisationTimeMs = after - before;

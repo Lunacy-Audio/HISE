@@ -351,10 +351,17 @@ void MacroControlledObject::setup(Processor *p, int parameter_, const String &na
 
 	initMacroControl(dontSendNotification);
 
-	slaf = new ScriptingObjects::ScriptedLookAndFeel::Laf(p->getMainController());
-	numberTag->setLookAndFeel(slaf.get());
-	
-	
+	auto newLaf = new ScriptingObjects::ScriptedLookAndFeel::Laf(p->getMainController());
+
+	slaf = newLaf;
+
+	WeakReference<ScriptingObjects::ScriptedLookAndFeel::Laf> safeLaf = newLaf;
+
+	SafeAsyncCall::callAsyncIfNotOnMessageThread<Component>(*numberTag, [safeLaf](Component& c)
+	{
+		if (safeLaf != nullptr)
+			c.setLookAndFeel(safeLaf.get());
+	});
 
 	p->getMainController()->getMainSynthChain()->addMacroConnectionListener(this);
 
@@ -472,9 +479,6 @@ void HiSlider::updateValue(NotificationType /*sendAttributeChange*/)
 	const bool enabled = !isLocked();
 
 	setEnabled(enabled);
-
-	numberTag->setNumber(enabled ? 0 : getMacroIndex()+1);
-	
 
 	const double value = (double)getProcessor()->getAttribute(parameter);
 
@@ -747,8 +751,6 @@ void HiComboBox::touchAndHold(Point<int> /*downPosition*/)
 void HiComboBox::updateValue(NotificationType /*sendAttributeChange*/)
 {
 	const bool enabled = !isLocked();
-
-	if(enabled) numberTag->setNumber(0);
 
 	setEnabled(enabled);
 

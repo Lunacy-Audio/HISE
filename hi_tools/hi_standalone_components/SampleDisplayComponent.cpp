@@ -1795,7 +1795,7 @@ bool MultiChannelAudioBuffer::fromBase64String(const String& b64)
 
 					return ok;
 				}
-				catch (String& errorMessage)
+				catch (String&)
 				{
 					jassertfalse;
 					return false;
