@@ -658,10 +658,6 @@ WeakCallbackHolder::~WeakCallbackHolder()
 
 hise::WeakCallbackHolder& WeakCallbackHolder::operator=(WeakCallbackHolder&& other)
 {
-	// if this fires, you must create the object with a valid ScriptProcessor pointer
-	// (if the processor is not available, consider using a heap-allocated WeakCallbackHolder instead)
-	jassert(getScriptProcessor() != nullptr);
-
 	r = other.r;
 	weakCallback = other.weakCallback;
 	numExpectedArgs = other.numExpectedArgs;
@@ -713,7 +709,7 @@ void WeakCallbackHolder::setThisObject(ReferenceCountedObject* thisObj)
 	thisObject = dynamic_cast<DebugableObjectBase*>(thisObj);
 
 	// Must call incRefCount before this method
-	jassert(anonymousFunctionRef.isObject());
+	jassert(weakCallback == nullptr || (anonymousFunctionRef.isObject() || !weakCallback->allowRefCount()));
 }
 
 void WeakCallbackHolder::setThisObjectRefCounted(const var& t)
@@ -990,3 +986,4 @@ void ConstScriptingObject::gotoLocationWithDatabaseLookup()
 }
 
 } // namespace hise
+

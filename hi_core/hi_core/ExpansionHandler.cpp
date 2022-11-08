@@ -424,7 +424,7 @@ bool ExpansionHandler::installFromResourceFile(const File& resourceFile, const F
 			data.supportFullDynamics = getInstallFullDynamics();
 			data.targetDirectory = samplesDir;
 			data.progress = &getMainController()->getSampleManager().getPreloadProgress();
-			data.totalProgress = &unused;
+			data.totalProgress = &totalProgress;
 			data.partProgress = &unused;
 			data.sourceFile = resourceFile;
 
@@ -526,6 +526,12 @@ hise::Expansion* ExpansionHandler::getExpansionForWildcardReference(const String
 {
 	if (!isEnabled())
 		return nullptr;
+
+	if (FullInstrumentExpansion::isEnabled(getMainController()))
+	{
+		if (getCurrentExpansion() != nullptr && poolReferenceString.startsWith("{PROJECT_FOLDER}"))
+			return getCurrentExpansion();
+	}
 
 	auto id = Expansion::Helpers::getExpansionIdFromReference(poolReferenceString);
 

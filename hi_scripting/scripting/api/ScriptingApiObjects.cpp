@@ -4447,8 +4447,9 @@ struct ScriptingObjects::ScriptingMessageHolder::Wrapper
 	API_METHOD_WRAPPER_0(ScriptingMessageHolder, isNoteOn);
 	API_METHOD_WRAPPER_0(ScriptingMessageHolder, isNoteOff);
 	API_METHOD_WRAPPER_0(ScriptingMessageHolder, isController);
+	API_METHOD_WRAPPER_0(ScriptingMessageHolder, clone);
 	API_METHOD_WRAPPER_0(ScriptingMessageHolder, dump);
-};
+}; 
 
 ScriptingObjects::ScriptingMessageHolder::ScriptingMessageHolder(ProcessorWithScriptingContent* pwsc) :
 	ConstScriptingObject(pwsc, (int)HiseEvent::Type::numTypes)
@@ -4480,6 +4481,7 @@ ScriptingObjects::ScriptingMessageHolder::ScriptingMessageHolder(ProcessorWithSc
 	ADD_API_METHOD_0(isNoteOff);
 	ADD_API_METHOD_0(isController);
 	ADD_API_METHOD_1(setStartOffset);
+	ADD_API_METHOD_0(clone);
 	ADD_API_METHOD_0(dump);
 
 	addConstant("Empty", 0);
@@ -4544,6 +4546,14 @@ int ScriptingObjects::ScriptingMessageHolder::getVelocity() const { return e.get
 void ScriptingObjects::ScriptingMessageHolder::ignoreEvent(bool shouldBeIgnored /*= true*/) { e.ignoreEvent(shouldBeIgnored); }
 int ScriptingObjects::ScriptingMessageHolder::getEventId() const { return (int)e.getEventId(); }
 void ScriptingObjects::ScriptingMessageHolder::setTransposeAmount(int tranposeValue) { e.setTransposeAmount(tranposeValue); }
+
+juce::var ScriptingObjects::ScriptingMessageHolder::clone()
+{
+	auto no = new ScriptingMessageHolder(getScriptProcessor());
+	no->setMessage(e);
+	return var(no);
+}
+
 int ScriptingObjects::ScriptingMessageHolder::getTransposeAmount() const { return (int)e.getTransposeAmount(); }
 void ScriptingObjects::ScriptingMessageHolder::setCoarseDetune(int semiToneDetune) { e.setCoarseDetune(semiToneDetune); }
 int ScriptingObjects::ScriptingMessageHolder::getCoarseDetune() const { return (int)e.getCoarseDetune(); }
@@ -4763,6 +4773,7 @@ struct ScriptingObjects::ScriptedMidiPlayer::Wrapper
 	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setRepaintOnPositionChange);
 	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, flushMessageList);
 	API_METHOD_WRAPPER_0(ScriptedMidiPlayer, getEventList);
+	API_METHOD_WRAPPER_2(ScriptedMidiPlayer, convertEventListToNoteRectangles);
 	API_METHOD_WRAPPER_2(ScriptedMidiPlayer, saveAsMidiFile);
 	API_VOID_METHOD_WRAPPER_0(ScriptedMidiPlayer, reset);
 	API_VOID_METHOD_WRAPPER_0(ScriptedMidiPlayer, undo);
@@ -4789,7 +4800,9 @@ struct ScriptingObjects::ScriptedMidiPlayer::Wrapper
 	API_METHOD_WRAPPER_0(ScriptedMidiPlayer, asMidiProcessor);
 	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setGlobalPlaybackRatio);
 	API_VOID_METHOD_WRAPPER_2(ScriptedMidiPlayer, setPlaybackCallback);
+	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setRecordEventCallback);
 	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, setUseGlobalUndoManager);
+	API_VOID_METHOD_WRAPPER_1(ScriptedMidiPlayer, connectToMetronome);
 };
 
 ScriptingObjects::ScriptedMidiPlayer::ScriptedMidiPlayer(ProcessorWithScriptingContent* p, MidiPlayer* player_):
@@ -4808,6 +4821,7 @@ ScriptingObjects::ScriptedMidiPlayer::ScriptedMidiPlayer(ProcessorWithScriptingC
 	ADD_API_METHOD_0(undo);
 	ADD_API_METHOD_0(redo);
 	ADD_API_METHOD_1(play);
+	ADD_API_METHOD_2(convertEventListToNoteRectangles);
 	ADD_API_METHOD_1(stop);
 	ADD_API_METHOD_1(record);
 	ADD_API_METHOD_3(setFile);
@@ -4830,13 +4844,17 @@ ScriptingObjects::ScriptedMidiPlayer::ScriptedMidiPlayer(ProcessorWithScriptingC
 	ADD_API_METHOD_0(asMidiProcessor);
 	ADD_API_METHOD_1(setGlobalPlaybackRatio);
 	ADD_API_METHOD_2(setPlaybackCallback);
+	ADD_API_METHOD_1(setRecordEventCallback);
 	ADD_API_METHOD_1(setUseGlobalUndoManager);
+	ADD_API_METHOD_1(connectToMetronome);
 }
 
 ScriptingObjects::ScriptedMidiPlayer::~ScriptedMidiPlayer()
 {
 	cancelUpdates();
 	connectedPanel = nullptr;
+	recordEventProcessor = nullptr;
+	playbackUpdater = nullptr;
 }
 
 juce::String ScriptingObjects::ScriptedMidiPlayer::getDebugValue() const
@@ -4889,6 +4907,47 @@ var ScriptingObjects::ScriptedMidiPlayer::getNoteRectangleList(var targetBounds)
 		returnArray.add(ApiHelpers::getVarRectangle(re, &r));
 
 	return var(returnArray);
+}
+
+juce::var ScriptingObjects::ScriptedMidiPlayer::convertEventListToNoteRectangles(var eventList, var targetBounds)
+{
+	if (auto holderList = eventList.getArray())
+	{
+		HiseMidiSequence::Ptr dummySequence = new HiseMidiSequence();
+
+		dummySequence->setTimeStampEditFormat(getSequence()->getTimestampEditFormat());
+		dummySequence->createEmptyTrack();
+
+		Array<HiseEvent> eventList;
+
+		for (const auto& h : *holderList)
+		{
+			if (auto mh = dynamic_cast<ScriptingMessageHolder*>(h.getObject()))
+				eventList.add(mh->getMessageCopy());
+		}
+
+		MidiPlayer::EditAction::writeArrayToSequence(dummySequence, eventList, 120, 44100.0, getSequence()->getTimestampEditFormat());
+
+		auto r = Result::ok();
+
+		auto targetArea = ApiHelpers::getRectangleFromVar(targetBounds, &r);
+
+		if (!r.wasOk())
+			reportScriptError(r.getErrorMessage());
+
+		auto list = dummySequence->getRectangleList(targetArea);
+
+		Array<var> returnArray;
+
+		for (auto re : list)
+			returnArray.add(ApiHelpers::getVarRectangle(re, &r));
+
+		dummySequence = nullptr;
+
+		return var(returnArray);
+	}
+
+	return var();
 }
 
 void ScriptingObjects::ScriptedMidiPlayer::setPlaybackPosition(var newPosition)
@@ -4954,6 +5013,22 @@ void ScriptingObjects::ScriptedMidiPlayer::setUseGlobalUndoManager(bool shouldUs
 		getPlayer()->setExternalUndoManager(nullptr);
 }
 
+void ScriptingObjects::ScriptedMidiPlayer::setRecordEventCallback(var recordEventCallback)
+{
+	if (auto co = dynamic_cast<WeakCallbackHolder::CallableObject*>(recordEventCallback.getObject()))
+	{
+		if (!co->isRealtimeSafe())
+			reportScriptError("This callable object is not realtime safe!");
+
+		recordEventProcessor = nullptr;
+		recordEventProcessor = new ScriptEventRecordProcessor(*this, recordEventCallback);
+	}
+	else
+	{
+		reportScriptError("You need to pass in an inline function");
+	}
+}
+
 void ScriptingObjects::ScriptedMidiPlayer::connectToPanel(var panel)
 {
 	if (auto p = dynamic_cast<ScriptingApi::Content::ScriptPanel*>(panel.getObject()))
@@ -4962,6 +5037,19 @@ void ScriptingObjects::ScriptedMidiPlayer::connectToPanel(var panel)
 	}
 	else
 		reportScriptError("Invalid panel");
+}
+
+void ScriptingObjects::ScriptedMidiPlayer::connectToMetronome(var metronome)
+{
+	if (metronome.isString())
+	{
+		auto m = ProcessorHelpers::getFirstProcessorWithName(getScriptProcessor()->getMainController_()->getMainSynthChain(), metronome.toString());
+
+		if (auto typed = dynamic_cast<MidiMetronome*>(m))
+			typed->connectToPlayer(getPlayer());
+		else
+			reportScriptError("Can't find metronome FX with ID " + metronome.toString());
+	}
 }
 
 var ScriptingObjects::ScriptedMidiPlayer::getEventList()

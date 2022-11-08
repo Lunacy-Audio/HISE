@@ -3271,6 +3271,7 @@ struct ScriptingApi::Content::ScriptPanel::Wrapper
 	API_VOID_METHOD_WRAPPER_0(ScriptPanel, changed);
 	API_VOID_METHOD_WRAPPER_2(ScriptPanel, loadImage);
 	API_VOID_METHOD_WRAPPER_0(ScriptPanel, unloadAllImages);
+	API_METHOD_WRAPPER_1(ScriptPanel, isImageLoaded);
 	API_VOID_METHOD_WRAPPER_1(ScriptPanel, setDraggingBounds);
 	API_VOID_METHOD_WRAPPER_2(ScriptPanel, setPopupData);
   API_VOID_METHOD_WRAPPER_3(ScriptPanel, setValueWithUndo);
@@ -3379,6 +3380,7 @@ void ScriptingApi::Content::ScriptPanel::init()
 	ADD_API_METHOD_0(stopTimer);
 	ADD_API_METHOD_2(loadImage);
 	ADD_API_METHOD_0(unloadAllImages);
+	ADD_API_METHOD_1(isImageLoaded);
 	ADD_API_METHOD_1(setDraggingBounds);
 	ADD_API_METHOD_2(setPopupData);
 	ADD_API_METHOD_3(setValueWithUndo);
@@ -3659,6 +3661,17 @@ void ScriptingApi::Content::ScriptPanel::loadImage(String imageName, String pret
 void ScriptingApi::Content::ScriptPanel::unloadAllImages()
 {
 	loadedImages.clear();
+}
+
+bool ScriptingApi::Content::ScriptPanel::isImageLoaded(String prettyName)
+{
+	for (auto& img : loadedImages)
+	{
+		if (img.prettyName == prettyName)
+			return true;
+	}
+	
+	return false;
 }
 
 StringArray ScriptingApi::Content::ScriptPanel::getItemList() const
@@ -4840,6 +4853,7 @@ colour(Colour(0xff777777))
 	setMethod("createPath", Wrapper::createPath);
 	setMethod("createShader", Wrapper::createShader);
 	setMethod("createMarkdownRenderer", Wrapper::createMarkdownRenderer);
+    setMethod("createSVG", Wrapper::createSVG);
 	setMethod("getScreenBounds", Wrapper::getScreenBounds);
 	setMethod("getCurrentTooltip", Wrapper::getCurrentTooltip);
 	setMethod("createLocalLookAndFeel", Wrapper::createLocalLookAndFeel);
@@ -5024,9 +5038,11 @@ var ScriptingApi::Content::getAllComponents(String regex)
 {
 	Array<var> list;
 
+    bool getAll = regex == ".*";
+    
 	for (int i = 0; i < getNumComponents(); i++)
 	{	    
-		if (RegexFunctions::matchesWildcard(regex, components[i]->getName().toString()))
+		if (getAll || RegexFunctions::matchesWildcard(regex, components[i]->getName().toString()))
 		{
 			list.add(var(components[i].get()));
 		}
@@ -5785,6 +5801,11 @@ String ScriptingApi::Content::getCurrentTooltip()
 		return ttc->getTooltip();
 
 	return {};
+}
+
+var ScriptingApi::Content::createSVG(const String& b64)
+{
+    return var(new ScriptingObjects::SVGObject(getScriptProcessor(), b64));
 }
 
 juce::var ScriptingApi::Content::createMarkdownRenderer()

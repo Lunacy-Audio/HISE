@@ -1616,8 +1616,8 @@ public:
 			FileName,
 			Offset,
 			Scale,
-			AllowCallbacks,
 			BlendMode,
+			AllowCallbacks,
 			PopupMenuItems,
 			PopupOnRightClick,
 			numProperties
@@ -1840,6 +1840,9 @@ public:
 
 		/** Unload all images from the panel. */
 		void unloadAllImages();
+		
+		/** Checks if the image has been loaded into the panel */
+		bool isImageLoaded(String prettyName);
 
 		/** If `allowedDragging` is enabled, it will define the boundaries where the panel can be dragged. */
 		void setDraggingBounds(var area);
@@ -2334,6 +2337,9 @@ public:
 	/** Creates an OpenGL framgent shader. */
 	var createShader(const String& fileName);
 
+    /** Creates an SVG object from the converted Base64 String. */
+    var createSVG(const String& base64String);
+    
 	/** Creates a MarkdownRenderer. */
 	var createMarkdownRenderer();
 

@@ -195,7 +195,7 @@ void CubeApi::setCornerButtonCallback(var callback) {
     }
 
     Cube& cube = getCubeData();
-	cube.cornerButtonCallback = new WeakCallbackHolder(getScriptProcessor(), callback, 2);
+	cube.cornerButtonCallback = new WeakCallbackHolder(getScriptProcessor(), this, callback, 2);
 	cube.cornerButtonCallback->setThisObject(this);
 	cube.cornerButtonCallback->incRefCount();
 	cube.cornerButtonCallback->setHighPriority();
@@ -213,7 +213,7 @@ void CubeApi::setOrbDragCallback(var callback) {
     }
 
     Cube& cube = getCubeData();
-	cube.orbDragCallback = new WeakCallbackHolder(getScriptProcessor(), callback, 3);
+	cube.orbDragCallback = new WeakCallbackHolder(getScriptProcessor(), this, callback, 3);
 
 	// make it use this API class as this object
 	cube.orbDragCallback->setThisObject(this);

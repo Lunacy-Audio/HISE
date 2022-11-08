@@ -606,6 +606,7 @@ private:
 	File selectedFile;
 	
 	ScopedPointer<TextButton> editButton;
+
 	ScopedPointer<TextButton> addButton;
 	ScopedPointer<TextButton> renameButton;
 	ScopedPointer<TextButton> deleteButton;

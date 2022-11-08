@@ -21,6 +21,8 @@
 #include <hi_dsp_library/hi_dsp_library.h>
 #include <hi_faust/hi_faust.h>
 #include <hi_faust_jit/hi_faust_jit.h>
+#include <hi_faust_lib/hi_faust_lib.h>
+#include <hi_faust_types/hi_faust_types.h>
 #include <hi_lac/hi_lac.h>
 #include <hi_modules/hi_modules.h>
 #include <hi_rlottie/hi_rlottie.h>
@@ -44,6 +46,7 @@
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <juce_gui_extra/juce_gui_extra.h>
 #include <juce_opengl/juce_opengl.h>
+#include <juce_osc/juce_osc.h>
 #include <juce_product_unlocking/juce_product_unlocking.h>
 
 #include "BinaryData.h"
@@ -68,7 +71,7 @@ namespace ProjectInfo
 {
     const char* const  projectName    = "HISE Standalone";
     const char* const  companyName    = "Hart Instruments";
-    const char* const  versionString  = "2.1.0";
-    const int          versionNumber  = 0x20100;
+    const char* const  versionString  = "3.0.0";
+    const int          versionNumber  = 0x30000;
 }
 #endif

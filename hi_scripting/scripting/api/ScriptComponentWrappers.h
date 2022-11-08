@@ -580,7 +580,7 @@ public:
 		void pointDragEnded() override;
 		void pointDragged(Point<int> position, float index, float value) override;
 		void curveChanged(Point<int> position, float curveValue) override;
-		void tableUpdated() override;
+        void tableUpdated();
 
 		
 
