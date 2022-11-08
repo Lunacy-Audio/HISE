@@ -104,12 +104,6 @@ public:
 	MidiMetronome(MainController *mc, const String &uid) :
 		MasterEffectProcessor(mc, uid)
 	{
-		parameterNames.add("Enabled");
-	    parameterNames.add("Volume");
-	    parameterNames.add("NoiseAmount");
-
-		updateParameterSlots();
-
 		finaliseModChains();
 	};
 
@@ -264,15 +258,13 @@ public:
 
 		lastPos = player->getPlaybackPosition() * player->getCurrentSequence()->getLengthInQuarters() * bf;
 
-        using namespace std;
-        
-		return (int)floor(lastPos);
+		return (int)std::floor(lastPos);
 	}
 
 	void connectToPlayer(MidiPlayer* p)
 	{
 		player = p;
-		sendOtherChangeMessage(dispatch::library::ProcessorChangeEvent::Custom);
+		sendChangeMessage();
 	}
 
 	void connectToPlayer(const String& playerId)

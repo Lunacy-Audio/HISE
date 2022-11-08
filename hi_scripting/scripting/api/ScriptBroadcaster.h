@@ -37,21 +37,7 @@ namespace hise { using namespace juce;
 namespace ScriptingObjects
 {
 
-#if PERFETTO
-#define OPEN_BROADCASTER_TRACK(item, root){ dispatch::StringBuilder b; b << metadata.id << ": call " << i->metadata.id; \
-											item->pendingTrack = root.bumpFlowCounter(); \
-											TRACE_EVENT("dispatch", DYNAMIC_STRING_BUILDER(b), perfetto::Flow::ProcessScoped(item->pendingTrack)); }
 
-#define TERMINATE_BROADCASTER_TRACK(x) dispatch::StringBuilder n; n << metadata.id << "(" << getItemId() << ")" << x; \
-			TRACE_EVENT("dispatch", DYNAMIC_STRING_BUILDER(n), perfetto::TerminatingFlow::ProcessScoped(pendingTrack)); 
-
-#define CONTINUE_BROADCASTER_TRACK(x) dispatch::StringBuilder n; n << metadata.id << "(" << getItemId() << ")" << x; \
-			TRACE_EVENT("dispatch", DYNAMIC_STRING_BUILDER(n), perfetto::Flow::ProcessScoped(pendingTrack));
-#else
-#define OPEN_BROADCASTER_TRACK(item, root);
-#define TERMINATE_BROADCASTER_TRACK(x); 
-#define CONTINUE_BROADCASTER_TRACK(x);
-#endif
 
 struct ScriptBroadcaster :  public ConstScriptingObject,
 							public WeakCallbackHolder::CallableObject,
@@ -65,16 +51,16 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
 
 		Metadata(const var& obj, bool mustBeValid);
 
-		operator bool() const;
+		operator bool() const { return hash != 0; }
 
-		bool operator==(const Metadata& other) const;
-		bool operator==(const var& other) const;
+		bool operator==(const Metadata& other) const { return hash == other.hash; }
+		bool operator==(const var& other) const { return Metadata(other, true) == *this; }
 
 		void attachCommentFromCallableObject(const var& callableObject, bool useDebugInformation=false);
 
 		var toJSON() const;
 
-		String getErrorMessage() const;
+		String getErrorMessage() const { return r.getErrorMessage(); }
 
 		Result r;
 		String comment;
@@ -83,33 +69,44 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
 		Colour c;
 		int priority = 0;
 		Array<Identifier> tags;
-		bool visible;
 	};
 
 	ScriptBroadcaster(ProcessorWithScriptingContent* p, const var& defaultValue);;
 	~ScriptBroadcaster();
 
+	struct Panel : public PanelWithProcessorConnection
+	{
+		Panel(FloatingTile* parent);;
+
+		SET_PANEL_NAME("ScriptBroadcasterMap");
+
+		Identifier getProcessorTypeId() const override;
+
+		Component* createContentComponent(int) override;
+
+		void fillModuleList(StringArray& moduleList) override
+		{
+			fillModuleListWithType<JavascriptProcessor>(moduleList);
+		}
+	};
 	
-	
-	Identifier getObjectName() const override;
+	Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Broadcaster"); }
 
 	Component* createPopupComponent(const MouseEvent& e, Component* parent) override;
 
 	Result call(HiseJavascriptEngine* engine, const var::NativeFunctionArgs& args, var* returnValue) override;
 
-	int getNumChildElements() const override;
+	int getNumChildElements() const override { return defaultValues.size(); }
 
 	DebugInformationBase* getChildElement(int index) override;
 
-	bool isAutocompleteable() const override;
+	bool isAutocompleteable() const override { return true; }
 
-	bool isRealtimeSafe() const override;
+    bool isRealtimeSafe() const override { return realtimeSafe; }
 
-	bool allowRefCount() const override;;
+	bool allowRefCount() const override { return false; };
         
 	void timerCallback() override;
-
-	Identifier getCallId() const override { return metadata.id; }
 
 	// =============================================================================== API Methods
 
@@ -128,9 +125,6 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
 	/** Adds a listener that will cause a refresh message (eg. repaint(), changed()) to be send out to the given components. */
 	bool addComponentRefreshListener(var componentIds, String refreshType, var metadata);
 
-	/** Adds a listener that will sync module parameters from the attached module parameter source. */
-	bool addModuleParameterSyncer(String moduleId, var parameterIndex, var metadata);
-	
 	/** Removes the listener that was assigned with the given object. */
 	bool removeListener(var idFromMetadata);
 
@@ -159,7 +153,7 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
 	void reset();
 
 	/** Resends the current state. */
-	void resendLastMessage(var isSync);
+	void resendLastMessage(bool isSync);
 
 	/** Forces every message to be sent synchronously. */
 	void setForceSynchronousExecution(bool shouldExecuteSynchronously);
@@ -180,14 +174,11 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
 	void attachToComponentMouseEvents(var componentIds, var callbackLevel, var optionalMetadata);
 
 	/** Registers this broadcaster to be notified when a context menu item from the given components was selected. */
-	void attachToContextMenu(var componentIds, var stateFunction, var itemList, var optionalMetadata, var useLeftClick);
+	void attachToContextMenu(var componentIds, var stateFunction, var itemList, var optionalMetadata);
 
     /** Registers this broadcaster to be notified when a complex data object changes. */
     void attachToComplexData(String dataTypeAndEvent, var moduleIds, var dataIndexes, var optionalMetadata);
         
-	/** Registers this broadcaster to be notified about changes to the EQ (adding / removing / selecting filter bands). */
-	void attachToEqEvents(var moduleIds, var eventTypes, var optionalMetadata);
-
 	/** Registers this broadcaster to be notified when a module parameter changes. */
 	void attachToModuleParameter(var moduleIds, var parameterIds, var optionalMetadata);
 
@@ -196,15 +187,6 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
 
 	/** Attaches this broadcaster to another broadcaster(s) to forward the messages. */
 	void attachToOtherBroadcaster(var otherBroadcaster, var argTransformFunction, bool async, var optionalMetadata);
-
-	/** Attaches this broadcaster to a routing matrix and listens for changes. */
-	void attachToRoutingMatrix(var moduleIds, var optionalMetadata);
-
-	/** Attaches this broadcaster to changes of the audio processing specs (samplerate / buffer size). */
-	void attachToProcessingSpecs(var optionalMetadata);
-
-	/** Attaches the broadcaster to events of a samplemap (loading, changing, adding samples). */
-	void attachToSampleMap(var samplerIds, var eventTypes, var optionalMetadata);
 
 	/** Calls a function after a short period of time. This is exclusive, so if you pass in a new function while another is pending, the first will be replaced. */
 	void callWithDelay(int delayInMilliseconds, var argArray, var function);
@@ -224,9 +206,6 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
     /** Guarantees that the synchronous execution of the listener callbacks can be called from the audio thread. */
     void setRealtimeMode(bool enableRealTimeMode);
 
-	/** If this broadcaster is attached to a context menu, calling this method will update the states for the menu items. */
-	void refreshContextMenuState();
-
 	// ===============================================================================
 
 	void addBroadcasterAsListener(ScriptBroadcaster* targetBroadcaster, const var& transformFunction, bool async);
@@ -239,7 +218,7 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
 
 	bool addLocationForFunctionCall(const Identifier& id, const DebugableObjectBase::Location& location) override;
 
-	const Metadata& getMetadata() const;
+	const Metadata& getMetadata() const { return metadata; }
 
 	static bool isPrimitiveArray(const var& obj);
 
@@ -261,18 +240,40 @@ private:
 
 	struct DelayedFunction : public Timer
 	{
-		DelayedFunction(ScriptBroadcaster* b, var f, const Array<var>& args_, int milliSeconds, const var& thisObj);
+		DelayedFunction(ScriptBroadcaster* b, var f, const Array<var>& args_, int milliSeconds, const var& thisObj):
+			c(b->getScriptProcessor(), b, f, 0),
+			bc(b),
+			args(args_)
+		{
+			c.setHighPriority();
+			c.incRefCount();
 
-		~DelayedFunction();
+			if (thisObj.isObject() && thisObj.getObject() != b)
+				c.setThisObjectRefCounted(thisObj);
 
-		void timerCallback() override;
+			startTimer(milliSeconds);
+		}
+
+		~DelayedFunction()
+		{
+			stopTimer();
+		}
+
+		void timerCallback() override
+		{
+			if (bc != nullptr && !bc->bypassed)
+			{
+				ScopedLock sl(bc->delayFunctionLock);
+
+				c.call(args.getRawDataPointer(), args.size());
+			}
+				
+			stopTimer();
+		}
 
 		Array<var> args;
 		WeakCallbackHolder c;
 		WeakReference<ScriptBroadcaster> bc;
-		uint64_t trackIndex = 0;
-
-		bool busy = false;
 	};
 
 	CriticalSection delayFunctionLock;
@@ -314,15 +315,26 @@ private:
 	{
 		struct PrioritySorter
 		{
-			static int compareElements(ItemBase* m1, ItemBase* m2);
+			static int compareElements(ItemBase* m1, ItemBase* m2)
+			{
+				if (m1->metadata.priority > m2->metadata.priority)
+					return -1; 
+
+				if (m1->metadata.priority < m2->metadata.priority)
+					return 1;
+
+				return 0;
+			}
 		};
 
-		ItemBase(const Metadata& m);;
+		ItemBase(const Metadata& m) :
+			metadata(m)
+		{};
 
-		virtual ~ItemBase();;
+		virtual ~ItemBase() {};
 
 		virtual Identifier getItemId() const = 0;
-		virtual void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory);
+		virtual void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) {}
 		virtual Array<var> createChildArray() const = 0;
 
 		Metadata metadata;
@@ -334,21 +346,40 @@ private:
 
 	struct TargetBase: public ItemBase
 	{
-		TargetBase(const var& obj_, const var& f, const var& metadata_);;
+		TargetBase(const var& obj_, const var& f, const var& metadata_) :
+			ItemBase(Metadata(metadata_, true)),
+			obj(obj_)
+		{
+			if (auto dl = dynamic_cast<DebugableObjectBase*>(f.getObject()))
+			{
+				location = dl->getLocation();
+			}
+		};
 
-		virtual ~TargetBase();;
+		virtual ~TargetBase() {};
 
 		virtual Result callSync(const Array<var>& args) = 0;
 
-		bool operator==(const TargetBase& other) const;
+		bool operator==(const TargetBase& other) const
+		{
+			return obj == other.obj;
+		}
 
-		Array<var> createChildArray() const override;
+		Array<var> createChildArray() const override
+		{
+			Array<var> l;
+
+			if (obj.isArray())
+				l.addArray(*obj.getArray());
+			else
+				l.add(obj);
+
+			return l;
+		}
 
 		var obj;
 		bool enabled = true;
 		DebugableObjectBase::Location location;
-
-		uint64_t pendingTrack = 0;
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(TargetBase);
 	};
@@ -357,7 +388,7 @@ private:
 	{
 		ScriptTarget(ScriptBroadcaster* sb, int numArgs, const var& obj_, const var& f, const var& metadata);;
 
-		Identifier getItemId() const override;;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("Script Callback"); };
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
 
@@ -372,7 +403,7 @@ private:
 		DelayedItem(ScriptBroadcaster* bc, const var& obj_, const var& f, int milliseconds, const var& metadata);
 		Result callSync(const Array<var>& args) override;
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("Delayed Callback"); }
 
 		int ms;
 		var f;
@@ -387,7 +418,7 @@ private:
 
 		ComponentPropertyItem(ScriptBroadcaster* sb, const var& obj, const Array<Identifier>& properties, const var& f, const var& metadata);
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ComponentProperties"); }
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
 
@@ -414,7 +445,7 @@ private:
 		ComponentRefreshItem(ScriptBroadcaster* sb, const var& obj, const String refreshMode, const var& metadata);
 
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ComponentRefreshItem"); }
 
 		Array<var> createChildArray() const override;
 
@@ -440,7 +471,7 @@ private:
 	{
 		ComponentValueItem(ScriptBroadcaster* sb, const var& obj, const var& f, const var& metadata);
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ComponentValue"); }
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;;
 		
@@ -451,33 +482,13 @@ private:
 		ScopedPointer<WeakCallbackHolder> optionalCallback;
 	};
 
-	struct ModuleParameterSyncer: public TargetBase
-	{
-		ModuleParameterSyncer(ScriptBroadcaster* sb, const var& obj, const var& metadata, Processor* target_, int parameterIndex_):
-		  TargetBase(obj, {}, metadata),
-		  target(target_),
-		  parameterIndex(parameterIndex_)
-		{}
-
-		Identifier getItemId() const override { return "ModuleParameterSyncer"; }
-
-		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override {};
-
-		Array<var> createChildArray() const override { return {}; }
-
-		Result callSync(const Array<var>& args) override;
-
-		WeakReference<Processor> target;
-		int parameterIndex;
-	};
-
 	struct OtherBroadcasterTarget : public TargetBase
 	{
 		OtherBroadcasterTarget(ScriptBroadcaster* parent_, ScriptBroadcaster* target_, const var& transformFunction, bool async, const var& metadata);
 
 		Result callSync(const Array<var>& args) override;
 		
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("Other Broadcaster"); }
 
 		const bool async;
 		WeakReference<ScriptBroadcaster> parent, target;
@@ -486,18 +497,19 @@ private:
 
     struct ListenerBase: public ItemBase
     {
-		ListenerBase(const var& metadata_);;
+		ListenerBase(const var& metadata_) :
+			ItemBase(Metadata(metadata_, false))
+		{};
 
 		/** Overwrite this method and return the number of calls to all listeners that should be made
 			when the connection is established. */
-		virtual int getNumInitialCalls() const;
-		// = 0;
+		virtual int getNumInitialCalls() const { return 0; }// = 0;
 
 		/** Overwrite this method and return the argument array for the initial call when the connection 
 			is established. callIndex is guaranteed to be 0 < callIndex < getNumInitialCalls(). */
-		virtual Array<var> getInitialArgs(int callIndex) const;;// = 0;
+		virtual Array<var> getInitialArgs(int callIndex) const { return {}; };// = 0;
 
-        virtual ~ListenerBase();;
+        virtual ~ListenerBase() {};
      
 		virtual Result callItem(TargetBase* n) = 0;
 
@@ -508,12 +520,12 @@ private:
 	{
 		DebugableObjectListener(ScriptBroadcaster* parent_, const var& metadata, DebugableObjectBase* obj_, const Identifier& callbackId_);;
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { return callbackId; }
 
 		Array<var> createChildArray() const override;
 
-		int getNumInitialCalls() const override;
-		Array<var> getInitialArgs(int callIndex) const override;
+		int getNumInitialCalls() const override { return 0; }
+		Array<var> getInitialArgs(int callIndex) const override { return {}; }
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
 
@@ -526,14 +538,13 @@ private:
 		WeakReference<ScriptBroadcaster> parent;
 	};
 
-
 	struct ModuleParameterListener: public ListenerBase
 	{
 		struct ProcessorListener;
 
-		ModuleParameterListener(ScriptBroadcaster* b, const Array<WeakReference<Processor>>& processors, const Array<uint16>& parameterIndexes, const var& metadata, const Identifier& specialId, bool useIntegerParameters);
+		ModuleParameterListener(ScriptBroadcaster* b, const Array<WeakReference<Processor>>& processors, const Array<int>& parameterIndexes, const var& metadata);
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ModuleParameter"); }
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
 
@@ -547,106 +558,6 @@ private:
 		OwnedArray<ProcessorListener> listeners;
 	};
 
-	struct EqListener : public ListenerBase
-	{
-		struct InternalListener;
-		Identifier getItemId() const override;
-
-		EqListener(ScriptBroadcaster* b, const Array<WeakReference<CurveEq>>& eqs, const StringArray& eventList, const var& metadata);
-
-		int getNumInitialCalls() const override;
-		Array<var> getInitialArgs(int callIndex) const override;
-		Array<var> createChildArray() const override;
-
-		Result callItem(TargetBase* b) override;
-
-		OwnedArray<InternalListener> listeners;
-	};
-
-	struct RoutingMatrixListener : public ListenerBase
-	{
-		struct MatrixListener;
-
-		RoutingMatrixListener(ScriptBroadcaster* b, const Array<WeakReference<Processor>>& processors, const var& metadata);
-
-		Identifier getItemId() const override;;
-
-		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
-
-		int getNumInitialCalls() const override;
-		Array<var> getInitialArgs(int callIndex) const override;
-
-		Array<var> createChildArray() const override;
-
-		Result callItem(TargetBase* b) override;
-
-		OwnedArray<MatrixListener> listeners;
-	};
-
-	struct SamplemapListener: public ListenerBase
-	{
-		enum class EventTypes
-		{
-			SampleMapChanged,
-			SamplesAddedOrRemoved,
-			SampleChanged,
-			numEventTypes
-		};
-
-		struct Event
-		{
-			Event() = default;
-
-			Event(const var& value)
-			{
-				if(value.isString())
-				{
-					if(value.toString() == "SampleMapChanged")
-						type = EventTypes::SampleMapChanged;
-					if(value.toString() == "SamplesAddedOrRemoved")
-						type = EventTypes::SamplesAddedOrRemoved;
-				}
-				else if (value.isInt())
-				{
-					auto ids = SampleIds::Helpers::getAllIds();
-					auto idx = (int)value;
-
-					if(isPositiveAndBelow(idx, ids.size()))
-					{
-						type = EventTypes::SampleChanged;
-						id = ids[idx];
-					}
-				}
-			}
-
-			operator bool() const { return type != EventTypes::numEventTypes; };
-
-			EventTypes type = EventTypes::numEventTypes;
-			Identifier id;
-		};
-
-		static Array<Event> getEventTypes(const var& eventTypes);
-
-		struct SamplemapListenerItem;
-
-		SamplemapListener(ScriptBroadcaster* b, const Array<WeakReference<ModulatorSampler>>& samplers, const Array<Event>& eventTypes, const var& metadata);
-
-		~SamplemapListener() { items.clear(); }
-
-		Array<var> createChildArray() const override;
-
-		Result callItem(TargetBase* n) override;
-
-		int getNumInitialCalls() const override;
-		Array<var> getInitialArgs(int callIndex) const override;
-
-		Identifier getItemId() const override;
-
-		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
-
-		ReferenceCountedArray<SamplemapListenerItem> items;
-	};
-
 	struct ScriptCallListener : public ListenerBase
 	{
 		struct ScriptCallItem;
@@ -658,10 +569,10 @@ private:
 		Result callItem(TargetBase* n) override;
 
 		// Don't need to initialise function calls
-		int getNumInitialCalls() const override;
-		Array<var> getInitialArgs(int callIndex) const override;
+		int getNumInitialCalls() const override { return 0; }
+		Array<var> getInitialArgs(int callIndex) const override { return {}; }
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ScriptFunctionCalls"); }
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
 
@@ -696,39 +607,13 @@ private:
 		Identifier typeId;
     };
 
-	struct ProcessingSpecSource : public ListenerBase
-	{
-		ProcessingSpecSource(ScriptBroadcaster* b, const var& metadata);
-
-		~ProcessingSpecSource();
-
-		Identifier getItemId() const override;
-
-		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
-
-		int getNumInitialCalls() const override;
-		Array<var> getInitialArgs(int callIndex) const override;
-
-		Array<var> createChildArray() const override;;
-
-		Result callItem(TargetBase* n) override;
-
-		static void prepareCalled(ProcessingSpecSource& p, double sampleRate, int blockSize);
-
-		Array<var> processArgs;
-
-		WeakReference<ScriptBroadcaster> parent;
-
-		JUCE_DECLARE_WEAK_REFERENCEABLE(ProcessingSpecSource);
-	};
-
 	struct ComponentPropertyListener : public ListenerBase
 	{
 		struct InternalListener;
 
 		ComponentPropertyListener(ScriptBroadcaster* b, var componentIds, const Array<Identifier>& propertyIds, const var& metadata);
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ComponentProperties"); }
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
 
@@ -750,12 +635,12 @@ private:
 
 		ComponentVisibilityListener(ScriptBroadcaster* b, var componentIds, const var& metadata);
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ComponentVisibility"); }
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
 
 		
-		int getNumInitialCalls() const override;
+		int getNumInitialCalls() const override { return items.size(); }
 		Array<var> getInitialArgs(int callIndex) const override;
 
 		Result callItem(TargetBase* n) override;
@@ -772,13 +657,13 @@ private:
 
 		MouseEventListener(ScriptBroadcaster* parent, var componentIds, MouseCallbackComponent::CallbackLevel level, const var& metadata);
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("MouseEvents"); }
 
 		// We don't need to call this to update it with the current value because the mouse events are non persistent. */
-		Result callItem(TargetBase*) override;
+		Result callItem(TargetBase*) override { return Result::ok(); }
 
-		int getNumInitialCalls() const override;
-		Array<var> getInitialArgs(int callIndex) const override;
+		int getNumInitialCalls() const override { return 0; }
+		Array<var> getInitialArgs(int callIndex) const override { return {}; }
 
 		Array<var> createChildArray() const override;
 
@@ -786,7 +671,23 @@ private:
 		MouseCallbackComponent::CallbackLevel level;
 	};
 
-	struct ContextMenuListener;
+	struct ContextMenuListener : public ListenerBase
+	{
+		struct InternalMenuListener;
+
+		ContextMenuListener(ScriptBroadcaster* parent, var componentIds, var stateFunction, const StringArray& itemList, const var& metadata);
+
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ContextMenu"); }
+
+		int getNumInitialCalls() const override { return 0; }
+		Array<var> getInitialArgs(int callIndex) const override { return {}; }
+
+		Result callItem(TargetBase*) override { return Result::ok(); }
+
+		Array<var> createChildArray() const override { return {}; }
+
+		OwnedArray<InternalMenuListener> items;
+	};
 
 	struct ComponentValueListener : public ListenerBase
 	{
@@ -794,11 +695,11 @@ private:
 
 		ComponentValueListener(ScriptBroadcaster* parent, var componentIds, const var& metadata);
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ComponentValue"); }
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
 
-		int getNumInitialCalls() const override;
+		int getNumInitialCalls() const override { return items.size(); }
 		Array<var> getInitialArgs(int callIndex) const override;
 
 		Result callItem(TargetBase* n) override;
@@ -806,8 +707,6 @@ private:
 		Array<var> createChildArray() const override;
 
 		OwnedArray<InternalListener> items;
-
-		
 	};
 
 	struct RadioGroupListener : public ListenerBase
@@ -816,12 +715,12 @@ private:
 
 		RadioGroupListener(ScriptBroadcaster* b, int radioGroup, const var& metadata);
 
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("RadioGroup"); }
 
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
 
-		int getNumInitialCalls() const override;
-		Array<var> getInitialArgs(int callIndex) const override;
+		int getNumInitialCalls() const override { return 1; }
+		Array<var> getInitialArgs(int callIndex) const override { return { var(currentIndex) }; }
 
 		void setButtonValueFromIndex(int newIndex);
 
@@ -837,15 +736,26 @@ private:
 	
 	struct OtherBroadcasterListener : public ListenerBase
 	{
-		OtherBroadcasterListener(const Array<WeakReference<ScriptBroadcaster>>& list, const var& metadata);;
+		OtherBroadcasterListener(const Array<WeakReference<ScriptBroadcaster>>& list, const var& metadata) :
+			ListenerBase(metadata),
+			sources(list)
+		{};
 
 		Result callItem(TargetBase* n) override;
 		
-		Identifier getItemId() const override;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("BroadcasterSource"); }
 
-		int getNumInitialCalls() const override;
+		int getNumInitialCalls() const override { return sources.size(); }
+		Array<var> getInitialArgs(int callIndex) const override
+		{
+			if (auto sb = sources[callIndex])
+			{
+				return sb->lastValues;
+			}
 
-		Array<var> getInitialArgs(int callIndex) const override;
+			jassertfalse;
+			return {};
+		}
 
 #if USE_BACKEND
 		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
@@ -870,8 +780,6 @@ private:
 
 	JUCE_DECLARE_WEAK_REFERENCEABLE(ScriptBroadcaster);
 };
-
-
 
 
 

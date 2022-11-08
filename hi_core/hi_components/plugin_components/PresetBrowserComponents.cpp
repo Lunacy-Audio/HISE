@@ -498,13 +498,13 @@ PresetBrowserColumn::PresetBrowserColumn(MainController* mc_, PresetBrowser* p, 
 	addAndMakeVisible(editButton = new TextButton("Edit"));
 	editButton->addListener(this);
 
-	addAndMakeVisible(addButton = new TextButton("+"));
+	addAndMakeVisible(addButton = new TextButton("Add"));
 	addButton->addListener(this);
 
-	addAndMakeVisible(renameButton = new TextButton("/"));
+	addAndMakeVisible(renameButton = new TextButton("Rename"));
 	renameButton->addListener(this);
 
-	addAndMakeVisible(deleteButton = new TextButton("-"));
+	addAndMakeVisible(deleteButton = new TextButton("Delete"));
 	deleteButton->addListener(this);
 
 	listModel = new ColumnListModel(parent, index, listener);
@@ -700,7 +700,7 @@ void PresetBrowserColumn::resized()
 		listArea.removeFromBottom(4);
 	}
 
-	listbox->setBounds(listArea.reduced(1));
+	listbox->setBounds(listArea.reduced(3));
 }
 
 

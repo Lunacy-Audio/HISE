@@ -2410,10 +2410,10 @@ void CompileExporter::BatchFileCreator::createBatchFile(CompileExporter* exporte
 
 		int threads = SystemStats::getNumCpus() - 2;
 		String xcodeLine;
+        
 		xcodeLine << "xcodebuild -project \"Builds/MacOSX/" << projectName << ".xcodeproj\" -configuration \"" << exporter->configurationName << "\" -jobs \"" << threads << "\"";
 		xcodeLine << " | xcpretty";
 		
-
         ADD_LINE(xcodeLine);
         ADD_LINE("echo Compiling finished. Cleaning up...");
     }

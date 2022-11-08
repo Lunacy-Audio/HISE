@@ -38,7 +38,7 @@
 // BEGIN SECTION A
 
 #ifndef JUCE_DISPLAY_SPLASH_SCREEN
- #define JUCE_DISPLAY_SPLASH_SCREEN 1
+ #define JUCE_DISPLAY_SPLASH_SCREEN 0
 #endif
 
 // END SECTION A
@@ -55,6 +55,8 @@
 #define JUCE_MODULE_AVAILABLE_hi_dsp_library              1
 #define JUCE_MODULE_AVAILABLE_hi_faust                    1
 #define JUCE_MODULE_AVAILABLE_hi_faust_jit                1
+#define JUCE_MODULE_AVAILABLE_hi_faust_lib                1
+#define JUCE_MODULE_AVAILABLE_hi_faust_types              1
 #define JUCE_MODULE_AVAILABLE_hi_lac                      1
 #define JUCE_MODULE_AVAILABLE_hi_modules                  1
 #define JUCE_MODULE_AVAILABLE_hi_rlottie                  1
@@ -78,6 +80,7 @@
 #define JUCE_MODULE_AVAILABLE_juce_gui_basics             1
 #define JUCE_MODULE_AVAILABLE_juce_gui_extra              1
 #define JUCE_MODULE_AVAILABLE_juce_opengl                 1
+#define JUCE_MODULE_AVAILABLE_juce_osc                    1
 #define JUCE_MODULE_AVAILABLE_juce_product_unlocking      1
 
 #define JUCE_GLOBAL_MODULE_SETTINGS_INCLUDED 1
@@ -132,7 +135,7 @@
 #endif
 
 #ifndef    USE_IPP
- #define   USE_IPP 1
+ #define   USE_IPP 0
 #endif
 
 #ifndef    USE_VDSP_FFT
@@ -275,7 +278,7 @@
 // hi_dsp_library flags:
 
 #ifndef    HI_EXPORT_AS_PROJECT_DLL
- #define   HI_EXPORT_AS_PROJECT_DLL 1
+ //#define HI_EXPORT_AS_PROJECT_DLL 0
 #endif
 
 #ifndef    HI_EXPORT_DSP_LIBRARY

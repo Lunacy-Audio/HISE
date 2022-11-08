@@ -286,8 +286,7 @@ struct ConvolutionEffectBase : public AsyncUpdater,
 
 	virtual MultiChannelAudioBuffer& getImpulseBufferBase() = 0;
 	virtual const MultiChannelAudioBuffer& getImpulseBufferBase() const = 0;
-    virtual void preProcessImpulseResponse(AudioSampleBuffer& scratchBuffer) {};
-    
+
 protected:
 
     MultithreadedConvolver::BackgroundThread backgroundThread;

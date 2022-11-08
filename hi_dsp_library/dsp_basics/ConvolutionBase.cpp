@@ -591,10 +591,8 @@ bool ConvolutionEffectBase::reloadInternal()
 		SimpleReadWriteLock::ScopedReadLock sl(getImpulseBufferBase().getDataLock());
 		copyOfOriginal.makeCopyOf(getImpulseBufferBase().getBuffer());
 	}
-    
-    preProcessImpulseResponse(copyOfOriginal); 
 
-	auto resampleRatio = getResampleFactor(); //corrects for differences in the sample rate of the IR and the DAW
+	auto resampleRatio = getResampleFactor();
 
 	{
 		bool unused = false;
