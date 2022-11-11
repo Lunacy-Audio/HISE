@@ -2866,8 +2866,10 @@ void ScriptBroadcaster::reset()
 		reportScriptError(ok.getErrorMessage());
 }
 
-void ScriptBroadcaster::resendLastMessage(bool isSync)
+void ScriptBroadcaster::resendLastMessage(var sync)
 {
+    auto isSync = ApiHelpers::isSynchronous(sync);
+    
 	if (forceSync)
 		isSync = true;
 
@@ -3584,6 +3586,8 @@ ScriptBroadcaster::Metadata::Metadata() :
 
 void ScriptBroadcaster::Metadata::attachCommentFromCallableObject(const var& callableObject, bool useDebugInformation)
 {
+    return;
+    
 	if (comment.isNotEmpty())
 		return;
 

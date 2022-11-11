@@ -2295,10 +2295,11 @@ public:
                     
                     comp.compress(text, mb);
                 }
-                else
-                    mb = data.getMemoryBlock();
-                
-				path.writePathToStream(data);
+				else
+				{
+					path.writePathToStream(data);
+					mb = data.getMemoryBlock();
+				}
 
 				MemoryOutputStream out;
 
