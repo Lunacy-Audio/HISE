@@ -1728,7 +1728,7 @@ struct AudioRenderer : public Thread,
 				for (int i = 0; i < numChannelsToRender; i++)
 					channels.add(new VariantBuffer(numSamplesToRender));
 
-				Thread::startThread(Thread::realtimeAudioPriority);
+				Thread::startThread(8);
 			}
 		}
 	}

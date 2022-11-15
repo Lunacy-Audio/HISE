@@ -291,6 +291,8 @@ CompileExporter::ErrorCodes CompileExporter::compileFromCommandLine(const String
 
 		CompileExporter exporter(mainSynthChain);
 
+        exporter.noLto = args.contains("-nolto");
+        
 		bool switchBack = false;
 
 		if (currentProjectFolder != projectDirectory)
@@ -480,9 +482,26 @@ CompileExporter::ErrorCodes CompileExporter::exportInternal(TargetTypes type, Bu
 	
 	if (!legacyCpuSupport) legacyCpuSupport = data.getSetting(HiseSettings::Compiler::LegacyCPUSupport);
 	    
-	if(!hisePath.isDirectory()) 
-		hisePath = data.getSetting(HiseSettings::Compiler::HisePath);
+	if (!hisePath.isDirectory())
+	{
+		if (isUsingCIMode())
+		{
+			auto appPath = File::getSpecialLocation(File::currentApplicationFile).getParentDirectory();
 
+			while (!appPath.isRoot() && !appPath.getChildFile("hi_core").isDirectory())
+			{
+				appPath = appPath.getParentDirectory();
+			}
+
+			if (!appPath.isRoot())
+				hisePath = appPath;
+		}
+		else
+		{
+			hisePath = data.getSetting(HiseSettings::Compiler::HisePath);
+		}
+	}
+	
 	if (!hisePath.isDirectory()) 
 		return ErrorCodes::HISEPathNotSpecified;
 
@@ -1685,7 +1704,10 @@ hise::CompileExporter::ErrorCodes CompileExporter::createPluginProjucerFile(Targ
 			REPLACE_WILDCARD_WITH_STRING("%AAX_IDENTIFIER%", aaxIdentifier);
             
             // Only build 64bit Intel binaries for AAX
-            REPLACE_WILDCARD_WITH_STRING("%ARM_ARCH%", "x86_64");
+            // REPLACE_WILDCARD_WITH_STRING("%ARM_ARCH%", "x86_64");
+            
+            // Welcome to the future...
+            REPLACE_WILDCARD_WITH_STRING("%ARM_ARCH%", "arm64,arm64e,x86_64");
 		}
 		else
 		{
@@ -1812,6 +1834,8 @@ void CompileExporter::ProjectTemplateHelpers::handleCompilerInfo(CompileExporter
 	REPLACE_WILDCARD_WITH_STRING("%HISE_PATH%", exporter->hisePath.getFullPathName());
 	REPLACE_WILDCARD_WITH_STRING("%JUCE_PATH%", jucePath.getFullPathName());
 	
+    REPLACE_WILDCARD_WITH_STRING("%LINK_TIME_OPTIMISATION%", exporter->noLto ? "0" : "1");
+    
 	auto includeFaust = BackendDllManager::shouldIncludeFaust(exporter->chainToExport->getMainController());
 
 
