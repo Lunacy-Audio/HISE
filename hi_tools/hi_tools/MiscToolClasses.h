@@ -2645,7 +2645,10 @@ struct MasterClock
 		// Restart the internal clock when the external is stopped
 		if (!internalClock && !startPlayback && internalClockIsRunning)
 		{
-			nextState = State::InternalClockPlay;
+            if(stopInternalOnExternalStop)
+                nextState = State::Idle;
+            else
+                nextState = State::InternalClockPlay;
 		}
 	}
 
@@ -2841,6 +2844,11 @@ struct MasterClock
 		return currentSyncMode != SyncModes::InternalOnly;
 	}
 
+    void setStopInternalClockOnExternalStop(bool shouldStop)
+    {
+        stopInternalOnExternalStop = shouldStop;
+    }
+    
 	bool shouldCreateInternalInfo(const AudioPlayHead::CurrentPositionInfo& externalInfo) const
 	{
 		if (currentSyncMode == SyncModes::Inactive)
@@ -2933,6 +2941,8 @@ private:
 
 	bool internalClockIsRunning = false;
 
+    bool stopInternalOnExternalStop = false;
+    
 	double sampleRate = 44100.0;
 	double bpm = 120.0;
 

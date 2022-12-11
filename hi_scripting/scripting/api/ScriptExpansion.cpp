@@ -41,6 +41,7 @@ struct ScriptUserPresetHandler::Wrapper
 	API_VOID_METHOD_WRAPPER_1(ScriptUserPresetHandler, setCustomAutomation);
 	API_VOID_METHOD_WRAPPER_3(ScriptUserPresetHandler, setUseCustomUserPresetModel);
 	API_METHOD_WRAPPER_1(ScriptUserPresetHandler, isOldVersion);
+    API_METHOD_WRAPPER_0(ScriptUserPresetHandler, isInternalPresetLoad);
 	API_VOID_METHOD_WRAPPER_0(ScriptUserPresetHandler, clearAttachedCallbacks);
 	API_VOID_METHOD_WRAPPER_3(ScriptUserPresetHandler, attachAutomationCallback);
 	API_VOID_METHOD_WRAPPER_3(ScriptUserPresetHandler, updateAutomationValues);
@@ -63,6 +64,7 @@ ScriptUserPresetHandler::ScriptUserPresetHandler(ProcessorWithScriptingContent* 
 	getMainController()->getUserPresetHandler().addListener(this);
 
 	ADD_API_METHOD_1(isOldVersion);
+    ADD_API_METHOD_0(isInternalPresetLoad);
 	ADD_API_METHOD_1(setPostCallback);
 	ADD_API_METHOD_1(setPreCallback);
 	ADD_API_METHOD_2(setEnableUserPresetPreprocessing);
@@ -114,6 +116,13 @@ void ScriptUserPresetHandler::setEnableUserPresetPreprocessing(bool processBefor
 {
 	enablePreprocessing = processBeforeLoading;
 	unpackComplexData = shouldUnpackComplexData;
+}
+
+bool ScriptUserPresetHandler::isInternalPresetLoad() const
+{
+    auto& uph = getScriptProcessor()->getMainController_()->getUserPresetHandler();
+    
+    return uph.isInternalPresetLoad();
 }
 
 bool ScriptUserPresetHandler::isOldVersion(const String& version)
@@ -2630,12 +2639,15 @@ juce::File ScriptUnlocker::getLicenseKeyFile()
 struct ScriptUnlocker::RefObject::Wrapper
 {
 	API_METHOD_WRAPPER_0(RefObject, isUnlocked);
+	API_METHOD_WRAPPER_0(RefObject, canExpire);
+	API_METHOD_WRAPPER_1(RefObject, checkExpirationData);
 	API_METHOD_WRAPPER_0(RefObject, loadKeyFile);
 	API_VOID_METHOD_WRAPPER_1(RefObject, setProductCheckFunction);
 	API_METHOD_WRAPPER_1(RefObject, writeKeyFile);
 	API_METHOD_WRAPPER_0(RefObject, getUserEmail);
 	API_METHOD_WRAPPER_0(RefObject, getRegisteredMachineId);
 	API_METHOD_WRAPPER_1(RefObject, isValidKeyFile);
+    API_METHOD_WRAPPER_0(RefObject, keyFileExists);
 };
 
 ScriptUnlocker::RefObject::RefObject(ProcessorWithScriptingContent* p) :
@@ -2659,6 +2671,9 @@ ScriptUnlocker::RefObject::RefObject(ProcessorWithScriptingContent* p) :
 	ADD_API_METHOD_0(getUserEmail);
 	ADD_API_METHOD_0(getRegisteredMachineId);
 	ADD_API_METHOD_1(isValidKeyFile);
+	ADD_API_METHOD_0(canExpire);
+	ADD_API_METHOD_1(checkExpirationData);
+    ADD_API_METHOD_0(keyFileExists);
 }
 
 ScriptUnlocker::RefObject::~RefObject()
@@ -2681,23 +2696,26 @@ juce::var ScriptUnlocker::RefObject::checkExpirationData(const String& encodedTi
 {
 	if (unlocker != nullptr)
 	{
-		MemoryBlock mb;
-		if (mb.fromBase64Encoding(encodedTimeString))
+		if (encodedTimeString.startsWith("0x"))
 		{
 			BigInteger bi;
-			bi.loadFromMemoryBlock(mb);
+
+			bi.parseString(encodedTimeString.substring(2), 16);
 			unlocker->getPublicKey().applyToValue(bi);
 
-			Time(bi.toInt64());
+			auto timeString = bi.toMemoryBlock().toString();
 
-			auto ok = unlocker->unlockWithTime(Time(bi.toInt64()));
-            
-            if(ok)
-                return var("");
-            else
-                return var("Activation failed");
+			auto time = Time::fromISO8601(timeString);
+
+			auto ok = unlocker->unlockWithTime(time);
+
+			if (ok)
+				return var("");
+			else
+				return var("Activation failed");
+
 		}
-        
+
         return var("encodedTimeString data is corrupt");
 	}
 	else
@@ -2716,6 +2734,11 @@ void ScriptUnlocker::RefObject::setProductCheckFunction(var f)
 juce::var ScriptUnlocker::RefObject::loadKeyFile()
 {
 	return unlocker->loadKeyFile();
+}
+
+bool ScriptUnlocker::RefObject::keyFileExists() const
+{
+    return unlocker->getLicenseKeyFile().existsAsFile();
 }
 
 juce::var ScriptUnlocker::RefObject::writeKeyFile(const String& keyData)

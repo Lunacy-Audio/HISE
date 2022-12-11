@@ -947,12 +947,14 @@ juce::Result ScriptBroadcaster::OtherBroadcasterTarget::callSync(const Array<var
 
 
 
-struct ScriptBroadcaster::ModuleParameterListener::ProcessorListener : public SafeChangeListener
+struct ScriptBroadcaster::ModuleParameterListener::ProcessorListener : public SafeChangeListener,
+																	   public hise::Processor::BypassListener
 {
-	ProcessorListener(ScriptBroadcaster* sb_, Processor* p_, const Array<int>& parameterIndexes_) :
+	ProcessorListener(ScriptBroadcaster* sb_, Processor* p_, const Array<int>& parameterIndexes_, const Identifier& bypassId_) :
 		parameterIndexes(parameterIndexes_),
 		p(p_),
-		sb(sb_)
+		sb(sb_),
+		bypassId(bypassId_)
 	{
 		for (auto pi : parameterIndexes)
 		{
@@ -964,13 +966,49 @@ struct ScriptBroadcaster::ModuleParameterListener::ProcessorListener : public Sa
 		args.add(0);
 		args.add(0.0f);
 
-		p->addChangeListener(this);
+		if(!parameterIndexes.isEmpty())
+			p->addChangeListener(this);
+
+		if (bypassId.isValid())
+		{
+			p->addBypassListener(this);
+			bypassIdAsVar = var(bypassId.toString());
+		}
+	}
+
+	void bypassStateChanged(Processor* p, bool bypassState) override
+	{
+		static const Identifier e("Enabled");
+
+		if (bypassId == e)
+			bypassState = !bypassState;
+
+		auto newValue = (float)(int)bypassState;
+		sendParameterChange(bypassIdAsVar, newValue);
+	}
+
+	void sendParameterChange(const var& id, float newValue)
+	{
+		args.set(1, id);
+		args.set(2, newValue);
+
+		try
+		{
+			sb->sendAsyncMessage(args);
+		}
+		catch (String& s)
+		{
+			debugError(dynamic_cast<Processor*>(sb->getScriptProcessor()), s);
+		}
 	}
 
 	~ProcessorListener()
 	{
 		if (p != nullptr)
+		{
 			p->removeChangeListener(this);
+			p->removeBypassListener(this);
+		}
 	}
 
 	void changeListenerCallback(SafeChangeBroadcaster *b) override
@@ -980,23 +1018,14 @@ struct ScriptBroadcaster::ModuleParameterListener::ProcessorListener : public Sa
 
 		for (int i = 0; i < parameterIndexes.size(); i++)
 		{
+			auto id = parameterNames[i];
 			auto newValue = p->getAttribute(parameterIndexes[i]);
 
 			if (lastValues[i] != newValue)
 			{
 				lastValues.set(i, newValue);
-				args.set(1, parameterNames[i]);
-				args.set(2, newValue);
 
-				try
-				{
-					sb->sendAsyncMessage(args);
-				}
-				catch (String& s)
-				{
-					debugError(dynamic_cast<Processor*>(sb->getScriptProcessor()), s);
-				}
-
+				sendParameterChange(id, newValue);
 			}
 		}
 	}
@@ -1008,13 +1037,15 @@ struct ScriptBroadcaster::ModuleParameterListener::ProcessorListener : public Sa
 	Array<float> lastValues;
 	Array<var> parameterNames;
 	const Array<int> parameterIndexes;
+	Identifier bypassId;
+	var bypassIdAsVar;
 };
 
-ScriptBroadcaster::ModuleParameterListener::ModuleParameterListener(ScriptBroadcaster* b, const Array<WeakReference<Processor>>& processors, const Array<int>& parameterIndexes, const var& metadata):
+ScriptBroadcaster::ModuleParameterListener::ModuleParameterListener(ScriptBroadcaster* b, const Array<WeakReference<Processor>>& processors, const Array<int>& parameterIndexes, const var& metadata, const Identifier& bypassId):
 	ListenerBase(metadata)
 {
 	for (auto& p : processors)
-		listeners.add(new ProcessorListener(b, p, parameterIndexes));
+		listeners.add(new ProcessorListener(b, p, parameterIndexes, bypassId));
 }
 
 void ScriptBroadcaster::ModuleParameterListener::registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory)
@@ -1140,8 +1171,13 @@ int ScriptBroadcaster::ModuleParameterListener::getNumInitialCalls() const
 {
 	int i = 0;
 
+	
+
 	for (auto l : listeners)
 	{
+		if (l->bypassId.isValid())
+			i++;
+
 		i += l->parameterIndexes.size();
 	}
 
@@ -1160,14 +1196,37 @@ Array<juce::var> ScriptBroadcaster::ModuleParameterListener::getInitialArgs(int 
 	{
 		args.set(0, l->p->getId());
 
+		if (l->bypassId.isValid())
+		{
+			if (i == callIndex)
+			{
+				
+				auto v = l->p->isBypassed();
+
+				if (l->bypassId == Identifier("Enabled"))
+					v = !v;
+
+				args.set(1, l->bypassIdAsVar);
+				args.set(2, var((float)(int)v));
+
+				return args;
+			}
+
+			i++;
+		}
+
+		int pIndex = 0;
+
 		for (auto p : l->parameterIndexes)
 		{
 			if (i++ == callIndex)
 			{
-				args.set(1, p);
+				args.set(1, l->parameterNames[pIndex]);
 				args.set(2, l->p->getAttribute(p));
 				return args;
 			}
+
+			pIndex++;
 		}
 	}
 
@@ -1208,6 +1267,21 @@ Result ScriptBroadcaster::ModuleParameterListener::callItem(TargetBase* n)
 
 		args.set(0, processor->getId());
 
+		if (p->bypassId.isValid())
+		{
+			args.set(1, p->bypassIdAsVar);
+			auto v = p->p->isBypassed();
+			if (p->bypassId == Identifier("Enabled"))
+				v = !v;
+
+			args.set(2, var((float)(int)v));
+
+			auto r = n->callSync(args);
+
+			if (!r.wasOk())
+				return r;
+		}
+
 		for (int i = 0; i < p->parameterNames.size(); i++)
 		{
 			auto parameterIndex = p->parameterIndexes[i];
@@ -1223,6 +1297,146 @@ Result ScriptBroadcaster::ModuleParameterListener::callItem(TargetBase* n)
 	}
 
 	return Result::ok();
+}
+
+struct ScriptBroadcaster::RoutingMatrixListener::MatrixListener : public SafeChangeListener
+{
+	MatrixListener(ScriptBroadcaster* b, Processor* p):
+		sb(b),
+		target(p)
+	{
+		id = var(p->getId());
+		if (auto rp = dynamic_cast<RoutableProcessor*>(target.get()))
+		{
+			scriptMatrix = var(new ScriptingObjects::ScriptRoutingMatrix(b->getScriptProcessor(), p));
+			rp->getMatrix().addChangeListener(this);
+		}
+	}
+
+	~MatrixListener()
+	{
+		scriptMatrix = var();
+
+		if (auto rp = dynamic_cast<RoutableProcessor*>(target.get()))
+		{
+			rp->getMatrix().removeChangeListener(this);
+		}
+	}
+
+	void changeListenerCallback(SafeChangeBroadcaster *b) override
+	{
+		if (sb != nullptr)
+		{
+			id = target->getId();
+
+			Array<var> args;
+			args.add(id);
+			args.add(scriptMatrix);
+
+			sb->sendAsyncMessage(var(args));
+		}
+	}
+
+
+	WeakReference<ScriptBroadcaster> sb;
+	var id;
+	var scriptMatrix;
+	WeakReference<Processor> target;
+};
+
+ScriptBroadcaster::RoutingMatrixListener::RoutingMatrixListener(ScriptBroadcaster* b, const Array<WeakReference<Processor>>& processors, const var& metadata):
+	ListenerBase(metadata)
+{
+	for (auto p : processors)
+		listeners.add(new MatrixListener(b, p));
+}
+
+
+
+void ScriptBroadcaster::RoutingMatrixListener::registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory)
+{
+#if USE_BACKEND
+	struct MatrixViewer : public Component,
+						  public ComponentWithPreferredSize
+	{
+		MatrixViewer(RoutableProcessor* p)
+		{
+			addAndMakeVisible(editor = new RouterComponent(&p->getMatrix()));
+		}
+		
+		ScopedPointer<hise::RouterComponent> editor;
+
+		void resized() override 
+		{
+			if (editor != nullptr)
+				editor->setBounds(getLocalBounds());
+		};
+
+		int getPreferredWidth() const override { return editor != nullptr ? editor->getWidth() : 40; };
+		int getPreferredHeight() const override { return editor != nullptr ? editor->getHeight() : 20; };
+
+		static ComponentWithPreferredSize* create(Component* r, const var& value)
+		{
+			if (auto sr = dynamic_cast<ScriptingObjects::ScriptRoutingMatrix*>(value.getObject()))
+			{
+				return new MatrixViewer(sr->getRoutableProcessor());
+			}
+
+			return nullptr;
+		}
+	};
+
+	factory.registerWithCreate<MatrixViewer>();
+#endif
+}
+
+juce::Result ScriptBroadcaster::RoutingMatrixListener::callItem(TargetBase* n)
+{
+	Array<var> args;
+	args.add("");
+	args.add("");
+	
+	for (auto p : listeners)
+	{
+		args.set(0, p->id);
+		args.set(1, p->scriptMatrix);
+
+		auto r = n->callSync(args);
+
+		if (!r.wasOk())
+			return r;
+	}
+
+	return Result::ok();
+}
+
+int ScriptBroadcaster::RoutingMatrixListener::getNumInitialCalls() const
+{
+	return listeners.size();
+}
+
+Array<juce::var> ScriptBroadcaster::RoutingMatrixListener::getInitialArgs(int callIndex) const
+{
+	Array<var> args;
+
+	if (isPositiveAndBelow(callIndex, listeners.size()))
+	{
+		args.add(listeners[callIndex]->id);
+		args.add(listeners[callIndex]->scriptMatrix);
+	}
+		
+
+	return args;
+}
+
+Array<juce::var> ScriptBroadcaster::RoutingMatrixListener::createChildArray() const
+{
+	Array<var> children;
+
+	for (auto l : listeners)
+		children.add(l->scriptMatrix);
+
+	return children;
 }
 
 struct ScriptBroadcaster::ComplexDataListener::Item : public ComplexDataUIUpdaterBase::EventListener
@@ -2356,6 +2570,7 @@ struct ScriptBroadcaster::Wrapper
 	API_VOID_METHOD_WRAPPER_3(ScriptBroadcaster, attachToComponentMouseEvents);
 	API_VOID_METHOD_WRAPPER_4(ScriptBroadcaster, attachToContextMenu);
 	API_VOID_METHOD_WRAPPER_2(ScriptBroadcaster, attachToComponentValue);
+	API_VOID_METHOD_WRAPPER_2(ScriptBroadcaster, attachToRoutingMatrix);
 	API_VOID_METHOD_WRAPPER_3(ScriptBroadcaster, attachToModuleParameter);
 	API_VOID_METHOD_WRAPPER_2(ScriptBroadcaster, attachToRadioGroup);
     API_VOID_METHOD_WRAPPER_4(ScriptBroadcaster, attachToComplexData);
@@ -2394,6 +2609,7 @@ ScriptBroadcaster::ScriptBroadcaster(ProcessorWithScriptingContent* p, const var
 	ADD_API_METHOD_3(attachToComponentMouseEvents);
 	ADD_API_METHOD_2(attachToComponentValue);
 	ADD_API_METHOD_2(attachToComponentVisibility);
+	ADD_API_METHOD_2(attachToRoutingMatrix);
 	ADD_API_METHOD_3(attachToModuleParameter);
 	ADD_API_METHOD_2(attachToRadioGroup);
     ADD_API_METHOD_4(attachToComplexData);
@@ -3023,29 +3239,46 @@ void ScriptBroadcaster::attachToModuleParameter(var moduleIds, var parameterIds,
 	
 	Array<int> parameterIndexes;
 
+	Identifier bypassId;
+
 	if (parameterIds.isArray())
 	{
 		for (const auto& pId : *parameterIds.getArray())
 		{
-			auto idx = processors.getFirst()->getParameterIndexForIdentifier(pId.toString());
+			auto pName = pId.toString();
+
+			if (pName == "Bypassed" || pName == "Enabled")
+			{
+				bypassId = Identifier(pName);
+				continue;
+			}
+
+			auto idx = processors.getFirst()->getParameterIndexForIdentifier(pName);
 
 			if (idx == -1)
-				reportScriptError("unknown parameter ID: " + pId.toString());
+				reportScriptError("unknown parameter ID: " + pName);
 
 			parameterIndexes.add(idx);
 		}
 	}
 	else
 	{
-		auto idx = processors.getFirst()->getParameterIndexForIdentifier(parameterIds.toString());
+		auto pName = parameterIds.toString();
 
-		if (idx == -1)
-			reportScriptError("unknown parameter ID: " + parameterIds.toString());
+		if (pName == "Bypassed" || pName == "Enabled")
+			bypassId = Identifier(pName);
+		else
+		{
+			auto idx = processors.getFirst()->getParameterIndexForIdentifier(pName);
 
-		parameterIndexes.add(idx);
+			if (idx == -1)
+				reportScriptError("unknown parameter ID: " + pName);
+
+			parameterIndexes.add(idx);
+		}
 	}
 
-	attachedListeners.add(new ModuleParameterListener(this, processors, parameterIndexes, optionalMetadata));
+	attachedListeners.add(new ModuleParameterListener(this, processors, parameterIndexes, optionalMetadata, bypassId));
 	checkMetadataAndCallWithInitValues(attachedListeners.getLast());
 
 	enableQueue = true;
@@ -3089,6 +3322,47 @@ void ScriptBroadcaster::attachToOtherBroadcaster(var otherBroadcaster, var argTr
 
 	attachedListeners.add(new OtherBroadcasterListener(sources, optionalMetadata));
 	checkMetadataAndCallWithInitValues(attachedListeners.getLast());
+}
+
+void ScriptBroadcaster::attachToRoutingMatrix(var moduleIds, var metadata)
+{
+	throwIfAlreadyConnected();
+
+	if (defaultValues.size() != 2)
+	{
+		reportScriptError("If you want to attach a broadcaster to a routing matrix, it needs two parameters (processorId, matrix)");
+	}
+
+	auto synthChain = getScriptProcessor()->getMainController_()->getMainSynthChain();
+
+	Array<WeakReference<Processor>> processors;
+
+	if (moduleIds.isArray())
+	{
+		for (const auto& pId : *moduleIds.getArray())
+		{
+			auto p = ProcessorHelpers::getFirstProcessorWithName(synthChain, pId.toString());
+
+			if (dynamic_cast<RoutableProcessor*>(p) == nullptr)
+				reportScriptError("the modules must have a routing matrix");
+
+			processors.add(p);
+		}
+	}
+	else
+	{
+		auto p = ProcessorHelpers::getFirstProcessorWithName(synthChain, moduleIds.toString());
+
+		if (dynamic_cast<RoutableProcessor*>(p) == nullptr)
+			reportScriptError("the modules must have a routing matrix");
+
+		processors.add(p);
+	}
+	
+	attachedListeners.add(new RoutingMatrixListener(this, processors, metadata));
+	checkMetadataAndCallWithInitValues(attachedListeners.getLast());
+
+	enableQueue = true;
 }
 
 void ScriptBroadcaster::attachToComplexData(String dataTypeAndEvent, var moduleIds, var indexList, var optionalMetadata)

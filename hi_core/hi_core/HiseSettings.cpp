@@ -99,6 +99,7 @@ Array<juce::Identifier> HiseSettings::Project::getAllIds()
     ids.add(ForceStereoOutput);
 	ids.add(AdminPermissions);
 	ids.add(EmbedUserPresets);
+	ids.add(EnableGlobalPreprocessor);
 
 	return ids;
 }
@@ -353,6 +354,12 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 		P(HiseSettings::Project::RedirectSampleFolder);
 		D("You can use another location for your sample files. This is useful if you have limited space on your hard drive and need to separate the samples.");
 		D("> HISE will create a file called `LinkWindows` / `LinkOSX` in the samples folder that contains the link to the real folder.");
+		P_();
+
+		P(HiseSettings::Project::EnableGlobalPreprocessor);
+		D("If this flag is enabled, it will use the C-Preprocessor to process all HiseScript files on compilation");
+		D("If you disable this method, you can still enable preprocessing for individual files if they start with the directive `#on`");
+		D("> This setting will not have an effect on compiled plugins as the preprocessor will already be evaluated on export");
 		P_();
 
 		P(HiseSettings::Project::AAXCategoryFX);
@@ -722,7 +729,62 @@ var HiseSettings::Data::getSetting(const Identifier& id) const
 		}
 	}
 
-	return getDefaultSetting(id);
+	auto value = getDefaultSetting(id);
+    
+    if(value == "Yes")
+        return var(true);
+    else if (value == "No")
+        return var(false);
+    else
+        return value;
+}
+
+var HiseSettings::Data::getExtraDefinitionsAsObject() const
+{
+#if JUCE_WINDOWS
+    
+    auto defName = Project::ExtraDefinitionsWindows;
+#elif JUCE_MAC
+    auto defName = Project::ExtraDefinitionsOSX;
+#elif JUCE_LINUX
+    auto defName = Project::ExtraDefinitionsLinux;
+#endif
+
+    auto s = getSetting(defName).toString();
+
+    StringArray items;
+
+    if (s.contains(","))
+        items = StringArray::fromTokens(s, ",", "");
+    else if (s.contains(";"))
+        items = StringArray::fromTokens(s, ";", "");
+    else
+        items = StringArray::fromLines(s);
+
+    DynamicObject::Ptr obj = new DynamicObject();
+
+    for (const auto& i : items)
+    {
+        obj->setProperty(i.upToFirstOccurrenceOf("=", false, false).trim(), i.fromFirstOccurrenceOf("=", false, false).trim());
+    }
+    
+    for(const auto& sp: temporaryExtraDefinitions)
+        obj->setProperty(sp.name, sp.value);
+    
+    return var(obj.get());
+}
+
+String HiseSettings::Data::getTemporaryDefinitionsAsString() const
+{
+    String s;
+    
+    if(temporaryExtraDefinitions.isEmpty())
+        return s;
+    
+    for(const auto& p: temporaryExtraDefinitions)
+        s << "\n" << p.name.toString() << "=" << p.value.toString();
+    
+    return s;
 }
 
 void HiseSettings::Data::addSetting(ValueTree& v, const Identifier& id)
@@ -764,7 +826,8 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
 		id == Project::SupportFullDynamicsHLAC ||
 		id == Project::ReadOnlyFactoryPresets ||
         id == Project::ForceStereoOutput ||
-				id == Project::AdminPermissions ||
+		id == Project::AdminPermissions ||
+		id == Project::EnableGlobalPreprocessor ||
 		id == Documentation::RefreshOnStartup ||
 		id == SnexWorkbench::PlayOnRecompile ||
 		id == SnexWorkbench::AddFade ||
@@ -953,6 +1016,7 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	else if (id == Project::UseRawFrontend)			return "No";
 	else if (id == Project::ExpansionType)			return "Disabled";
 	else if (id == Project::LinkExpansionsToProject)   return "No";
+	else if (id == Project::EnableGlobalPreprocessor) return "No";
 	else if (id == Other::UseOpenGL)				return "No";
 	else if (id == Other::GlassEffect)				return "No";
 	else if (id == Other::EnableAutosave)			return "Yes";

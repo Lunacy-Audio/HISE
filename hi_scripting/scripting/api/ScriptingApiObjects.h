@@ -184,6 +184,13 @@ namespace ScriptingObjects
 
 		/** Returns an array with the min and max value in the given range. */
 		var getPeakRange(int startSample, int numSamples);
+        
+        /** Trims a buffer at the start and end and returns a copy of it. */
+        var trim(int trimFromStart, int trimFromEnd)
+        {
+            jassertfalse;
+            return {};
+        }
 
 	};
 
@@ -902,14 +909,15 @@ namespace ScriptingObjects
 
 		void onComplexDataEvent(ComplexDataUIUpdaterBase::EventType t, var data)
 		{
-			if (t == ComplexDataUIUpdaterBase::EventType::DisplayIndex &&
-				displayCallback)
-			{
-				displayCallback.call1(data);
+			if (t == ComplexDataUIUpdaterBase::EventType::DisplayIndex)
+            {
+                if(displayCallback)
+                    displayCallback.call1(data);
 			}
-			else if (contentCallback)
+			else
 			{
-				contentCallback.call1(data);
+                if(contentCallback)
+                    contentCallback.call1(data);
 			}
 		}
 
@@ -1860,7 +1868,15 @@ namespace ScriptingObjects
 		/** Gets the current peak value of the given channelIndex. */
 		float getSourceGainValue(int channelIndex);
 
+		/** Returns one or multiple input channels that is mapped to the given output channel (or -1). */
+		var getSourceChannelsForDestination(var destinationIndex) const;
+
+		/** Returns the output channel that is mapped to the given input channel (or -1). */
+		var getDestinationChannelForSource(var sourceIndex) const;
+
 		// ============================================================================================================ 
+
+		RoutableProcessor* getRoutableProcessor() { return dynamic_cast<RoutableProcessor*>(rp.get()); }
 
 		struct Wrapper;
 

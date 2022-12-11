@@ -292,6 +292,9 @@ public:
 		/** Iterates the given sub-directory of the Samples folder and returns a list with all references to audio files. */
 		var getSampleFilesFromDirectory(const String& relativePathFromSampleFolder, bool recursive);
 
+		/** Returns the platform specific extra definitions from the Project settings as JSON object. */
+		var getExtraDefinitionsInBackend();
+		
 		/** Shows a message with a question and executes the function after the user has selected his choice. */
 		void showYesNoWindow(String title, String markdownMessage, var callback);
 
@@ -300,6 +303,12 @@ public:
 
 		/** Creates a (or returns an existing ) script look and feel object. */
 		var createGlobalScriptLookAndFeel();
+
+		/** Performs an action that can be undone via Engine.undo(). */
+		bool performUndoAction(var thisObject, var undoAction);
+
+		/** Returns the amount of output channels. */
+		int getNumPluginChannels() const;
 
 		var createFFT();
 
@@ -1346,6 +1355,9 @@ public:
 		/** Enables a high precision grid timer. */
 		void setEnableGrid(bool shouldBeEnabled, int tempoFactor);
 
+        /** Sets the internal clock to stop when the external clock was stopped. */
+        void stopInternalClockOnExternalStop(bool shouldStop);
+        
 		/** Starts the internal master clock. */
 		void startInternalClock(int timestamp);
 

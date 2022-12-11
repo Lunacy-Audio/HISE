@@ -796,7 +796,7 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	getDebugLogger().checkPriorityInversion(processLock);
 
-	numSamplesThisBlock = buffer.getNumSamples();
+	
 
 #if !FRONTEND_IS_PLUGIN
 	if (!getKillStateHandler().handleKillState())
@@ -815,8 +815,9 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 		midiMessages.clear();
 
-		if (processingSampleRate > 0.0)
-			uptime += double(numSamplesThisBlock) / getOriginalSamplerate() ;
+        // only bump the uptime when not exporting
+		if (processingSampleRate > 0.0 && !getKillStateHandler().isCurrentlyExporting())
+			uptime += double(buffer.getNumSamples()) / getOriginalSamplerate() ;
 
 		return;
 	}
@@ -828,6 +829,8 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 		return;
 #endif
 
+    numSamplesThisBlock = buffer.getNumSamples();
+    
 	ScopedTryLock sl(processLock);
 
 	if (!sl.isLocked())
@@ -893,7 +896,9 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	if (getMasterClock().allowExternalSync() && thisAsProcessor->getPlayHead() != nullptr)
 	{
-		useTime = thisAsProcessor->getPlayHead()->getCurrentPosition(newTime);
+        // use the time only if we're in a realtime proessing context
+		useTime = !thisAsProcessor->isNonRealtime() &&
+                  thisAsProcessor->getPlayHead()->getCurrentPosition(newTime);
 
 		// the time creation failed (probably because we're exporting
 		// so we use the time info from the internal clock...
@@ -902,7 +907,7 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	}
 
-	if (getMasterClock().shouldCreateInternalInfo(newTime))
+	if (getMasterClock().shouldCreateInternalInfo(newTime) || thisAsProcessor->isNonRealtime())
 	{
 		gridInfo = getMasterClock().processAndCheckGrid(buffer.getNumSamples(), newTime);
 		newTime = getMasterClock().createInternalPlayHead();
@@ -1732,6 +1737,43 @@ bool MainController::checkAndResetMidiInputFlag()
 	midiInputFlag = false;
 
 	return returnValue;
+}
+
+ReferenceCountedObject* MainController::getGlobalPreprocessor()
+{
+    if(preprocessor == nullptr)
+    {
+        auto pp = new HiseJavascriptPreprocessor();
+
+#if USE_BACKEND
+        
+        auto& settings = dynamic_cast<GlobalSettingManager*>(this)->getSettingsObject();
+        
+        pp->setEnableGlobalPreprocessor(settings.getSetting(HiseSettings::Project::EnableGlobalPreprocessor));
+        
+        auto obj = settings.getExtraDefinitionsAsObject();
+
+        for(const auto& p: obj.getDynamicObject()->getProperties())
+        {
+            auto key = p.name.toString();
+            auto v = p.value.toString();
+            
+            snex::jit::ExternalPreprocessorDefinition def;
+            
+            def.t = snex::jit::ExternalPreprocessorDefinition::Type::Definition;
+            def.name = key;
+            def.value = v;
+            def.fileName = "EXTERNAL_DEFINITION";
+            
+            pp->definitions.add(def);
+        }
+        
+#endif
+        
+        preprocessor = pp;
+    }
+    
+    return preprocessor.get();
 }
 
 float MainController::getGlobalCodeFontSize() const
