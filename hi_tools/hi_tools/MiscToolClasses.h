@@ -2656,6 +2656,7 @@ struct MasterClock
 	{
 		bool change = false;
 		bool firstGridInPlayback = false;
+        bool resync = false;
 		int16 timestamp;
 		int gridIndex;
 	};
@@ -2729,6 +2730,11 @@ struct MasterClock
 		return currentState == State::ExternalClockPlay || currentState == State::InternalClockPlay;
 	}
 
+	SyncModes getSyncMode() const
+	{
+		return currentSyncMode;
+	}
+
 	GridInfo updateFromExternalPlayHead(const AudioPlayHead::CurrentPositionInfo& info, int numSamples)
 	{
 		GridInfo gi;
@@ -2776,8 +2782,18 @@ struct MasterClock
 			}
 		}
 		
+        Range<int> estimatedRange(uptime, uptime + currentBlockSize * 3);
+        
 		uptime = info.timeInSamples;
 
+        if(!estimatedRange.contains(uptime))
+        {
+            if(info.isPlaying)
+            {
+                gi.resync = true;
+            }
+        }
+        
 		if (info.isPlaying && gridEnabled)
 		{
 			auto quarterInSamples = (double)TempoSyncer::getTempoInSamples(info.bpm, sampleRate, 1.0f);
@@ -2819,15 +2835,28 @@ struct MasterClock
 
 		info.bpm = bpm;
 		info.isPlaying = currentState != State::Idle;
+
 		info.timeInSamples = uptime;
 		info.ppqPosition = quarterPos;
 
 		return info;
 	}
 
-	void setSamplerate(double newSampleRate)
+	void checkInternalClockForExternalStop(AudioPlayHead::CurrentPositionInfo& infoToUse, const AudioPlayHead::CurrentPositionInfo& externalInfo)
+	{
+		if (externalClockWasPlayingLastTime && !externalInfo.isPlaying)
+		{
+			nextState = State::Idle;
+			infoToUse.isPlaying = false;
+		}
+		
+		externalClockWasPlayingLastTime = externalInfo.isPlaying;
+	}
+
+	void prepareToPlay(double newSampleRate, int blockSize)
 	{
 		sampleRate = newSampleRate;
+        currentBlockSize = blockSize;
 		updateGridDelta();
 	}
 
@@ -2901,6 +2930,8 @@ struct MasterClock
 
         internalClockIsRunning = false;
 
+		externalClockWasPlayingLastTime = false;
+
         // they don't need to be resetted...
         //sampleRate = 44100.0;
         //bpm = 120.0;
@@ -2939,9 +2970,12 @@ private:
 	int gridDelta = 1;
 	int currentGridIndex = 0;
 
+    int currentBlockSize = 512;
+    
 	bool internalClockIsRunning = false;
 
     bool stopInternalOnExternalStop = false;
+	bool externalClockWasPlayingLastTime = false;
     
 	double sampleRate = 44100.0;
 	double bpm = 120.0;
@@ -2985,6 +3019,9 @@ public:
 	/** The callback function that will be called when the transport state changes (=the user presses play on the DAW). */
 	virtual void onTransportChange(bool isPlaying, double ppqPosition) {};
 
+    /** This callback will be called whenever the transport position needs to be resynced (eg. when the playback position was changed in the DAW or the playback position was wrapped around the loop range. */
+    virtual void onResync(double ppqPosition) {};
+    
 	/** The callback function that will be called for each musical pulse.
 
 		It takes the denominator from the time signature into account so if the host time signature is set to 6/8, it will

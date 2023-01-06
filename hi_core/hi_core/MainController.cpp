@@ -831,6 +831,20 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
     numSamplesThisBlock = buffer.getNumSamples();
     
+#if USE_BACKEND || USE_SCRIPT_COPY_PROTECTION
+	if (auto ul = dynamic_cast<ScriptUnlocker*>(getLicenseUnlocker()))
+	{
+		if (ul->currentObject != nullptr && !ul->isUnlocked())
+		{
+			getMainSynthChain()->resetAllVoices();
+			buffer.clear();
+			midiMessages.clear();
+			usagePercent.store(0.0);
+			return;
+		}
+	}
+#endif
+
 	ScopedTryLock sl(processLock);
 
 	if (!sl.isLocked())
@@ -894,10 +908,12 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	bool useTime = false;
 
+    auto insideInternalExport = getKillStateHandler().isCurrentlyExporting();
+    
 	if (getMasterClock().allowExternalSync() && thisAsProcessor->getPlayHead() != nullptr)
 	{
         // use the time only if we're in a realtime proessing context
-		useTime = !thisAsProcessor->isNonRealtime() &&
+		useTime = !insideInternalExport &&
                   thisAsProcessor->getPlayHead()->getCurrentPosition(newTime);
 
 		// the time creation failed (probably because we're exporting
@@ -907,11 +923,20 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	}
 
-	if (getMasterClock().shouldCreateInternalInfo(newTime) || thisAsProcessor->isNonRealtime())
+	
+	
+	if (getMasterClock().shouldCreateInternalInfo(newTime) || insideInternalExport)
 	{
+		auto externalTime = newTime;
+
 		gridInfo = getMasterClock().processAndCheckGrid(buffer.getNumSamples(), newTime);
 		newTime = getMasterClock().createInternalPlayHead();
 		useTime = true;
+
+		if (!insideInternalExport)
+		{
+			getMasterClock().checkInternalClockForExternalStop(newTime, externalTime);
+		}
 	}
 	else 
 	{
@@ -1349,7 +1374,7 @@ void MainController::prepareToPlay(double sampleRate_, int samplesPerBlock)
 		getConsoleHandler().writeToConsole(s, 0, getMainSynthChain(), Colours::white.withAlpha(0.4f));
 	}
 
-	getMasterClock().setSamplerate(processingSampleRate);
+	getMasterClock().prepareToPlay(processingSampleRate, processingBufferSize.get());
 }
 
 void MainController::setBpm(double newTempo)
@@ -1402,6 +1427,13 @@ bool MainController::isSyncedToHost() const
 
 void MainController::handleTransportCallbacks(const AudioPlayHead::CurrentPositionInfo& newInfo, const MasterClock::GridInfo& gi)
 {
+    if(gi.resync)
+    {
+        for(auto tl: tempoListeners)
+            if(tl != nullptr)
+                tl->onResync(newInfo.ppqPosition);
+    }
+    
 	if (lastPosInfo.isPlaying != newInfo.isPlaying || (gi.change && gi.firstGridInPlayback))
 	{
 		for (auto tl : tempoListeners)

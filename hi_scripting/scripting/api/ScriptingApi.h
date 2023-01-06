@@ -310,6 +310,7 @@ public:
 		/** Returns the amount of output channels. */
 		int getNumPluginChannels() const;
 
+        /** Creates an FFT object. */
 		var createFFT();
 
 		/** Returns the latency of the plugin as reported to the host. Default is 0. */
@@ -825,6 +826,9 @@ public:
 		/** Purges all samples of the given mic (Multimic samples only). */
 		void purgeMicPosition(String micName, bool shouldBePurged);
 
+		/** Purges the array of sampler sounds (and unpurges the rest). */
+		void purgeSampleSelection(var selection);
+
 		/** Returns the name of the channel with the given index (Multimic samples only. */
 		String getMicPositionName(int channelIndex);
 
@@ -980,6 +984,12 @@ public:
 		/** Sends a note off message for the supplied event ID with the given delay in samples. */
 		void noteOffDelayedByEventId(int eventId, int timestamp);
 
+        /** Injects a note on to the incoming MIDI buffer (just as if the virtual keyboard was pressed. */
+        void playNoteFromUI(int channel, int noteNumber, int velocity);
+        
+        /** Injects a note off to the incoming MIDI buffer (similar to playNoteFromUI). */
+        void noteOffFromUI(int channel, int noteNumber);
+        
 		/** Plays a note and returns the event id. Be careful or you get stuck notes! */
 		int playNote(int noteNumber, int velocity);
 
@@ -1616,34 +1626,34 @@ public:
 		// ============================================================================================================ API Methods
 
 		/** Returns a colour value with the specified alpha value. */
-		int withAlpha(int colour, float alpha);
+		int withAlpha(var colour, float alpha);
 
 		/** Returns a colour with the specified hue. */
-		int withHue(int colour, float hue);
+		int withHue(var colour, float hue);
 
 		/** Returns a colour with the specified saturation. */
-		int withSaturation(int colour, float saturation);
+		int withSaturation(var colour, float saturation);
 
 		/** Returns a colour with the specified brightness. */
-		int withBrightness(int colour, float brightness);
+		int withBrightness(var colour, float brightness);
 
 		/** Returns a colour with a multiplied alpha value. */
-		int withMultipliedAlpha(int colour, float factor);
+		int withMultipliedAlpha(var colour, float factor);
 
 		/** Returns a colour with a multiplied saturation value. */
-		int withMultipliedSaturation(int colour, float factor);
+		int withMultipliedSaturation(var colour, float factor);
 
 		/** Returns a colour with a multiplied brightness value. */
-		int withMultipliedBrightness(int colour, float factor);
+		int withMultipliedBrightness(var colour, float factor);
 
 		/** Converts a colour to a [r, g, b, a] array that can be passed to GLSL as vec4. */
-		var toVec4(int colour);
+		var toVec4(var colour);
 
 		/** Converts a colour from a [r, g, b, a] float array to a uint32 value. */
 		int fromVec4(var vec4);
 
 		/** Linear interpolation between two colours. */
-		int mix(int colour1, int colour2, float alpha);
+		int mix(var colour1, var colour2, float alpha);
 
 		// ============================================================================================================
 

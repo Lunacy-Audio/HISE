@@ -218,6 +218,8 @@ void ModulatorSynthChain::renderNextBlockWithModulators(AudioSampleBuffer &buffe
 
 #if PROCESS_SOUND_GENERATORS_IN_FX_PLUGIN
 	
+	internalBuffer.setSize(getMatrix().getNumSourceChannels(), numSamples, true, false, true);
+
 	for (int i = 0; i < synths.size(); i++)
 	{
 		if (!synths[i]->isSoftBypassed())
@@ -247,7 +249,8 @@ void ModulatorSynthChain::renderNextBlockWithModulators(AudioSampleBuffer &buffe
 	internalBuffer.setSize(getMatrix().getNumSourceChannels(), numSamples, true, false, true);
 
 #if FORCE_INPUT_CHANNELS
-	internalBuffer.makeCopyOf(buffer);
+	if(internalBuffer.getNumChannels() == buffer.getNumChannels())
+		internalBuffer.makeCopyOf(buffer);
 #endif
 
 	// Process the Synths and add store their output in the internal buffer
