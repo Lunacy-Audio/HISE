@@ -3400,6 +3400,48 @@ void ScriptingApi::Engine::logSettingWarning(const String& methodName) const
 	debugToConsole(unconst, s);
 }
 
+
+// ====================================================================================================== Time functions
+
+struct ScriptingApi::Date::Wrapper
+{
+	API_METHOD_WRAPPER_1(Date, getSystemTimeISO8601);
+	API_METHOD_WRAPPER_0(Date, getSystemTimeMs);
+	API_METHOD_WRAPPER_2(Date, millisecondsToISO8601);
+	API_METHOD_WRAPPER_1(Date, ISO8601ToMilliseconds);
+};
+
+ScriptingApi::Date::Date(ProcessorWithScriptingContent* s) :
+	ScriptingObject(s),
+	ApiClass(0)
+{
+	ADD_API_METHOD_1(getSystemTimeISO8601);
+	ADD_API_METHOD_0(getSystemTimeMs);
+	ADD_API_METHOD_2(millisecondsToISO8601);
+	ADD_API_METHOD_1(ISO8601ToMilliseconds);
+}
+
+String ScriptingApi::Date::getSystemTimeISO8601(bool includeDividerCharacters)
+{
+	return Time::getCurrentTime().toISO8601(includeDividerCharacters);
+}
+
+int64 ScriptingApi::Date::getSystemTimeMs()
+{
+	return Time::getCurrentTime().toMilliseconds();
+}
+
+String ScriptingApi::Date::millisecondsToISO8601(int64 miliseconds, bool includeDividerCharacters)
+{
+	return Time(miliseconds).toISO8601(includeDividerCharacters);
+}
+
+int64 ScriptingApi::Date::ISO8601ToMilliseconds(String iso8601)
+{
+    return juce::Time::fromISO8601(iso8601).toMilliseconds();
+}
+
+
 // ====================================================================================================== Sampler functions
 
 struct ScriptingApi::Sampler::Wrapper
@@ -6996,6 +7038,8 @@ struct ScriptingApi::Server::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Server, setNumAllowedDownloads);
 	API_VOID_METHOD_WRAPPER_0(Server, cleanFinishedDownloads);
 	API_VOID_METHOD_WRAPPER_1(Server, setServerCallback);
+    API_VOID_METHOD_WRAPPER_1(Server, setTimeoutMessageString);
+    API_METHOD_WRAPPER_0(Server, resendLastCall);
 	API_METHOD_WRAPPER_1(Server, isEmailAddress);
 };
 
@@ -7022,15 +7066,22 @@ ScriptingApi::Server::Server(JavascriptProcessor* jp_):
 	ADD_API_METHOD_0(getPendingDownloads);
 	ADD_API_METHOD_0(getPendingCalls);
 	ADD_API_METHOD_0(isOnline);
+    ADD_API_METHOD_0(resendLastCall);
 	ADD_API_METHOD_1(setNumAllowedDownloads);
 	ADD_API_METHOD_1(setServerCallback);
 	ADD_API_METHOD_0(cleanFinishedDownloads);
 	ADD_API_METHOD_1(isEmailAddress);
+    ADD_API_METHOD_1(setTimeoutMessageString);
 }
 
 void ScriptingApi::Server::setBaseURL(String url)
 {
 	globalServer.setBaseURL(url);
+}
+
+void ScriptingApi::Server::setTimeoutMessageString(String timeoutMessage)
+{
+    globalServer.setTimeoutMessageString(timeoutMessage);
 }
 
 void ScriptingApi::Server::callWithGET(String subURL, var parameters, var callback)
@@ -7068,6 +7119,16 @@ void ScriptingApi::Server::callWithPOST(String subURL, var parameters, var callb
 void ScriptingApi::Server::setHttpHeader(String newHeader)
 {
 	globalServer.setHttpHeader(newHeader);
+}
+
+bool ScriptingApi::Server::resendLastCall()
+{
+    if(isOnline())
+    {
+        return globalServer.resendLastCallback();
+    }
+    
+    return false;
 }
 
 var ScriptingApi::Server::downloadFile(String subURL, var parameters, var targetFile, var callback)

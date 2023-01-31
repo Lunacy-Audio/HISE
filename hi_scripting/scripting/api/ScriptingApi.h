@@ -646,6 +646,36 @@ public:
 	};
 
 	/** This class takes over a few of the Engine methods in order to break down this gigantomanic object. */
+	class Date : public ApiClass,
+				   public ScriptingObject
+	{
+	public:
+
+		Date(ProcessorWithScriptingContent* s);
+		~Date() {};
+
+		Identifier getObjectName() const override { RETURN_STATIC_IDENTIFIER("Date"); }
+
+		// ================================================================================================== API Calls
+
+		/** Returns a fully described string of this date and time in milliseconds or ISO-8601 format (using the local timezone) with or without divider characters. */
+		String getSystemTimeISO8601(bool includeDividerCharacters);
+		
+		/** Returns the system time in milliseconds. */
+		int64 getSystemTimeMs();
+		
+		/** Returns a time in milliseconds to a date string. */
+		String millisecondsToISO8601(int64 miliseconds, bool includeDividerCharacters);
+		
+		/** Returns a date string to time in milliseconds. */
+		int64 ISO8601ToMilliseconds(String iso8601);
+		
+
+		struct Wrapper;
+	};
+
+
+	/** This class takes over a few of the Engine methods in order to break down this gigantomanic object. */
 	class Settings : public ApiClass,
 					 public ScriptingObject
 	{
@@ -1471,9 +1501,15 @@ public:
 		/** Adds the given String to the HTTP POST header. */
 		void setHttpHeader(String additionalHeader);
 
+        /** Resends the last call to the Server (eg. in case that there was no internet connection). */
+        bool resendLastCall();
+        
 		/** Downloads a file to the given target and returns a Download object. */
 		var downloadFile(String subURL, var parameters, var targetFile, var callback);
 
+        /** Sets a string that is parsed as timeout message when the server doesn't respond. Default is "{}" (empty JSON object). */
+        void setTimeoutMessageString(String timeoutMessage);
+        
 		/** Returns a list of all pending Downloads. */
 		var getPendingDownloads();
 
