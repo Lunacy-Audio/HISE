@@ -187,6 +187,8 @@ public:
 
 	virtual Array<SubDirectories> getSubDirectoryIds() const;
 
+	virtual String getDefaultUserPreset() const { return {}; }
+
 	static String getWildcardForFiles(SubDirectories directory);
 
 	void exportAllPoolsToTemporaryDirectory(ModulatorSynthChain* chain, DialogWindowWithBackgroundThread::LogData* logData=nullptr);
@@ -267,6 +269,8 @@ public:
 
 	File getWorkDirectory() const;
 
+	String getDefaultUserPreset() const override;
+
 	ValueTree getEmbeddedNetwork(const String& id) override;
 
 	/** Checks if a directory is redirected. */
@@ -295,6 +299,8 @@ public:
 
 	void checkActiveProject();
 
+	
+
 	void addListener(Listener* newProjectListener, bool sendWithInitialValue=false)
 	{
 		listeners.addIfNotAlreadyThere(newProjectListener);
@@ -308,9 +314,20 @@ public:
 		listeners.removeAllInstancesOf(listenerToRemove);
 	}
 
-	static File getAppDataRoot();
-   
-	static File getAppDataDirectory();
+    /** This function will return the directory where the app data is stored.
+        It uses getAppDataRoot in order to figure out the folder from where it has to go.
+        If you pass in nullptr, it will always default to the local app data folder, otherwise
+        it might use the global app data folder as root (see getAppDataRoot()).
+     */
+	static File getAppDataDirectory(MainController* mc);
+    
+    /** This will return the app data folder to be used for HISE and all compiled plugins.
+     
+        In HISE it will use the platform-dependent setting property (UseGlobalAppDataFolderWindows / MacOS)
+        and in the compiled plugin it will use the preprocessor macro that has been set accordingly during
+        compilation.
+    */
+    static File getAppDataRoot(MainController* mc);
 	
 	void restoreWorkingProjects();
 
@@ -391,8 +408,13 @@ public:
 	static String getAppGroupId();
 	static String getExpansionKey();
 	static String getExpansionType();
+	static String getHiseVersion();
 
 	static String checkSampleReferences(MainController* mc, bool returnTrueIfOneSampleFound);
+
+#if !USE_BACKEND
+	String getDefaultUserPreset() const override;
+#endif
 
 	/** on IOS this returns the folder where all the resources (samples, images, etc) are found.
 	*	It uses a shared folder for both the AUv3 and Standalone version in order to avoid duplicating the data. */
@@ -409,7 +431,7 @@ public:
 	*	- user presets (in the UserPresets subfolder)
 	*	- license key file
 	*/
-	static File getAppDataDirectory();
+	static File getAppDataDirectory(MainController* unused=nullptr);
 
 	void setValueTree(SubDirectories type, ValueTree tree)
 	{

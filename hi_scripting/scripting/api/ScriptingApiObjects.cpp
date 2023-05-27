@@ -192,6 +192,8 @@ struct ScriptingObjects::ScriptFile::Wrapper
 	API_METHOD_WRAPPER_1(ScriptFile, startAsProcess);
 	API_METHOD_WRAPPER_0(ScriptFile, getHash);
 	API_METHOD_WRAPPER_1(ScriptFile, toString);
+	API_METHOD_WRAPPER_0(ScriptFile, loadMidiMetadata);
+    API_METHOD_WRAPPER_0(ScriptFile, loadAudioMetadata);
 	API_METHOD_WRAPPER_0(ScriptFile, isFile);
 	API_METHOD_WRAPPER_0(ScriptFile, isDirectory);
 	API_METHOD_WRAPPER_0(ScriptFile, hasWriteAccess);
@@ -266,6 +268,8 @@ ScriptingObjects::ScriptFile::ScriptFile(ProcessorWithScriptingContent* p, const
 	ADD_API_METHOD_0(loadAsObject);
 	ADD_API_METHOD_0(loadAsAudioFile);
 	ADD_API_METHOD_1(loadEncryptedObject);
+	ADD_API_METHOD_0(loadMidiMetadata);
+    ADD_API_METHOD_0(loadAudioMetadata);
 	ADD_API_METHOD_1(rename);
 	ADD_API_METHOD_1(move);
 	ADD_API_METHOD_1(copy);
@@ -646,7 +650,7 @@ bool ScriptingObjects::ScriptFile::writeMidiFile(var eventList, var metadataObje
 
 juce::var ScriptingObjects::ScriptFile::loadAsMidiFile(int trackIndex)
 {
-	if (f.existsAsFile() && f.getFileExtension() == "mid")
+	if (f.existsAsFile() && f.getFileExtension() == ".mid")
 	{
 		HiseMidiSequence::Ptr newSequence = new HiseMidiSequence();
 
@@ -662,7 +666,7 @@ juce::var ScriptingObjects::ScriptFile::loadAsMidiFile(int trackIndex)
 
 		auto list = newSequence->getEventList(44100.0, 120.0);
 
-		auto obj = ValueTreeConverters::convertValueTreeToDynamicObject(v);
+		auto obj = newSequence->getTimeSignature().getAsJSON();
 
 		Array<var> eventList;
 		eventList.ensureStorageAllocated(list.size());
@@ -808,6 +812,61 @@ juce::var ScriptingObjects::ScriptFile::loadAsAudioFile() const
 
 		return var(channels);
 	}
+}
+
+juce::var ScriptingObjects::ScriptFile::loadAudioMetadata() const
+{
+	if (f.existsAsFile())
+	{
+		AudioFormatManager afm;
+		afm.registerBasicFormats();
+
+		auto fis2 = new FileInputStream(f);
+
+		std::unique_ptr<InputStream> fis(static_cast<InputStream*>(fis2));
+
+		if (ScopedPointer<AudioFormatReader> reader = afm.createReaderFor(std::move(fis)))
+		{
+			DynamicObject::Ptr data = new DynamicObject();
+
+			data->setProperty("SampleRate", reader->sampleRate);
+			data->setProperty("NumChannels", reader->numChannels);
+			data->setProperty("NumSamples", reader->lengthInSamples);
+			data->setProperty("BitDepth", reader->bitsPerSample);
+			data->setProperty("Format", reader->getFormatName());
+			data->setProperty("File", f.getFullPathName());
+
+			DynamicObject::Ptr meta = new DynamicObject();
+
+			for (const auto& r : reader->metadataValues.getAllKeys())
+			{
+				meta->setProperty(r, reader->metadataValues[r]);
+			}
+
+			data->setProperty("Metadata", meta.get());
+
+			return var(data.get());
+		}
+	}
+    
+    return {};
+}
+
+juce::var ScriptingObjects::ScriptFile::loadMidiMetadata() const
+{
+	FileInputStream fis(f);
+
+	MidiFile mf;
+
+	if (f.existsAsFile() && mf.readFrom(fis))
+	{
+		hise::HiseMidiSequence::Ptr p = new HiseMidiSequence();
+		p->loadFrom(mf);
+
+		return p->getTimeSignature().getAsJSON();
+	}
+
+	return var();
 }
 
 String ScriptingObjects::ScriptFile::getRelativePathFrom(var otherFile)
@@ -2594,7 +2653,7 @@ String ScriptingObjects::ScriptingModulator::getGlobalModulatorId()
 void ScriptingObjects::ScriptingModulator::setAttribute(int index, float value)
 {
 	if (checkValidObject())
-		mod->setAttribute(index, value, sendNotification);
+		mod->setAttribute(index, value, ProcessorHelpers::getAttributeNotificationType());
 }
 
 float ScriptingObjects::ScriptingModulator::getAttribute(int parameterIndex)
@@ -2970,7 +3029,7 @@ void ScriptingObjects::ScriptingEffect::setAttribute(int parameterIndex, float n
 {
 	if (checkValidObject())
 	{
-		effect->setAttribute(parameterIndex, newValue, sendNotification);
+		effect->setAttribute(parameterIndex, newValue, ProcessorHelpers::getAttributeNotificationType());
 	}
 }
 
@@ -3688,7 +3747,9 @@ void ScriptingObjects::ScriptingSynth::setAttribute(int parameterIndex, float ne
 {
 	if (checkValidObject())
 	{
-		synth->setAttribute(parameterIndex, newValue, sendNotification);
+        
+        
+		synth->setAttribute(parameterIndex, newValue, ProcessorHelpers::getAttributeNotificationType());
 	}
 }
 
@@ -4014,7 +4075,7 @@ void ScriptingObjects::ScriptingMidiProcessor::setAttribute(int index, float val
 {
 	if (checkValidObject())
 	{
-		mp->setAttribute(index, value, sendNotification);
+		mp->setAttribute(index, value,  ProcessorHelpers::getAttributeNotificationType());
 	}
 }
 
@@ -5438,16 +5499,7 @@ int ScriptingObjects::ScriptedMidiPlayer::getNumSequences()
 	return 0;
 }
 
-#define DECLARE_ID(x) static Identifier x(#x);
-namespace TimeSigIds
-{
-DECLARE_ID(Nominator);
-DECLARE_ID(Denominator);
-DECLARE_ID(NumBars);
-DECLARE_ID(LoopStart);
-DECLARE_ID(LoopEnd);
-}
-#undef DECLARE_ID
+
 
 var ScriptingObjects::ScriptedMidiPlayer::getTimeSignature()
 {
@@ -5455,14 +5507,7 @@ var ScriptingObjects::ScriptedMidiPlayer::getTimeSignature()
 	{
 		auto sig = getSequence()->getTimeSignature();
 
-		auto newObj = new DynamicObject();
-		newObj->setProperty(TimeSigIds::Nominator, sig.nominator);
-		newObj->setProperty(TimeSigIds::Denominator, sig.denominator);
-		newObj->setProperty(TimeSigIds::NumBars, sig.numBars);
-		newObj->setProperty(TimeSigIds::LoopStart, sig.normalisedLoopRange.getStart());
-		newObj->setProperty(TimeSigIds::LoopEnd, sig.normalisedLoopRange.getEnd());
-
-		return var(newObj);
+		return sig.getAsJSON();
 	}
 
 	return {};
@@ -7069,6 +7114,8 @@ struct ScriptingObjects::GlobalCableReference::Wrapper
 	API_VOID_METHOD_WRAPPER_3(GlobalCableReference, setRangeWithStep);
 	API_VOID_METHOD_WRAPPER_2(GlobalCableReference, registerCallback);
 	API_VOID_METHOD_WRAPPER_3(GlobalCableReference, connectToMacroControl);
+    API_VOID_METHOD_WRAPPER_2(GlobalCableReference, connectToGlobalModulator);
+    API_VOID_METHOD_WRAPPER_3(GlobalCableReference, connectToModuleParameter);
 };
 
 struct ScriptingObjects::GlobalCableReference::DummyTarget : public scriptnode::routing::GlobalRoutingManager::CableTargetBase
@@ -7133,6 +7180,8 @@ ScriptingObjects::GlobalCableReference::GlobalCableReference(ProcessorWithScript
 	ADD_API_METHOD_3(setRangeWithStep);
 	ADD_API_METHOD_2(registerCallback);
 	ADD_API_METHOD_3(connectToMacroControl);
+    ADD_API_METHOD_2(connectToGlobalModulator);
+    ADD_API_METHOD_3(connectToModuleParameter);
 }
 
 ScriptingObjects::GlobalCableReference::~GlobalCableReference()
@@ -7271,7 +7320,8 @@ struct ScriptingObjects::GlobalCableReference::Callback: public scriptnode::rout
 	{
 		if (sync)
 		{
-			callback.call1(v);
+            var a(v);
+            callback.callSync(&a, 1);
 		}
 		else
 			value.setModValueIfChanged(v);
@@ -7387,6 +7437,131 @@ void ScriptingObjects::GlobalCableReference::connectToMacroControl(int macroInde
 	}
 }
 
+
+void ScriptingObjects::GlobalCableReference::connectToGlobalModulator(const String& lfoId, bool addToMod)
+{
+    auto mc = getScriptProcessor()->getMainController_()->getMainSynthChain();
+    
+    if(auto p = ProcessorHelpers::getFirstProcessorWithName(mc, lfoId))
+    {
+        if(auto gc = dynamic_cast<GlobalModulatorContainer*>(p->getParentProcessor(true)))
+        {
+            gc->connectToGlobalCable(dynamic_cast<Modulator*>(p), cable, addToMod);
+        }
+    }
+}
+
+struct ProcessorParameterTarget : public scriptnode::routing::GlobalRoutingManager::CableTargetBase,
+                                  public ControlledObject
+{
+    ProcessorParameterTarget(Processor* p, int index, const scriptnode::InvertableParameterRange& range) :
+        ControlledObject(p->getMainController()),
+        targetRange(range),
+        parameterIndex(index),
+        processor(p)
+    {
+        id << processor->getId();
+        id << "::";
+        id << processor->parameterNames[index].toString();
+    };
+
+    void selectCallback(Component* rootEditor)
+    {
+        // maybe open the macro panel?
+        jassertfalse;
+    }
+
+    String getTargetId() const override
+    {
+        return id;
+    }
+
+    void sendValue(double v) override
+    {
+        auto newValue = jlimit(0.0f, 1.0f, (float)v);
+        auto cv = targetRange.convertFrom0to1(newValue, true);
+        processor->setAttribute(parameterIndex, cv, sendNotification);
+    }
+
+    Path getTargetIcon() const override
+    {
+        Path p;
+        p.loadPathFromData(HiBinaryData::SpecialSymbols::macros, sizeof(HiBinaryData::SpecialSymbols::macros));
+        return p;
+    }
+
+    const int parameterIndex;
+    const scriptnode::InvertableParameterRange targetRange;
+    WeakReference<Processor> processor;
+    String id;
+};
+
+void ScriptingObjects::GlobalCableReference::connectToModuleParameter(const String& processorId, var parameterIndex, var targetRange)
+{
+    auto mc = getScriptProcessor()->getMainController_()->getMainSynthChain();
+    
+    if(processorId.isEmpty() && (int)parameterIndex == -1)
+    {
+        if (auto c = getCableFromVar(cable))
+        {
+            // Clear all module connections for this cable
+            for (int i = 0; i < c->getTargetList().size(); i++)
+            {
+                if (auto ppt = dynamic_cast<ProcessorParameterTarget*>(c->getTargetList()[i].get()))
+                {
+                    c->removeTarget(ppt);
+                    i--;
+                    continue;
+                }
+            }
+        }
+    }
+    
+    if(auto p = ProcessorHelpers::getFirstProcessorWithName(mc, processorId))
+    {
+        auto indexToUse = -1;
+        
+        if(parameterIndex.isString())
+        {
+            Identifier pId(parameterIndex.toString());
+            indexToUse = p->parameterNames.indexOf(pId);
+            
+            if(indexToUse == -1)
+                reportScriptError("Can't find parameter ID " + pId.toString());
+        }
+        else
+        {
+            indexToUse = (int)parameterIndex;
+        }
+        
+        if (auto c = getCableFromVar(cable))
+        {
+            for (int i = 0; i < c->getTargetList().size(); i++)
+            {
+                if (auto ppt = dynamic_cast<ProcessorParameterTarget*>(c->getTargetList()[i].get()))
+                {
+                    
+                    if (p == ppt->processor &&
+                        (indexToUse == -1 || ppt->parameterIndex == indexToUse))
+                    {
+                        c->removeTarget(ppt);
+                        i--;
+                        continue;
+                    }
+                }
+            }
+            
+            auto range = scriptnode::RangeHelpers::getDoubleRange(targetRange);
+            
+            if (indexToUse != -1)
+                c->addTarget(new ProcessorParameterTarget(p, indexToUse, range));
+        }
+    }
+    else
+    {
+        reportScriptError("Can't find module with ID " + processorId);
+    }
+}
 
 ScriptingObjects::ScriptedMidiPlayer::PlaybackUpdater::PlaybackUpdater(ScriptedMidiPlayer& parent_, var f, bool sync_) :
 	SimpleTimer(parent_.getScriptProcessor()->getMainController_()->getGlobalUIUpdater(), !sync_),
@@ -7540,6 +7715,7 @@ struct ScriptingObjects::ScriptBuilder::Wrapper
 	API_METHOD_WRAPPER_4(ScriptBuilder, create);
 	API_METHOD_WRAPPER_2(ScriptBuilder, get);
 	API_METHOD_WRAPPER_1(ScriptBuilder, getExisting);
+    API_VOID_METHOD_WRAPPER_2(ScriptBuilder, clearChildren);
 	API_VOID_METHOD_WRAPPER_2(ScriptBuilder, setAttributes);
 	API_VOID_METHOD_WRAPPER_0(ScriptBuilder, clear);
 	API_VOID_METHOD_WRAPPER_0(ScriptBuilder, flush);
@@ -7559,6 +7735,7 @@ ScriptingObjects::ScriptBuilder::ScriptBuilder(ProcessorWithScriptingContent* p)
 	ADD_API_METHOD_1(getExisting);
 	ADD_API_METHOD_2(setAttributes);
 	ADD_API_METHOD_0(flush);
+    ADD_API_METHOD_2(clearChildren);
 	ADD_API_METHOD_2(connectToScript);
 }
 
@@ -7658,7 +7835,12 @@ int ScriptingObjects::ScriptBuilder::create(var type, var id, int rootBuildIndex
 			return createdModules.size() - 1;
 		}
 
-		raw::Builder b(getScriptProcessor()->getMainController_());
+        
+        auto mc = getScriptProcessor()->getMainController_();
+        
+        MainController::ScopedBadBabysitter sb(mc);
+        
+		raw::Builder b(mc);
 
 		Identifier t_(type.toString());
 
@@ -7684,6 +7866,48 @@ int ScriptingObjects::ScriptBuilder::create(var type, var id, int rootBuildIndex
 	}
 
 	RETURN_IF_NO_THROW(-1);
+}
+
+int ScriptingObjects::ScriptBuilder::clearChildren(int buildIndex, int chainIndex)
+{
+    if (auto p = createdModules[buildIndex])
+    {
+        Chain* c = nullptr;
+        
+        if(chainIndex == -1)
+            c = dynamic_cast<Chain*>(p.get());
+        else
+            c = dynamic_cast<Chain*>(p->getChildProcessor(chainIndex));
+        
+        if(c == nullptr)
+        {
+            reportScriptError("Illegal chain index for the module " + p->getId());
+        }
+        
+        auto h = c->getHandler();
+        
+        auto numBefore = h->getNumProcessors();
+        
+        if(numBefore != 0)
+        {
+            for(int i = 0; i < h->getNumProcessors(); i++)
+            {
+                auto pToDelete = h->getProcessor(i--);
+                {
+                    MessageManagerLock mm;
+                    pToDelete->sendDeleteMessage();
+                }
+                
+                h->remove(pToDelete);
+            }
+        }
+            
+        return numBefore;
+    }
+    else
+        reportScriptError("Can't find parent module with index " + String(buildIndex));
+    
+    return -1;
 }
 
 bool ScriptingObjects::ScriptBuilder::connectToScript(int buildIndex, String relativePath)
@@ -7786,7 +8010,11 @@ void ScriptingObjects::ScriptBuilder::clear()
 
 	auto thisAsP = dynamic_cast<Processor*>(getScriptProcessor());
 
-	raw::Builder b(getScriptProcessor()->getMainController_());
+    auto mc = getScriptProcessor()->getMainController_();
+    
+    MainController::ScopedBadBabysitter sb(mc);
+    
+	raw::Builder b(mc);
 
 	auto synthChain = getScriptProcessor()->getMainController_()->getMainSynthChain();
 	
@@ -7806,6 +8034,10 @@ void ScriptingObjects::ScriptBuilder::clear()
 
 				else
 				{
+                    {
+                        MessageManagerLock mm;
+                        cToRemove->sendDeleteMessage();
+                    }
 					b.remove<Processor>(cToRemove);
 					j--;
 				}
@@ -7813,7 +8045,14 @@ void ScriptingObjects::ScriptBuilder::clear()
 		}
 		else
 		{
-			b.remove<Processor>(synthChain->getChildProcessor(i--));
+            auto p = synthChain->getChildProcessor(i--);
+            
+            {
+                MessageManagerLock mm;
+                p->sendDeleteMessage();
+            }
+            
+			b.remove<Processor>(p);
 		}
 	}
 

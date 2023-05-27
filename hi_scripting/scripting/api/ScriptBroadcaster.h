@@ -179,6 +179,9 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
     /** Registers this broadcaster to be notified when a complex data object changes. */
     void attachToComplexData(String dataTypeAndEvent, var moduleIds, var dataIndexes, var optionalMetadata);
         
+	/** Registers this broadcaster to be notified about changes to the EQ (adding / removing / selecting filter bands). */
+	void attachToEqEvents(var moduleIds, var eventTypes, var optionalMetadata);
+
 	/** Registers this broadcaster to be notified when a module parameter changes. */
 	void attachToModuleParameter(var moduleIds, var parameterIds, var optionalMetadata);
 
@@ -190,6 +193,9 @@ struct ScriptBroadcaster :  public ConstScriptingObject,
 
 	/** Attaches this broadcaster to a routing matrix and listens for changes. */
 	void attachToRoutingMatrix(var moduleIds, var optionalMetadata);
+
+	/** Attaches this broadcaster to changes of the audio processing specs (samplerate / buffer size). */
+	void attachToProcessingSpecs(var optionalMetadata);
 
 	/** Calls a function after a short period of time. This is exclusive, so if you pass in a new function while another is pending, the first will be replaced. */
 	void callWithDelay(int delayInMilliseconds, var argArray, var function);
@@ -549,7 +555,7 @@ private:
 	{
 		struct ProcessorListener;
 
-		ModuleParameterListener(ScriptBroadcaster* b, const Array<WeakReference<Processor>>& processors, const Array<int>& parameterIndexes, const var& metadata, const Identifier& bypassId);
+		ModuleParameterListener(ScriptBroadcaster* b, const Array<WeakReference<Processor>>& processors, const Array<int>& parameterIndexes, const var& metadata, const Identifier& specialId, bool useIntegerParameters);
 
 		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ModuleParameter"); }
 
@@ -563,6 +569,22 @@ private:
 		Result callItem(TargetBase* n) override;
 
 		OwnedArray<ProcessorListener> listeners;
+	};
+
+	struct EqListener : public ListenerBase
+	{
+		struct InternalListener;
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("EqListener"); }
+
+		EqListener(ScriptBroadcaster* b, const Array<WeakReference<CurveEq>>& eqs, const StringArray& eventList, const var& metadata);
+
+		int getNumInitialCalls() const override { return 0; }
+		Array<var> getInitialArgs(int callIndex) const override { return {}; }
+		Array<var> createChildArray() const override { return {}; }
+
+		Result callItem(TargetBase* b) override;
+
+		OwnedArray<InternalListener> listeners;
 	};
 
 	struct RoutingMatrixListener : public ListenerBase
@@ -633,6 +655,32 @@ private:
 
 		Identifier typeId;
     };
+
+	struct ProcessingSpecSource : public ListenerBase
+	{
+		ProcessingSpecSource(ScriptBroadcaster* b, const var& metadata);
+
+		~ProcessingSpecSource();
+
+		Identifier getItemId() const override { RETURN_STATIC_IDENTIFIER("ProcessingSpecs"); }
+
+		void registerSpecialBodyItems(ComponentWithPreferredSize::BodyFactory& factory) override;
+
+		int getNumInitialCalls() const override { return 0; }
+		Array<var> getInitialArgs(int callIndex) const override { return {}; }
+
+		Array<var> createChildArray() const override { return processArgs; };
+
+		Result callItem(TargetBase* n) override;
+
+		static void prepareCalled(ProcessingSpecSource& p, double sampleRate, int blockSize);
+
+		Array<var> processArgs;
+
+		WeakReference<ScriptBroadcaster> parent;
+
+		JUCE_DECLARE_WEAK_REFERENCEABLE(ProcessingSpecSource);
+	};
 
 	struct ComponentPropertyListener : public ListenerBase
 	{

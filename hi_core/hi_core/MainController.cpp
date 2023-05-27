@@ -380,7 +380,12 @@ void MainController::loadPresetInternal(const ValueTree& v)
 			if(USE_BACKEND || FullInstrumentExpansion::isEnabled(this))
 				getLockFreeDispatcher().callOnMessageThreadAfterSuspension(synthChain, f);
 
+            if(!isInitialised())
+                getSampleManager().clearPreloadFlag();
+            
 			allNotesOff(true);
+            
+			getUserPresetHandler().initDefaultPresetManager({});
 		}
 		catch (String& errorMessage)
 		{
@@ -434,6 +439,8 @@ void MainController::compileAllScripts()
 			sp->compileScript();
 		}
 	}
+
+	getUserPresetHandler().initDefaultPresetManager({});
 };
 
 void MainController::allNotesOff(bool resetSoftBypassState/*=false*/)
@@ -705,10 +712,13 @@ void MainController::setBufferToPlay(const AudioSampleBuffer& buffer, const std:
 	}
 
 	{
+        AudioSampleBuffer copy;
+        copy.makeCopyOf(buffer);
+        
 		LockHelpers::SafeLock sl(this, LockHelpers::AudioLock);
 
 		previewBufferIndex = 0;
-		previewBuffer = buffer;
+		previewBuffer = copy;
 		previewFunction = pf;
 		fadeOutPreviewBuffer = false;
 		fadeOutPreviewBufferGain = 1.0f;
@@ -865,6 +875,11 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	ModulatorSynthChain *synthChain = getMainSynthChain();
 
+
+#if ENABLE_CPU_MEASUREMENT
+	startCpuBenchmark(numSamplesThisBlock);
+#endif
+
 	jassert(getOriginalBufferSize() >= numSamplesThisBlock);
 
 #if !FRONTEND_IS_PLUGIN || HISE_ENABLE_MIDI_INPUT_FOR_FX
@@ -962,7 +977,6 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 		FX_ONLY(masterEventBuffer.addEvent(HiseEvent(hostIsPlaying ? HiseEvent::Type::NoteOn :
 															 HiseEvent::Type::NoteOff, 
 											 60, 127, 1));)
-
 	}
 
 	if (bpmFromHost == 0.0)
@@ -981,9 +995,6 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 	
 
-#if ENABLE_CPU_MEASUREMENT
-	startCpuBenchmark(numSamplesThisBlock);
-#endif
 
 #if !FRONTEND_IS_PLUGIN
 
@@ -1012,9 +1023,11 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 		AudioSampleBuffer thisMultiChannelBuffer(multiChannelBuffer.getArrayOfWritePointers(), multiChannelBuffer.getNumChannels(), 0, numSamplesThisBlock);
 		thisMultiChannelBuffer.clear();
 
-		FloatVectorOperations::copy(thisMultiChannelBuffer.getWritePointer(0), buffer.getReadPointer(0), numSamplesThisBlock);
-		FloatVectorOperations::copy(thisMultiChannelBuffer.getWritePointer(1), buffer.getReadPointer(1), numSamplesThisBlock);
+		int numChannelsToCopy = jmin(thisMultiChannelBuffer.getNumChannels(), buffer.getNumChannels());
 
+		for(int i = 0; i < numChannelsToCopy; i++)
+			FloatVectorOperations::copy(thisMultiChannelBuffer.getWritePointer(i), buffer.getReadPointer(i), numSamplesThisBlock);
+		
 		if (oversampler == nullptr)
 		{
 			synthChain->renderNextBlockWithModulators(thisMultiChannelBuffer, masterEventBuffer);
@@ -1036,9 +1049,16 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 
 		buffer.clear();
 
-		// Just use the first two channels. You need to route back all your send channels to the first stereo pair.
-		FloatVectorOperations::copy(buffer.getWritePointer(0), thisMultiChannelBuffer.getReadPointer(0), numSamplesThisBlock);
-		FloatVectorOperations::copy(buffer.getWritePointer(1), thisMultiChannelBuffer.getReadPointer(1), numSamplesThisBlock);
+		auto& matrix = getMainSynthChain()->getMatrix();
+
+		for (int i = 0; i < numChannelsToCopy; i++)
+		{
+			auto c = matrix.getConnectionForSourceChannel(i);
+
+			if(c != -1)
+				FloatVectorOperations::add(buffer.getWritePointer(c), thisMultiChannelBuffer.getReadPointer(i), numSamplesThisBlock);
+		}
+			
     }
     else
     {
@@ -1304,6 +1324,9 @@ void MainController::storePlayheadIntoDynamicObject(AudioPlayHead::CurrentPositi
 
 void MainController::prepareToPlay(double sampleRate_, int samplesPerBlock)
 {
+    if(sampleRate_ <= 0.0 || samplesPerBlock <= 0)
+        return;
+    
 	auto oldSampleRate = processingSampleRate;
 	auto oldBlockSize = processingBufferSize.get();
 
@@ -1353,6 +1376,8 @@ void MainController::prepareToPlay(double sampleRate_, int samplesPerBlock)
 #endif
     
 #endif
+
+	getSpecBroadcaster().sendMessage(sendNotificationAsync, processingSampleRate, processingBufferSize.get());
 
 	getMainSynthChain()->prepareToPlay(processingSampleRate, processingBufferSize.get());
 
@@ -1932,6 +1957,14 @@ hise::MainController::UserPresetHandler::CustomAutomationData::Ptr MainControlle
 	return nullptr;
 }
 
+void MainController::UserPresetHandler::initDefaultPresetManager(const ValueTree& defaultState)
+{
+	if (defaultPresetManager == nullptr)
+		defaultPresetManager = new DefaultPresetManager(*this);
+
+	defaultPresetManager->init(defaultState);
+}
+
 void removePropertyRecursive(NamedValueSet& removedProperties, String currentPath, ValueTree v, const Identifier& id)
 {
 	if (!currentPath.isEmpty())
@@ -2059,5 +2092,94 @@ void MainController::UserPresetHandler::StoredModuleData::restoreValueTree(Value
 }
 
 
+
+MainController::UserPresetHandler::DefaultPresetManager::DefaultPresetManager(UserPresetHandler& parent):
+	ControlledObject(parent.mc)
+{
+
+}
+
+void MainController::UserPresetHandler::DefaultPresetManager::init(const ValueTree& v)
+{
+	
+
+	auto mc = getMainController();
+	auto defaultValue = mc->getCurrentFileHandler().getDefaultUserPreset();
+
+	if (defaultValue.isEmpty())
+		return;
+
+	interfaceProcessor = JavascriptMidiProcessor::getFirstInterfaceScriptProcessor(getMainController());
+
+#if USE_BACKEND
+
+	auto userPresetRoot = mc->getCurrentFileHandler().getSubDirectory(FileHandlerBase::UserPresets);
+	auto f = userPresetRoot.getChildFile(defaultValue).withFileExtension(".preset");
+
+	if (f.existsAsFile())
+	{
+		// only set the default file if it's a child of the user preset directory
+		// (in order to allow a "hidden" default user preset)
+		if (f.isAChildOf(userPresetRoot)) 
+			defaultFile = f;
+
+		if (auto xml = XmlDocument::parse(f))
+			defaultPreset = ValueTree::fromXml(*xml);
+	}
+
+	
+#else
+	
+	if (v.isValid())
+		defaultPreset = v;
+
+#endif
+
+	resetToDefault();
+}
+
+void MainController::UserPresetHandler::DefaultPresetManager::resetToDefault()
+{
+	if (defaultPreset.isValid())
+	{
+		auto& up = getMainController()->getUserPresetHandler();
+		
+		if (defaultFile.existsAsFile())
+			up.setCurrentlyLoadedFile(defaultFile);
+		
+		MainController::ScopedBadBabysitter sbs(getMainController());
+
+		up.loadUserPreset(defaultPreset, false);
+	}
+		
+}
+
+juce::var MainController::UserPresetHandler::DefaultPresetManager::getDefaultValue(const String& componentId) const
+{
+	if (defaultPreset.isValid())
+	{
+		auto t = defaultPreset.getChild(0).getChildWithProperty("id", componentId);
+
+		if (t.isValid())
+			return t["value"];
+	}
+
+	return {};
+}
+
+juce::var MainController::UserPresetHandler::DefaultPresetManager::getDefaultValue(int componentIndex) const
+{
+	if (auto sp = dynamic_cast<ProcessorWithScriptingContent*>(interfaceProcessor.get()))
+	{
+		if (auto sc = sp->getScriptingContent()->getComponent(componentIndex))
+		{
+			return getDefaultValue(sc->getName().toString());
+		}
+
+		jassertfalse;
+	}
+
+	return {};
+}
 
 } // namespace hise

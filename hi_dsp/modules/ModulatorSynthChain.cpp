@@ -124,7 +124,10 @@ void ModulatorSynthChain::prepareToPlay(double newSampleRate, int samplesPerBloc
 
 void ModulatorSynthChain::numSourceChannelsChanged()
 {
-	getMainController()->updateMultiChannelBuffer(getMatrix().getNumSourceChannels());
+    auto mc = getMainController();
+    
+    if(mc->getMainSynthChain() == this)
+        mc->updateMultiChannelBuffer(getMatrix().getNumSourceChannels());
 
 
 	for (int i = 0; i < getHandler()->getNumProcessors(); i++)
@@ -306,16 +309,11 @@ void ModulatorSynthChain::renderNextBlockWithModulators(AudioSampleBuffer &buffe
 	}
 	else // save some cycles on non multichannel buffers...
 	{
-#if !FORCE_INPUT_CHANNELS
-		FloatVectorOperations::copyWithMultiply(buffer.getWritePointer(0, 0), internalBuffer.getReadPointer(0, 0), getGain() * getBalance(false), numSamples);
-		FloatVectorOperations::copyWithMultiply(buffer.getWritePointer(1, 0), internalBuffer.getReadPointer(1, 0), getGain() * getBalance(true), numSamples);
-#else
 		FloatVectorOperations::addWithMultiply(buffer.getWritePointer(0, 0), internalBuffer.getReadPointer(0, 0), getGain() * getBalance(false), numSamples);
 		FloatVectorOperations::addWithMultiply(buffer.getWritePointer(1, 0), internalBuffer.getReadPointer(1, 0), getGain() * getBalance(true), numSamples);
-#endif
 	}
 
-	getMatrix().handleDisplayValues(internalBuffer, buffer);
+	getMatrix().handleDisplayValues(internalBuffer, buffer, true);
 
 	// Display the output
 	handlePeakDisplay(numSamples);

@@ -215,6 +215,23 @@ public:
 		setColour(PopupMenu::ColourIds::headerTextColourId, bright);
 	};
 
+    static int showAtComponent(PopupMenu& m, Component* c, bool alignToBottom)
+    {
+        
+        PopupMenu::Options options;
+        options = options.withTargetComponent (c);
+        
+        if(!alignToBottom)
+        {
+            Rectangle<int> r;
+            
+            r.setPosition(Desktop::getMousePosition());
+            options = options.withTargetScreenArea(r);
+        }
+        
+        return m.showMenu(options);
+    }
+    
 	static void drawHiBackground(Graphics &g, int x, int y, int width, int height, Component *c = nullptr, bool isMouseOverButton = false);
 
 	void setComboBoxFont(Font f)
@@ -222,6 +239,9 @@ public:
 		comboBoxFont = f;
 	}
 
+    PopupMenu::Options getOptionsForComboBoxPopupMenu (ComboBox& box, Label& label);
+   
+    
 protected:
 
 	void getIdealPopupMenuItemSize(const String &text, bool isSeparator, int standardMenuItemHeight, int &idealWidth, int &idealHeight) override

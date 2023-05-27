@@ -8,6 +8,10 @@
 
 #include "MainComponent.h"
 
+
+
+
+
 using namespace hise;
 using namespace scriptnode;
 using namespace snex::Types;
@@ -17,14 +21,32 @@ using namespace snex;
 
 
 
+
 //==============================================================================
 MainComponent::MainComponent() :
 	data(new ui::WorkbenchData())
 {
+	/** TODO:
+	
+	- split the entire snex compiler into parser & code generator, then test everything
+
+	- chew threw unit tests with MIR
+	- implement dyn
+	- add all library objects (polydata, osc process data, etc)
+
+	- remove all unnecessary things:
+	  - inlining (?)
+	  - indexes (?)
+	  - 
+	
+
+	*/
+
+
 	bool useValueTrees = false;
 	
 	laf.setDefaultColours(funkSlider);
-
+    
 	if (useValueTrees)
 	{
 		data->getTestData().setUpdater(&updater);
@@ -51,7 +73,7 @@ MainComponent::MainComponent() :
 		auto compileThread = new snex::jit::TestCompileThread(data);
 		data->setCompileHandler(compileThread);
 
-		for (auto o : OptimizationIds::getAllIds())
+		for (auto o : OptimizationIds::getDefaultIds())
 			data->getGlobalScope().addOptimization(o);
 
 		playground = new snex::ui::SnexPlayground(data, true);
@@ -61,26 +83,102 @@ MainComponent::MainComponent() :
 		
 	}
 
-	context.attachTo(*this);
+    //context.attachTo(*playground);
+    
+    WebViewData::Ptr data = new WebViewData();
+
+
+
+	auto root = File::getSpecialLocation(File::userDesktopDirectory).getChildFile("webtest");
+
 	
-	addAndMakeVisible(playground);
+	auto cacheFile = root.getChildFile("cached.dat");
+
+	if (cacheFile.existsAsFile())
+	{
+		zstd::ZDefaultCompressor comp;
+		
+		ValueTree v;
+		comp.expand(cacheFile, v);
+		data->restoreFromValueTree(v);
+	}
+	else
+	{
+		data->setRootDirectory(root);
+		data->setEnableCache(true);
+	}
+		
+	data->setIndexFile("/index.html");
+
+    data->addCallback("getX", [](const var& v)
+    {
+        return JUCE_LIVE_CONSTANT(0.01);
+    });
+    
+    data->setErrorLogger([](const String& d)
+    {
+        DBG(d);
+    });
+    
+	
+
+	
+    addAndMakeVisible(webViewWrapper = new WebViewWrapper(data));
+    
+    addAndMakeVisible(playground);
+    
+    //playground->toFront(true);
+    //context.attachTo(*playground);
+    
+	addAndMakeVisible(funkSlider);
+	
+	funkSlider.onValueChange = [data, this]()
+	{
+		auto v = funkSlider.getValue();
+
+		data->call("something", v);
+	};
+
 
     setSize (1024, 768);
 }
 
 MainComponent::~MainComponent()
 {
+	auto wv = dynamic_cast<WebViewWrapper*>(webViewWrapper.get());
+
+	auto data2 = wv->getData();
+
+	auto v = data2->exportAsValueTree();
+
+	auto root = File::getSpecialLocation(File::userDesktopDirectory).getChildFile("webtest");
+	auto cacheFile = root.getChildFile("cached.dat");
+	cacheFile.deleteFile();
+
+	//FileOutputStream fos(cacheFile);
+	//v.writeToStream(fos);
+	
+	zstd::ZDefaultCompressor comp;
+
+	comp.compress(v, cacheFile);
+
+	//fos.flush();
+
+	webViewWrapper = nullptr;
+
 	data = nullptr;
 
-	context.detach();
+	//context.detach();
 
+	
+    
 
 }
 
 //==============================================================================
 void MainComponent::paint (Graphics& g)
 {
-	g.fillAll(Colour(0xFF333336));
+	//g.fillAll(Colour(0xFF333336));
 }
 
 void MainComponent::resized()
@@ -99,7 +197,12 @@ void MainComponent::resized()
 		
 		
 	}
-		
-
-	playground->setBounds(b);
+	
+	funkSlider.setBounds(b.removeFromBottom(100));
+    
+    webViewWrapper->setBounds(b);
+    playground->setBounds(b.removeFromBottom(200));
+    
+    
+	
 }

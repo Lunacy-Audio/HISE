@@ -346,6 +346,12 @@ public:
 		/** Returns a reference to the global routing manager. */
 		var getGlobalRoutingManager();
 
+        /** Returns a reference to the global Loris manager. */
+        var getLorisManager();
+        
+		/** Returns a reference to a complex data type from the given module. */
+		var getComplexDataReference(String dataType, String moduleId, int index);
+
 		/** Creates a background task that can execute heavyweight functions. */
 		var createBackgroundTask(String name);
 
@@ -359,7 +365,7 @@ public:
 		void renderAudio(var eventList, var finishCallback);
 
 		/** Previews a audio buffer with a callback indicating the state. */
-		void playBuffer(var bufferData, var callback);
+		void playBuffer(var bufferData, var callback, double fileSampleRate);
 
 		/** Sends an allNotesOff message at the next buffer. */
 		void allNotesOff();
@@ -621,6 +627,9 @@ public:
 		/** Redo the last controller change. */
 		void redo();
 
+        /** Clears the undo history. */
+        void clearUndoHistory();
+        
 		/** Returns a fully described string of this date and time in ISO-8601 format (using the local timezone) with or without divider characters. */
 		String getSystemTime(bool includeDividerCharacters);
 		
@@ -1510,6 +1519,9 @@ public:
         /** Sets a string that is parsed as timeout message when the server doesn't respond. Default is "{}" (empty JSON object). */
         void setTimeoutMessageString(String timeoutMessage);
         
+        /** Sets whether to append a trailing slash to each POST call (default is true). */
+        void setEnforceTrailingSlash(bool shouldAddSlash);
+        
 		/** Returns a list of all pending Downloads. */
 		var getPendingDownloads();
 
@@ -1610,6 +1622,9 @@ public:
 		/** Returns a list of all child directories of a directory that match the wildcard. */
 		var findDirectories(var directory, String wildcard, bool recursive);
 
+        /** Returns a list of all root drives of the current computer. */
+        var findFileSystemRoots();
+        
 		/** Opens a file browser to choose a file. */
 		void browse(var startFolder, bool forSaving, String wildcard, var callback);
 

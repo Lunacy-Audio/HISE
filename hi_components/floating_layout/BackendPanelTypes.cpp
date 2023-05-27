@@ -71,9 +71,9 @@ struct AudioTimelineObject : public TimelineObjectBase
 		auto fis = new FileInputStream(f);
 		ScopedPointer<AudioFormatReader> reader = form.createReaderFor(fis, true);
 
-		content.setSize(2, reader->lengthInSamples);
+		content.setSize(2, (int)reader->lengthInSamples);
 
-		reader->read(&content, 0, reader->lengthInSamples, 0, true, true);
+		reader->read(&content, 0, (int)reader->lengthInSamples, 0, true, true);
 
 		if (sampleRate != reader->sampleRate)
 		{
@@ -217,11 +217,6 @@ struct MidiTimelineObject : public TimelineObjectBase,
 	void initialise(double ) override
 	{
 		FileInputStream fis(f);
-		
-
-		auto ok = content.readFrom(fis);
-
-		
 	}
 
 	Colour getColour() const override
@@ -411,11 +406,16 @@ struct DAWClockController::Ruler: public Component,
 
 			for (auto c : v)
 			{
-				auto f = c["File"];
+				auto f_ = c["File"];
 				auto p = c["StartPosition"];
 
-				auto obj = getOrCreate(File(f));
-				obj->startPPQ = p;
+				File f(f_);
+
+				if (f.existsAsFile())
+				{
+					auto obj = getOrCreate(f);
+					obj->startPPQ = p;
+				}
 			}
 		}
 
@@ -542,7 +542,7 @@ struct DAWClockController::Ruler: public Component,
     
 	File getTimelineFile() const
 	{
-		return ProjectHandler::getAppDataDirectory().getChildFile("Timeline.xml");
+		return ProjectHandler::getAppDataDirectory(nullptr).getChildFile("Timeline.xml");
 	}
 
     void mouseDown(const MouseEvent& e) override

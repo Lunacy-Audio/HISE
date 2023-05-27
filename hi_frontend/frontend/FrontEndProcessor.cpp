@@ -42,6 +42,7 @@ FrontendProcessor* FrontendFactory::createPluginWithAudioFiles(AudioDeviceManage
 	pis->readIntoMemoryBlock(pBlock);
 	pdec.expand(pBlock, presetData);
 	
+
 	/*ValueTree presetData = ValueTree::readFromData(PresetData::preset PresetData::presetSize);\*/ 
 	LOG_START("Loading embedded image data"); 
 	auto imageData = getEmbeddedData(FileHandlerBase::Images);
@@ -252,7 +253,18 @@ updater(*this)
     HiseDeviceSimulator::init(wrapperType);
     
 	GlobalSettingManager::initData(this);
-
+	GlobalSettingManager::restoreGlobalSettings(this, false);
+    
+#if HISE_ENABLE_LORIS_ON_FRONTEND
+    auto f = FrontendHandler::getAppDataDirectory(this).getChildFile("loris_library");
+    
+    lorisManager = new LorisManager(f, [this](String m)
+    {
+        this->sendOverlayMessage(DeactiveOverlay::State::CustomErrorMessage, m);
+    });
+    
+#endif
+    
     numInstances++;
     
     if(HiseDeviceSimulator::isAUv3() && numInstances > HISE_AUV3_MAX_INSTANCE_COUNT)
@@ -325,6 +337,11 @@ updater(*this)
 		setExternalScriptData(externalFiles->getChildWithName("ExternalScripts"));
 		restoreCustomFontValueTree(externalFiles->getChildWithName("CustomFonts"));
 		restoreEmbeddedMarkdownDocs(externalFiles->getChildWithName("MarkdownDocs"));
+		restoreWebResources(externalFiles->getChildWithName("WebViewResources"));
+
+		auto defaultPreset = externalFiles->getChildWithName("DefaultPreset").getChild(0);
+
+		getUserPresetHandler().initDefaultPresetManager(defaultPreset);
 	}
     
 	numParameters = 0;
@@ -413,6 +430,8 @@ void FrontendProcessor::createPreset(const ValueTree& synthData)
 		getMacroManager().getMidiControlAutomationHandler()->restoreFromValueTree(autoData);
 
 	synthChain->loadMacrosFromValueTree(synthData);
+
+	getUserPresetHandler().initDefaultPresetManager({});
 
 	LOG_START("Adding plugin parameters");
 

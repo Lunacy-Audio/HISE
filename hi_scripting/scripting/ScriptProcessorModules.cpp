@@ -479,6 +479,26 @@ void JavascriptPolyphonicEffect::postCompileCallback()
 	prepareToPlay(getSampleRate(), getLargestBlockSize());
 }
 
+bool JavascriptPolyphonicEffect::hasTail() const
+{
+	if (auto n = getActiveNetwork())
+	{
+		return n->hasTail();
+	}
+
+	return false;
+}
+
+bool JavascriptPolyphonicEffect::isSuspendedOnSilence() const
+{
+	if (auto n = getActiveNetwork())
+	{
+		return n->isSuspendedOnSilence();
+	}
+
+	return true;
+}
+
 void JavascriptPolyphonicEffect::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
 	VoiceEffectProcessor::prepareToPlay(sampleRate, samplesPerBlock);
@@ -501,6 +521,8 @@ void JavascriptPolyphonicEffect::renderVoice(int voiceIndex, AudioSampleBuffer &
 {
 	if (auto n = getActiveNetwork())
 	{
+		
+
 		float* channels[NUM_MAX_CHANNELS];
 
 		int numChannels = b.getNumChannels();
@@ -511,15 +533,24 @@ void JavascriptPolyphonicEffect::renderVoice(int voiceIndex, AudioSampleBuffer &
 
 		scriptnode::ProcessDataDyn d(channels, numSamples, numChannels);
 
+		if (checkPreSuspension(voiceIndex, d))
+			return;
+
 		scriptnode::DspNetwork::VoiceSetter vs(*n, voiceIndex);
 		n->getRootNode()->process(d);
         
-        isTailing = voiceData.containsVoiceIndex(voiceIndex);
+		checkPostSuspension(voiceIndex, d);
+
+		// overwrite the tailing with the voice index to cater in
+		// voice resetting calls...
+		isTailing = voiceData.containsVoiceIndex(voiceIndex);
 	}
 }
 
 void JavascriptPolyphonicEffect::startVoice(int voiceIndex, const HiseEvent& e)
 {
+	VoiceEffectProcessor::startVoice(voiceIndex, e);
+
 	if (auto n = getActiveNetwork())
 	{
 		voiceData.startVoice(*n, *n->getPolyHandler(), voiceIndex, e);
@@ -529,6 +560,8 @@ void JavascriptPolyphonicEffect::startVoice(int voiceIndex, const HiseEvent& e)
 
 void JavascriptPolyphonicEffect::reset(int voiceIndex)
 {
+	VoiceEffectProcessor::reset(voiceIndex);
+
 	voiceData.reset(voiceIndex);
 }
 
@@ -712,6 +745,14 @@ bool JavascriptMasterEffect::hasTail() const
 	{
 		return n->hasTail();
 	}
+
+	return false;
+}
+
+bool JavascriptMasterEffect::isSuspendedOnSilence() const
+{
+	if (auto n = getActiveNetwork())
+		return n->isSuspendedOnSilence();
 
 	return false;
 }

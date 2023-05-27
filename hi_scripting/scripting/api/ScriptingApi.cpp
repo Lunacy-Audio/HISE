@@ -145,6 +145,8 @@ Point<float> ApiHelpers::getPointFromVar(const var& data, Result* r /*= nullptr*
 
             Point<float> p(SANITIZED(d0), SANITIZED(d1));
 
+            if(r != nullptr) *r = Result::ok();
+            
 			return p;
 		}
 		else
@@ -220,6 +222,8 @@ Rectangle<int> ApiHelpers::getIntRectangleFromVar(const var &data, Result* r/*=n
 		{
 			Rectangle<int> rectangle((int)d->getUnchecked(0), (int)d->getUnchecked(1), (int)d->getUnchecked(2), (int)d->getUnchecked(3));
 
+            if(r != nullptr) *r = Result::ok();
+            
 			return rectangle;
 		}
 		else
@@ -919,6 +923,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Engine, setDiskMode);
 	API_METHOD_WRAPPER_0(Engine, getVersion);
 	API_METHOD_WRAPPER_0(Engine, getName);
+	API_METHOD_WRAPPER_3(Engine, getComplexDataReference);
 	API_METHOD_WRAPPER_0(Engine, getFilterModeList);
 	API_METHOD_WRAPPER_2(Engine, sortWithFunction);
 	API_METHOD_WRAPPER_1(Engine, isControllerUsedByAutomation);
@@ -944,6 +949,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Engine, setGlobalFont);
 	API_VOID_METHOD_WRAPPER_0(Engine, undo);
 	API_VOID_METHOD_WRAPPER_0(Engine, redo);
+    API_VOID_METHOD_WRAPPER_0(Engine, clearUndoHistory);
 	API_METHOD_WRAPPER_2(Engine, performUndoAction);
 	API_METHOD_WRAPPER_0(Engine, getExtraDefinitionsInBackend);
 	API_METHOD_WRAPPER_0(Engine, loadAudioFilesIntoPool);
@@ -960,12 +966,13 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_0(Engine, createLicenseUnlocker);
 	API_METHOD_WRAPPER_1(Engine, createBroadcaster);
 	API_METHOD_WRAPPER_0(Engine, getGlobalRoutingManager);
+    API_METHOD_WRAPPER_0(Engine, getLorisManager);
 	API_METHOD_WRAPPER_1(Engine, loadAudioFileIntoBufferArray);
 	API_METHOD_WRAPPER_0(Engine, getClipboardContent);
 	API_VOID_METHOD_WRAPPER_1(Engine, copyToClipboard);
 	API_METHOD_WRAPPER_1(Engine, decodeBase64ValueTree);
 	API_VOID_METHOD_WRAPPER_2(Engine, renderAudio);
-	API_VOID_METHOD_WRAPPER_2(Engine, playBuffer);
+	API_VOID_METHOD_WRAPPER_3(Engine, playBuffer);
 	
 	
 };
@@ -1015,6 +1022,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_2(showErrorMessage);
 	ADD_API_METHOD_1(showMessage);
 	ADD_API_METHOD_1(setLowestKeyToDisplay);
+	ADD_API_METHOD_3(getComplexDataReference);
   	ADD_API_METHOD_1(openWebsite);
 	ADD_API_METHOD_0(createUserPresetHandler);
 	ADD_API_METHOD_0(createMidiAutomationHandler);
@@ -1077,6 +1085,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_1(createAndRegisterAudioFile);
 	ADD_API_METHOD_1(createAndRegisterRingBuffer);
 	ADD_API_METHOD_0(getGlobalRoutingManager);
+    ADD_API_METHOD_0(getLorisManager);
 	ADD_API_METHOD_1(loadFont);
 	ADD_API_METHOD_2(loadFontAs);
 	ADD_API_METHOD_1(loadAudioFileIntoBufferArray);
@@ -1086,6 +1095,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
     ADD_API_METHOD_1(createFixObjectFactory);
 	ADD_API_METHOD_0(undo);
 	ADD_API_METHOD_0(redo);
+    ADD_API_METHOD_0(clearUndoHistory);
 	ADD_API_METHOD_2(performUndoAction);
 	ADD_API_METHOD_0(getExtraDefinitionsInBackend);
 	ADD_API_METHOD_0(loadAudioFilesIntoPool);
@@ -1111,13 +1121,51 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_0(reloadAllSamples);
 	ADD_API_METHOD_1(decodeBase64ValueTree);
 	ADD_API_METHOD_2(renderAudio);
-	ADD_API_METHOD_2(playBuffer);
+	ADD_API_METHOD_3(playBuffer);
 }
 
 
 ScriptingApi::Engine::~Engine()
 {
 
+}
+
+var ScriptingApi::Engine::getProjectInfo()
+{		
+	auto obj = new DynamicObject();
+	
+	String licencee;
+
+	#if USE_BACKEND || USE_COPY_PROTECTION
+		if (auto ul = getProcessor()->getMainController()->getLicenseUnlocker())
+			licencee = ul->getUserEmail();
+	#endif
+
+	# if USE_BACKEND
+		obj->setProperty("Company", GET_HISE_SETTING(getProcessor()->getMainController()->getMainSynthChain(), HiseSettings::User::Company).toString());
+		obj->setProperty("CompanyURL", GET_HISE_SETTING(getProcessor()->getMainController()->getMainSynthChain(), HiseSettings::User::CompanyURL).toString());
+		obj->setProperty("CompanyCopyright", GET_HISE_SETTING(getProcessor()->getMainController()->getMainSynthChain(), HiseSettings::User::CompanyCopyright).toString());
+		obj->setProperty("ProjectName", GET_HISE_SETTING(getProcessor()->getMainController()->getMainSynthChain(), HiseSettings::Project::Name).toString());
+		obj->setProperty("ProjectVersion", GET_HISE_SETTING(getProcessor()->getMainController()->getMainSynthChain(), HiseSettings::Project::Version).toString());
+		obj->setProperty("EncryptionKey", GET_HISE_SETTING(getProcessor()->getMainController()->getMainSynthChain(), HiseSettings::Project::EncryptionKey).toString());
+		
+	#else 
+		obj->setProperty("Company", hise::FrontendHandler::getCompanyName());
+		obj->setProperty("CompanyURL", hise::FrontendHandler::getCompanyWebsiteName());
+		obj->setProperty("CompanyCopyright", hise::FrontendHandler::getCompanyCopyright());
+		obj->setProperty("ProjectName", hise::FrontendHandler::getProjectName());
+		obj->setProperty("ProjectVersion", hise::FrontendHandler::getVersionString());
+		obj->setProperty("EncryptionKey", hise::FrontendHandler::getExpansionKey());
+		
+	#endif
+
+
+	obj->setProperty("HISEBuild", GlobalSettingManager::getHiseVersion());
+	
+	obj->setProperty("BuildDate", Time::getCompilationDate().toString(true, false, false, true));
+	obj->setProperty("LicensedEmail", licencee);
+			
+	return obj;
 }
 
 void ScriptingApi::Engine::allNotesOff()
@@ -2007,10 +2055,11 @@ struct ScriptingApi::Engine::PreviewHandler: public ControlledObject,
 	struct Job: public ControlledObject,
 				private PooledUIUpdater::SimpleTimer
 	{
-		Job(ProcessorWithScriptingContent* p, var buffer, var callbackFunction) :
+		Job(ProcessorWithScriptingContent* p, var buffer, var callbackFunction, double fileSampleRate_) :
 			ControlledObject(p->getMainController_()),
 			SimpleTimer(p->getMainController_()->getGlobalUIUpdater(), true),
 			bufferToPreview(buffer),
+            fileSampleRate(fileSampleRate_),
 			callback(p, nullptr, callbackFunction, 2)
 		{
 			callback.incRefCount();
@@ -2045,15 +2094,41 @@ struct ScriptingApi::Engine::PreviewHandler: public ControlledObject,
 			}
 		}
 
+        bool isValid() const { return numChannels > 0 && numSamples > 0; }
+        
 		void play()
 		{
 			AudioSampleBuffer b(channels, numChannels, numSamples);
 
-			AudioSampleBuffer copy;
-			copy.makeCopyOf(b);
+            auto originalSampleRate = fileSampleRate;
+            auto currentSampleRate = getMainController()->getMainSynthChain()->getSampleRate();
 
-			getMainController()->setBufferToPlay(copy);
-			start();
+            if (originalSampleRate != currentSampleRate)
+            {
+                auto ratio = originalSampleRate / currentSampleRate;
+
+                int numResampled = (int)((double)numSamples / ratio) + 1;
+
+                AudioSampleBuffer r(b.getNumChannels(), numResampled);
+
+                LagrangeInterpolator p;
+
+                for (int i = 0; i < b.getNumChannels(); i++)
+                {
+                    p.reset();
+                    p.process(ratio, b.getReadPointer(i), r.getWritePointer(i), numResampled);
+                }
+
+                getMainController()->setBufferToPlay(r);
+            }
+            else
+            {
+                AudioSampleBuffer copy;
+                copy.makeCopyOf(b);
+                getMainController()->setBufferToPlay(copy);
+            }
+            
+            start();
 		}
 
 		void sendCallback(bool isPlaying, double position)
@@ -2079,21 +2154,33 @@ struct ScriptingApi::Engine::PreviewHandler: public ControlledObject,
 		int numChannels;
 		int numSamples = -1;
 
-
 		var args[2];
 		var bufferToPreview;
 		WeakCallbackHolder callback;
+        const double fileSampleRate;
 	};
 
-	void addJob(var buffer, var callback)
+	void addJob(var buffer, var callback, double fileSampleRate)
 	{
-		ScopedLock sl(jobLock);
+        jassert(fileSampleRate >= 0.0);
+        
+		
 
-		getMainController()->stopBufferToPlay();
-		currentJobs.add(new Job(pwsc, buffer, callback));
+        ScopedPointer<Job> nj = new Job(pwsc, buffer, callback, fileSampleRate);
+        
+        if(nj->isValid())
+        {
+            ScopedLock sl(jobLock);
+            
+            getMainController()->stopBufferToPlay();
+            
+            currentJobs.add(nj.release());
 
-		if (currentJobs.size() == 1)
-			startNextJob();
+            if (currentJobs.size() == 1)
+                startNextJob();
+        }
+        
+		
 	}
 
 	void handleAsyncUpdate()
@@ -2127,12 +2214,15 @@ struct ScriptingApi::Engine::PreviewHandler: public ControlledObject,
 	ProcessorWithScriptingContent* pwsc;
 };
 
-void ScriptingApi::Engine::playBuffer(var bufferData, var callback)
+void ScriptingApi::Engine::playBuffer(var bufferData, var callback, double fileSampleRate)
 {
+    if(fileSampleRate <= 0.0)
+        fileSampleRate = getSampleRate();
+    
 	if (previewHandler == nullptr)
 		previewHandler = new PreviewHandler(getScriptProcessor());
 
-	previewHandler->addJob(bufferData, callback);
+	previewHandler->addJob(bufferData, callback, fileSampleRate);
 }
 
 var ScriptingApi::Engine::createFFT()
@@ -2217,6 +2307,64 @@ var ScriptingApi::Engine::getDspNetworkReference(String processorId, String id)
 juce::var ScriptingApi::Engine::getGlobalRoutingManager()
 {
 	return var(new ScriptingObjects::GlobalRoutingManagerReference(getScriptProcessor()));
+}
+
+juce::var ScriptingApi::Engine::getLorisManager()
+{
+#if USE_BACKEND || HISE_ENABLE_LORIS_ON_FRONTEND
+    return var(new ScriptLorisManager(getScriptProcessor()));
+#else
+    return var();
+#endif
+}
+
+juce::var ScriptingApi::Engine::getComplexDataReference(String dataType, String moduleId, int index)
+{
+	auto p = ProcessorHelpers::getFirstProcessorWithName(getScriptProcessor()->getMainController_()->getMainSynthChain(), moduleId);
+
+	if (auto typed = dynamic_cast<ExternalDataHolder*>(p))
+	{
+		StringArray dataTypes =
+		{
+		  "Table",
+		  "SliderPack",
+		  "AudioFile",
+		  "FilterCoefficients",
+		  "DisplayBuffer",
+		};
+
+		auto idx = dataTypes.indexOf(dataType);
+
+		if (idx == -1)
+			reportScriptError("Illegal data type. Must be Table, SliderPack, AudioFile or DisplayBuffer");
+
+		auto dt = (ExternalData::DataType)idx;
+
+		if (auto obj = typed->getComplexBaseType(dt, index))
+		{
+			auto sp = getScriptProcessor();
+
+			switch (dt)
+			{
+			case ExternalData::DataType::Table: return var(new ScriptingObjects::ScriptTableData(sp, index, typed));
+			case ExternalData::DataType::SliderPack: return var(new ScriptingObjects::ScriptSliderPackData(sp, index, typed));
+			case ExternalData::DataType::AudioFile: return var(new ScriptingObjects::ScriptAudioFile(sp, index, typed));
+			case ExternalData::DataType::DisplayBuffer: return var(new ScriptingObjects::ScriptRingBuffer(sp, index, typed));
+			default: jassertfalse;
+			}
+		}
+		else
+		{
+			// Don't complain, just return undefined...
+			return var();
+		}
+	}
+	else
+	{
+		reportScriptError("Can't find module with ID " + moduleId);
+	}
+
+	RETURN_IF_NO_THROW(var());
 }
 
 var ScriptingApi::Engine::createBackgroundTask(String name)
@@ -3037,7 +3185,9 @@ var ScriptingApi::Engine::loadAudioFilesIntoPool()
 	HiseJavascriptEngine::TimeoutExtender xt(dynamic_cast<JavascriptProcessor*>(getScriptProcessor())->getScriptEngine());
 
 	auto pool = getScriptProcessor()->getMainController_()->getCurrentAudioSampleBufferPool();
-	pool->loadAllFilesFromProjectFolder();
+    
+    if(!pool->areAllFilesLoaded())
+        pool->loadAllFilesFromProjectFolder();
 
 #endif
 
@@ -3358,6 +3508,18 @@ void ScriptingApi::Engine::undo()
 	};
 
 	MessageManager::callAsync(f);
+}
+
+void ScriptingApi::Engine::clearUndoHistory()
+{
+    auto um = getScriptProcessor()->getMainController_()->getControlUndoManager();
+    
+    if(um->isPerformingUndoRedo())
+    {
+        reportScriptError("You can't clear the undo history while performing an undoable operation");
+    }
+    
+    um->clearUndoHistory();
 }
 
 void ScriptingApi::Engine::redo()
@@ -4705,7 +4867,7 @@ void ScriptingApi::Sampler::setAttribute(int index, var newValue)
         RETURN_VOID_IF_NO_THROW()
     }
 
-    s->setAttribute(index, newValue, sendNotification);
+    s->setAttribute(index, newValue, ProcessorHelpers::getAttributeNotificationType());
 }
 
 void ScriptingApi::Sampler::setUseStaticMatrix(bool shouldUseStaticMatrix)
@@ -5588,8 +5750,7 @@ ScriptingObjects::ScriptingAudioSampleProcessor * ScriptingApi::Synth::getAudioS
 	Processor::Iterator<ProcessorWithExternalData> it(owner);
 
 	ProcessorWithExternalData *asp;
-
-
+    
 	while ((asp = it.getNextProcessor()) != nullptr)
 	{
 		if (dynamic_cast<Processor*>(asp)->getId() == name)
@@ -6701,6 +6862,7 @@ struct ScriptingApi::FileSystem::Wrapper
 	API_VOID_METHOD_WRAPPER_2(FileSystem, browseForDirectory);
 	API_METHOD_WRAPPER_1(FileSystem, getBytesFreeOnVolume);
     API_METHOD_WRAPPER_2(FileSystem, encryptWithRSA);
+    API_METHOD_WRAPPER_0(FileSystem, findFileSystemRoots);
     API_METHOD_WRAPPER_2(FileSystem, decryptWithRSA);
 };
 
@@ -6734,6 +6896,7 @@ ScriptingApi::FileSystem::FileSystem(ProcessorWithScriptingContent* pwsc):
 	ADD_API_METHOD_1(getBytesFreeOnVolume);
     ADD_API_METHOD_2(encryptWithRSA);
     ADD_API_METHOD_2(decryptWithRSA);
+    ADD_API_METHOD_0(findFileSystemRoots);
 }
 
 ScriptingApi::FileSystem::~FileSystem()
@@ -6848,6 +7011,19 @@ String ScriptingApi::FileSystem::getSystemId()
 	return OnlineUnlockStatus::MachineIDUtilities::getLocalMachineIDs()[0];
 }
 
+var ScriptingApi::FileSystem::findFileSystemRoots()
+{
+    Array<File> roots;
+    File::findFileSystemRoots(roots);
+    
+    Array<var> entries;
+    
+    for(auto r: roots)
+        entries.add(var(new ScriptingObjects::ScriptFile(getScriptProcessor(), r)));
+    
+    return var(entries);
+}
+
 int64 ScriptingApi::FileSystem::getBytesFreeOnVolume(var folder)
 {
 	File f;
@@ -6955,7 +7131,7 @@ juce::File ScriptingApi::FileSystem::getFile(SpecialLocations l)
 #if USE_BACKEND
 	case AppData:
 	{
-		f = ProjectHandler::getAppDataRoot();
+		f = ProjectHandler::getAppDataRoot(getMainController());
 
 		auto company = GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::User::Company);
 		auto project = GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::Project::Name);
@@ -7032,6 +7208,7 @@ struct ScriptingApi::Server::Wrapper
 	API_VOID_METHOD_WRAPPER_3(Server, callWithGET);
 	API_METHOD_WRAPPER_4(Server, downloadFile);
 	API_VOID_METHOD_WRAPPER_1(Server, setHttpHeader);
+    API_VOID_METHOD_WRAPPER_1(Server, setEnforceTrailingSlash);
 	API_METHOD_WRAPPER_0(Server, getPendingDownloads);
 	API_METHOD_WRAPPER_0(Server, getPendingCalls);
 	API_METHOD_WRAPPER_0(Server, isOnline);
@@ -7072,6 +7249,7 @@ ScriptingApi::Server::Server(JavascriptProcessor* jp_):
 	ADD_API_METHOD_0(cleanFinishedDownloads);
 	ADD_API_METHOD_1(isEmailAddress);
     ADD_API_METHOD_1(setTimeoutMessageString);
+    ADD_API_METHOD_1(setEnforceTrailingSlash);
 }
 
 void ScriptingApi::Server::setBaseURL(String url)
@@ -7095,6 +7273,11 @@ void ScriptingApi::Server::callWithGET(String subURL, var parameters, var callba
 	}
 }
 
+void ScriptingApi::Server::setEnforceTrailingSlash(bool shouldAdd)
+{
+    globalServer.addTrailingSlashes = shouldAdd;
+}
+
 void ScriptingApi::Server::callWithPOST(String subURL, var parameters, var callback)
 {
 	if (HiseJavascriptEngine::isJavascriptFunction(callback))
@@ -7104,7 +7287,7 @@ void ScriptingApi::Server::callWithPOST(String subURL, var parameters, var callb
         const bool isNotAFile = !subURL.containsChar('.');
         const bool trailingSlashMissing = !subURL.endsWithChar('/');
         
-        if(isNotAFile && trailingSlashMissing)
+        if(isNotAFile && trailingSlashMissing && globalServer.addTrailingSlashes)
         {
             // We need to append a slash in order to prevent redirecting to a GET call
             subURL << '/';

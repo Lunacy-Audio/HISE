@@ -175,7 +175,7 @@ void ScriptUserPresetHandler::setCustomAutomation(var automationData)
 				auto nd = new CustomData(newList, getScriptProcessor()->getMainController_(), index++, ad);
 
 				if (!nd->r.wasOk())
-					reportScriptError(nd->id.toString() + " - " + nd->r.getErrorMessage());
+					reportScriptError(nd->id + " - " + nd->r.getErrorMessage());
 
 				newList.add(nd);
 			}
@@ -406,7 +406,7 @@ juce::var ScriptUserPresetHandler::createObjectForAutomationValues()
 		auto ad = uph.getCustomAutomationData(i);
 
 		DynamicObject* obj = new DynamicObject();
-		obj->setProperty("id", ad->id.toString());
+		obj->setProperty("id", ad->id);
 		obj->setProperty("value", ad->lastValue);
 		list.add(var(obj));
 	}
@@ -740,6 +740,7 @@ void ScriptUserPresetHandler::presetChanged(const File& newPreset)
 		postCallback.call(&f, 1);
 	}
 }
+
 
 struct ScriptExpansionHandler::Wrapper
 {
@@ -1920,7 +1921,10 @@ hise::PoolBase::DataProvider::Compressor* ScriptEncryptedExpansion::createCompre
 
 void ScriptEncryptedExpansion::setCompressorForPool(SubDirectories fileType, bool createEncrypted)
 {
-	pool->getPoolBase(fileType)->getDataProvider()->setCompressor(createCompressor(createEncrypted));
+	if (auto p = pool->getPoolBase(fileType))
+	{
+		p->getDataProvider()->setCompressor(createCompressor(createEncrypted));
+	}
 }
 
 void ScriptEncryptedExpansion::addDataType(ValueTree& parent, SubDirectories fileType)
@@ -1945,19 +1949,22 @@ void ScriptEncryptedExpansion::addDataType(ValueTree& parent, SubDirectories fil
 
 void ScriptEncryptedExpansion::restorePool(ValueTree encryptedTree, SubDirectories fileType)
 {
-	auto poolData = encryptedTree.getChildWithName(ExpansionIds::PoolData);
+	if (auto p = pool->getPoolBase(fileType))
+	{
+		auto poolData = encryptedTree.getChildWithName(ExpansionIds::PoolData);
 
-	MemoryBlock mb;
+		MemoryBlock mb;
 
-	auto childName = getIdentifier(fileType).removeCharacters("/");
-	auto c = poolData.getChildWithName(childName);
-	auto d = c.getProperty(ExpansionIds::Data).toString();
+		auto childName = getIdentifier(fileType).removeCharacters("/");
+		auto c = poolData.getChildWithName(childName);
+		auto d = c.getProperty(ExpansionIds::Data).toString();
 
-	mb.fromBase64Encoding(d);
+		mb.fromBase64Encoding(d);
 
-	ScopedPointer<MemoryInputStream> mis = new MemoryInputStream(mb, true);
+		ScopedPointer<MemoryInputStream> mis = new MemoryInputStream(mb, true);
 
-	pool->getPoolBase(fileType)->getDataProvider()->restorePool(mis.release());
+		p->getDataProvider()->restorePool(mis.release());
+	}
 }
 
 void ScriptEncryptedExpansion::addUserPresets(ValueTree encryptedTree)
@@ -2343,7 +2350,7 @@ Result FullInstrumentExpansion::encodeExpansion()
 #if USE_BACKEND
 	{
 		h.setErrorMessage("Embedding networks", false);
-		auto allNetworks = BackendDllManager::exportAllNetworks(getMainController(), true);
+		networks = BackendDllManager::exportAllNetworks(getMainController(), false);
 		zstd::ZDefaultCompressor d;
 		MemoryBlock networkData;
 		d.compress(networks, networkData);
@@ -2405,15 +2412,37 @@ Result FullInstrumentExpansion::encodeExpansion()
 	return Result::ok();
 }
 
-ExpansionEncodingWindow::ExpansionEncodingWindow(MainController* mc, Expansion* eToEncode, bool isProjectExport) :
+ExpansionEncodingWindow::ExpansionEncodingWindow(MainController* mc, Expansion* eToEncode, bool isProjectExport, bool isRhapsody_) :
 	DialogWindowWithBackgroundThread(isProjectExport ? "Encode project as Full Expansion" : "Encode Expansion"),
 	ControlledObject(mc),
 	e(eToEncode),
+	isRhapsody(isRhapsody_),
 	encodeResult(Result::ok()),
 	projectExport(isProjectExport)
 {
 	if (isProjectExport)
 	{
+#if USE_BACKEND
+		auto& h = GET_PROJECT_HANDLER(mc->getMainSynthChain());
+
+		addComboBox("rhapsody", { "No", "Yes" }, "Use Rhapsody format");
+		getComboBoxComponent("rhapsody")->setSelectedItemIndex((int)isRhapsody, dontSendNotification);
+
+		if (mc->getExpansionHandler().getEncryptionKey().isEmpty())
+		{
+			auto k = dynamic_cast<GlobalSettingManager*>(mc)->getSettingsObject().getSetting(HiseSettings::Project::EncryptionKey).toString();
+
+			if (k.isNotEmpty())
+				mc->getExpansionHandler().setEncryptionKey(k);
+			else
+				encodeResult = Result::fail("You have to specify an encryption key in order to encode the project as full expansion");
+		}
+
+		auto existingIntermediate = Expansion::Helpers::getExpansionInfoFile(h.getWorkDirectory(), Expansion::Intermediate);
+
+		if (existingIntermediate.existsAsFile())
+			existingIntermediate.deleteFile();
+#endif
 	}
 	else
 	{
@@ -2442,11 +2471,57 @@ ExpansionEncodingWindow::~ExpansionEncodingWindow()
 	getMainController()->getExpansionHandler().removeListener(this);
 }
 
+juce::Result ExpansionEncodingWindow::performRhapsodyChecks()
+{
+#if USE_BACKEND
+	if (getComboBoxComponent("rhapsody")->getSelectedItemIndex() == 0)
+		return Result::ok();
+
+	if (getMainController()->getExpansionHandler().getEncryptionKey() != "1234")
+	{
+		return Result::fail("The encryption key must be `1234` in order to be loaded into Rhapsody");
+	}
+
+	// check that there is an icon image
+
+	auto thumb = getMainController()->getCurrentFileHandler().getSubDirectory(FileHandlerBase::Images).getChildFile("Icon.png");
+	auto hasIcon = thumb.existsAsFile();
+
+	if (!hasIcon)
+		return Result::fail("The project needs a Icon.png image (with the dimensions 300x50)");
+
+	auto dllManager = dynamic_cast<BackendProcessor*>(getMainController())->dllManager;
+
+	auto compileNetworks = dllManager->getNetworkFiles(getMainController(), false);
+
+	if (!compileNetworks.isEmpty())
+		return Result::fail("The project must not use compiled DSP Networks");
+
+	auto userPresetFolder = getMainController()->getCurrentFileHandler().getSubDirectory(FileHandlerBase::UserPresets);
+
+	auto presetList = userPresetFolder.findChildFiles(File::findFiles, true, "*.preset");
+
+	if (presetList[0].getParentDirectory().getParentDirectory().getParentDirectory() != userPresetFolder)
+		return Result::fail("The project needs to have at least one user preset and must use the default three level folder hierarchy (Bank/Category/Preset)");
+
+#endif
+
+	return Result::ok();
+}
+
 void ExpansionEncodingWindow::run()
 {
 #if USE_BACKEND
 	if (projectExport)
 	{
+		if (encodeResult.failed())
+			return;
+
+		encodeResult = performRhapsodyChecks();
+
+		if (encodeResult.failed())
+			return;
+
 		auto& h = GET_PROJECT_HANDLER(getMainController()->getMainSynthChain());
 		auto f = Expansion::Helpers::getExpansionInfoFile(h.getWorkDirectory(), Expansion::FileBased);
 
@@ -2454,10 +2529,12 @@ void ExpansionEncodingWindow::run()
 
 		mData.setProperty(ExpansionIds::Name, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::Project::Name), nullptr);
 		mData.setProperty(ExpansionIds::Version, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::Project::Version), nullptr);
-		mData.setProperty(HiseSettings::User::Company, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::User::Company), nullptr);
-		mData.setProperty(HiseSettings::User::Company, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::User::CompanyURL), nullptr);
-		mData.setProperty(ExpansionIds::UUID, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::Project::BundleIdentifier), nullptr);
-		mData.setProperty(ExpansionIds::HiseVersion, HISE_VERSION, nullptr);
+		mData.setProperty(ExpansionIds::Company, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::User::Company), nullptr);
+		mData.setProperty(ExpansionIds::CompanyURL, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::User::CompanyURL), nullptr);
+		mData.setProperty(ExpansionIds::Description, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::ExpansionSettings::Description), nullptr);
+		mData.setProperty(ExpansionIds::Tags, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::ExpansionSettings::Tags), nullptr);
+		mData.setProperty(ExpansionIds::UUID, GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::ExpansionSettings::UUID), nullptr);
+		mData.setProperty(ExpansionIds::HiseVersion, ProjectInfo::versionString, nullptr);
 
 		auto xml = mData.createXml();
 		f.replaceWithText(xml->createDocument(""));
@@ -2465,7 +2542,38 @@ void ExpansionEncodingWindow::run()
 		e->initialise();
 		e->setIsProjectExporter();
 		encodeResult = e->encodeExpansion();
+
+		
+
 		f.deleteFile();
+
+		if (getComboBoxComponent("rhapsody")->getSelectedItemIndex() == 1)
+		{
+			auto hxiFile = Expansion::Helpers::getExpansionInfoFile(h.getWorkDirectory(), Expansion::Intermediate);
+			jassert(hxiFile.existsAsFile());
+
+			ZipFile::Builder b;
+
+			b.addFile(hxiFile, 0);
+
+			String zipName;
+			zipName << mData[ExpansionIds::Name].toString().toLowerCase().replaceCharacter(' ', '_');
+			zipName << "_data";
+			zipName << "_" << mData[ExpansionIds::Version].toString().replaceCharacter('.', '_');
+
+			auto zipFile = hxiFile.getSiblingFile(zipName + ".lwz");
+			zipFile.deleteFile();
+			FileOutputStream fos(zipFile);
+
+			auto ok = b.writeToStream(fos, &getProgressCounter());
+
+			if (ok)
+				hxiFile.deleteFile();
+
+			rhapsodyOutput = zipFile;
+
+			jassert(ok);
+		}
 	}
 	else
 	{
@@ -2507,13 +2615,17 @@ void ExpansionEncodingWindow::run()
 void ExpansionEncodingWindow::threadFinished()
 {
 #if USE_BACKEND
-	if (projectExport)
-	{
-		return;
-	}
-
 	if (encodeResult.wasOk())
-		PresetHandler::showMessageWindow("Expansion encoded", "The expansion was encoded successfully");
+	{
+		if (projectExport && rhapsodyOutput.existsAsFile())
+		{
+            if(!CompileExporter::isExportingFromCommandLine())
+                rhapsodyOutput.revealToUser();
+		}
+
+		if(!projectExport)
+			PresetHandler::showMessageWindow("Expansion encoded", "The expansion was encoded successfully");
+	}
 	else
 		PresetHandler::showMessageWindow("Expansion encoding failed", encodeResult.getErrorMessage(), PresetHandler::IconType::Error);
 #endif
@@ -2643,7 +2755,7 @@ juce::File ScriptUnlocker::getLicenseKeyFile()
 	auto c = GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::User::Company).toString();
 	auto p = GET_HISE_SETTING(getMainController()->getMainSynthChain(), HiseSettings::Project::Name).toString();
 
-	return ProjectHandler::getAppDataRoot().getChildFile(c).getChildFile(p).getChildFile(p).withFileExtension(FrontendHandler::getLicenseKeyExtension());
+	return ProjectHandler::getAppDataRoot(getMainController()).getChildFile(c).getChildFile(p).getChildFile(p).withFileExtension(FrontendHandler::getLicenseKeyExtension());
 #else
 	return FrontendHandler::getLicenseKey();
 #endif

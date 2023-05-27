@@ -93,6 +93,7 @@ public:
 		MenuProjectLoad,
 		MenuCloseProject,
 		MenuFileArchiveProject,
+		MenuFileImportProjectFromHXI,
 		MenuFileDownloadNewProject,
 		MenuFileCreateRecoveryXml,
 		MenuProjectShowInFinder,
@@ -168,6 +169,7 @@ public:
 		MenuToolsCreateToolbarPropertyDefinition,
 		MenuToolsCreateExternalScriptFile,
 		MenuToolsConvertSVGToPathData,
+		MenuToolsRestoreToDefault,
 		MenuToolsValidateUserPresets,
 		MenuToolsExternalScriptFileOffset,
 		MenuToolsResolveMissingSamples = 0x60000,
@@ -180,6 +182,7 @@ public:
 		MenuToolsRedirectScriptFolder,
 		MenuToolsCreateUIDataFromDesktop,
 		MenuToolsCheckDeviceSanity,
+        MenuToolsCheckPluginParameterSanity,
 		MenuToolsForcePoolSearch,
 		MenuToolsConvertAllSamplesToMonolith,
 		MenuToolsConvertSampleMapToWavetableBanks,
@@ -311,6 +314,7 @@ public:
 	{
 	public:
 
+		
 		static void editShortcuts(BackendRootWindow* bpe);
 		static bool hasProcessorInClipboard();
 		static bool hasSnippetInClipboard();
@@ -333,6 +337,7 @@ public:
 		static void toggleCompileScriptsOnPresetLoad(BackendRootWindow * bpe);
 		static void createNewProject(BackendRootWindow *bpe);
 		static void loadProject(BackendRootWindow *bpe);
+		static void importProject(BackendRootWindow* bpe);
 
         static void createRnboTemplate(BackendRootWindow* bpe);
 		static void convertSVGToPathData(BackendRootWindow* bpe);
@@ -340,6 +345,8 @@ public:
 		static void applySampleMapProperties(BackendRootWindow* bpe);
 
 		static void loadFirstXmlAfterProjectSwitch(BackendRootWindow * bpe);
+
+		
 
 		static void closeProject(BackendRootWindow *bpe);
 		static void showProjectInFinder(BackendRootWindow *bpe);
@@ -365,6 +372,10 @@ public:
 		static void moveModule(CopyPasteTarget *currentCopyPasteTarget, bool moveUp);
 		static void createExternalScriptFile(BackendRootWindow * bpe);
 		static void exportMainSynthChainAsPlayerLibrary(BackendRootWindow * bpe);
+		static Result exportInstrumentExpansion(BackendProcessor* bp);
+		static Result createSampleArchive(BackendProcessor* bp);
+
+
 		static void compileNetworksToDll(BackendRootWindow* bpe);
 		static void cleanBuildDirectory(BackendRootWindow * bpe);
 		static void convertAllSamplesToMonolith(BackendRootWindow * bpe);
@@ -378,7 +389,7 @@ public:
 		static void updateSampleMapIds(BackendRootWindow * bpe);
 		static void toggleCallStackEnabled(BackendRootWindow * bpe);
 		static void testPlugin(const String& pluginToLoad);
-
+        static void checkPluginParameterSanity(BackendRootWindow* bpe);
 		static void newFile(BackendRootWindow* bpe);
 
 		static void removeAllSampleMaps(BackendRootWindow * bpe);
@@ -399,6 +410,7 @@ public:
 		static void showNetworkDllInfo(BackendRootWindow * bpe);
 
 		static void createThirdPartyNode(BackendRootWindow* bpe);
+		static void restoreToDefault(BackendRootWindow * bpe);
 	};
 
 private:

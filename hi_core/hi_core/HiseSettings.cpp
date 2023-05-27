@@ -49,6 +49,7 @@ Array<juce::Identifier> HiseSettings::SettingFiles::getAllIds()
 	ids.add(UserSettings);
 	ids.add(CompilerSettings);
 	ids.add(GeneralSettings);
+	ids.add(ExpansionSettings);
 	ids.add(ScriptingSettings);
 	ids.add(DocSettings);
 	ids.add(SnexWorkbenchSettings);
@@ -100,6 +101,9 @@ Array<juce::Identifier> HiseSettings::Project::getAllIds()
 	ids.add(AdminPermissions);
 	ids.add(EmbedUserPresets);
 	ids.add(EnableGlobalPreprocessor);
+    ids.add(UseGlobalAppDataFolderWindows);
+    ids.add(UseGlobalAppDataFolderMacOS);
+	ids.add(DefaultUserPreset);
 
 	return ids;
 }
@@ -117,6 +121,7 @@ Array<juce::Identifier> HiseSettings::Compiler::getAllIds()
 	ids.add(CustomNodePath);
 	ids.add(FaustPath);
     ids.add(FaustExternalEditor);
+    ids.add(EnableLoris);
 
 	return ids;
 }
@@ -134,6 +139,17 @@ Array<juce::Identifier> HiseSettings::User::getAllIds()
 	return ids;
 }
 
+Array<juce::Identifier> HiseSettings::ExpansionSettings::getAllIds()
+{
+	Array<Identifier> ids;
+
+	ids.add(UUID);
+	ids.add(Tags);
+	ids.add(Description);
+
+	return ids;
+}
+
 Array<juce::Identifier> HiseSettings::Scripting::getAllIds()
 {
 	Array<Identifier> ids;
@@ -145,6 +161,7 @@ Array<juce::Identifier> HiseSettings::Scripting::getAllIds()
 	ids.add(CodeFontSize);
 	ids.add(EnableDebugMode);
 	ids.add(SaveConnectedFilesOnCompile);
+	ids.add(EnableMousePositioning);
 
 	return ids;
 }
@@ -175,7 +192,6 @@ juce::Array<juce::Identifier> HiseSettings::Documentation::getAllIds()
 
 	return ids;
 }
-
 
 Array<juce::Identifier> HiseSettings::Midi::getAllIds()
 {
@@ -425,6 +441,21 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 				D(" This is neccessary for tasks that access restricted locations such as the user's VST3 directory.");
 				P_();
 		    
+        P(HiseSettings::Project::UseGlobalAppDataFolderWindows);
+        D("If enabled, this will use the global app data folder (C:/ProgramData/Common Files) for the app data");
+        D("> This setting will write the `HISE_USE_SYSTEM_APP_DATA_FOLDER` flag when exporting the plugin");
+        P_();
+        
+        P(HiseSettings::Project::UseGlobalAppDataFolderMacOS);
+        D("If enabled, this will use the global app data folder on macOS (/Library/Application Support)");
+        D("> This setting will write the `HISE_USE_SYSTEM_APP_DATA_FOLDER` flag when exporting the plugin");
+        P_();
+        
+		P(HiseSettings::Project::DefaultUserPreset);
+		D("The relative path to the user preset that is supposed to be the initialisation state. If non-empty, this will be used ");
+		D("in order to initialise the plugin as well as set the default states and select it in the preset browser");
+		P_();
+
 		P(HiseSettings::User::Company);
 		D("Your company name. This will be used for the path to the app data directory so make sure you don't use weird characters here");
 		P_();
@@ -469,10 +500,17 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
         D("editing the faust source files. If disabled, it will use a FaustCodeEditor floating tile");
         P_();
         
+        P(HiseSettings::Compiler::EnableLoris);
+        D("If you want to use the Loris toolkit in HISE, you need to enable this setting and download and copy the Loris DLL to the expected location");
+        D("> The repository can be found here: `https://github.com/christophhart/loris-tools/`");
+        P_();
+        
         P(HiseSettings::Compiler::LegacyCPUSupport);
 		D("If enabled, then all SSE instructions are replaced by their native implementation. This can be used to compile a version that runs on legacy CPU models."); 
 		P_();
 
+        
+        
 		P(HiseSettings::Compiler::RebuildPoolFiles);
 		D("If enabled, the pool files for SampleMaps, AudioFiles and Images are deleted and rebuild everytime you export a plugin.");
 		D("You can turn this off in order to speed up compilation times, however be aware that in this case you need to delete them manually");
@@ -487,6 +525,12 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 		P(HiseSettings::Scripting::EnableOptimizations);
 		D("Enables some compiler optimizations like constant folding or dead code removal for the HiseScript compiler");
 		D("> This setting is baked into a plugin when you compile it");
+		P_();
+
+		P(HiseSettings::Scripting::EnableMousePositioning);
+		D("Sets the default value of whether the interface designer should allow dragging UI components with the mouse");
+		D("> This was always enabled, but on larger projects it's easy to accidentally drag UI elements when you really just wanted to select them so this gives you the option to remove the dragging.");
+		D("Note that you can always choose to enable / disable dragging in the interface designer menu bar, and this only sets the default value. It's still enabled by default so the HISE forum doesn't get swamped with bug reports that the interface designer stopped working...");
 		P_();
 
 		P(HiseSettings::Compiler::Support32BitMacOS);
@@ -519,6 +563,18 @@ Array<juce::Identifier> HiseSettings::SnexWorkbench::getAllIds()
 
 		P(HiseSettings::Scripting::SaveConnectedFilesOnCompile);
 		D("If this is enabled, it will save a connected script file everytime the script is compiled. By default this is disabled, but if you want to apply changes to a connected script file, you will have to enable this setting");
+		P_();
+
+		P(HiseSettings::ExpansionSettings::UUID);
+		D("A unique Identifier that will be used when this project is exported as full instrument expansion");
+		P_();
+
+		P(HiseSettings::ExpansionSettings::Tags);
+		D("A comma-separated list of strings that will be used as tags for full instrument expansions");
+		P_();
+
+		P(HiseSettings::ExpansionSettings::Description);
+		D("A markdown formatted text that will be written into the metadata of the full instrument expansion");
 		P_();
 
 		P(HiseSettings::Scripting::GlobalScriptPath);
@@ -641,7 +697,7 @@ HiseSettings::Data::Data(MainController* mc_) :
 juce::File HiseSettings::Data::getFileForSetting(const Identifier& id) const
 {
 	
-	auto appDataFolder = NativeFileHandler::getAppDataDirectory();
+	auto appDataFolder = NativeFileHandler::getAppDataDirectory(nullptr);
 
 	if (id == SettingFiles::AudioSettings)		return appDataFolder.getChildFile("DeviceSettings.xml");
 	else if (id == SettingFiles::MidiSettings)		return appDataFolder.getChildFile("DeviceSettings.xml");
@@ -657,6 +713,7 @@ juce::File HiseSettings::Data::getFileForSetting(const Identifier& id) const
 	{
 		if (id == SettingFiles::ProjectSettings)	return handler_->getWorkDirectory().getChildFile("project_info.xml");
 		else if (id == SettingFiles::UserSettings)	return handler_->getWorkDirectory().getChildFile("user_info.xml");
+		else if (id == SettingFiles::ExpansionSettings) return handler_->getWorkDirectory().getChildFile("expansion_info.xml");
 	}
 
 	if (id == SettingFiles::CompilerSettings)	return appDataFolder.getChildFile("compilerSettings.xml");
@@ -763,8 +820,13 @@ var HiseSettings::Data::getExtraDefinitionsAsObject() const
 
     DynamicObject::Ptr obj = new DynamicObject();
 
-    for (const auto& i : items)
+    for (auto i : items)
     {
+        i = i.trim();
+        
+        if(i.isEmpty())
+            continue;
+        
         obj->setProperty(i.upToFirstOccurrenceOf("=", false, false).trim(), i.fromFirstOccurrenceOf("=", false, false).trim());
     }
     
@@ -804,6 +866,7 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
 		id == Project::EmbedUserPresets ||
 		id == Compiler::UseIPP ||
         id == Compiler::LegacyCPUSupport ||
+        id == Compiler::EnableLoris ||
 		id == Scripting::EnableCallstack ||
 		id == Other::EnableAutosave ||
 		id == Scripting::EnableDebugMode ||
@@ -828,10 +891,13 @@ juce::StringArray HiseSettings::Data::getOptionsFor(const Identifier& id)
         id == Project::ForceStereoOutput ||
 		id == Project::AdminPermissions ||
 		id == Project::EnableGlobalPreprocessor ||
+        id == Project::UseGlobalAppDataFolderWindows ||
+        id == Project::UseGlobalAppDataFolderMacOS ||
 		id == Documentation::RefreshOnStartup ||
 		id == SnexWorkbench::PlayOnRecompile ||
 		id == SnexWorkbench::AddFade ||
-		id == Scripting::SaveConnectedFilesOnCompile)
+		id == Scripting::SaveConnectedFilesOnCompile ||
+		id == Scripting::EnableMousePositioning)
 	    return { "Yes", "No" };
 
 	if (id == Compiler::VisualStudioVersion)
@@ -946,6 +1012,7 @@ void HiseSettings::Data::addMissingSettings(ValueTree& v, const Identifier &id)
 	else if (id == SettingFiles::CompilerSettings)	ids = Compiler::getAllIds();
 	else if (id == SettingFiles::ScriptingSettings) ids = Scripting::getAllIds();
 	else if (id == SettingFiles::OtherSettings)		ids = Other::getAllIds();
+	else if (id == SettingFiles::ExpansionSettings) ids = ExpansionSettings::getAllIds();
 	else if (id == SettingFiles::DocSettings)		ids = Documentation::getAllIds();
 	else if (id == SettingFiles::SnexWorkbenchSettings) ids = SnexWorkbench::getAllIds();
 
@@ -1015,8 +1082,10 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	else if (id == Project::VST3Support)			return "No";
 	else if (id == Project::UseRawFrontend)			return "No";
 	else if (id == Project::ExpansionType)			return "Disabled";
-	else if (id == Project::LinkExpansionsToProject)   return "No";
-	else if (id == Project::EnableGlobalPreprocessor) return "No";
+	else if (id == Project::LinkExpansionsToProject)       return "No";
+	else if (id == Project::EnableGlobalPreprocessor)      return "No";
+    else if (id == Project::UseGlobalAppDataFolderWindows) return "No";
+    else if (id == Project::UseGlobalAppDataFolderMacOS)   return "No";
 	else if (id == Other::UseOpenGL)				return "No";
 	else if (id == Other::GlassEffect)				return "No";
 	else if (id == Other::EnableAutosave)			return "Yes";
@@ -1029,6 +1098,7 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	else if (id == Scripting::CodeFontSize)			return 17.0;
 	else if (id == Scripting::EnableCallstack)		return "No";
 	else if (id == Scripting::EnableOptimizations)	return "No";
+	else if (id == Scripting::EnableMousePositioning) return "Yes";
 	else if (id == Scripting::CompileTimeout)		return 5.0;
 	else if (id == Scripting::SaveConnectedFilesOnCompile) return "No";
 #if HISE_USE_VS2022
@@ -1041,6 +1111,7 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	else if (id == Compiler::RebuildPoolFiles)		return "Yes";
 	else if (id == Compiler::Support32BitMacOS)		return "Yes";
     else if (id == Compiler::FaustExternalEditor)   return "No";
+    else if (id == Compiler::EnableLoris)           return "No";
 	else if (id == SnexWorkbench::AddFade)			return "Yes";
 	else if (id == SnexWorkbench::PlayOnRecompile)  return "Yes";
 	else if (id == User::CompanyURL)				return "http://yourcompany.com";
@@ -1052,7 +1123,7 @@ var HiseSettings::Data::getDefaultSetting(const Identifier& id) const
 	{
 		FRONTEND_ONLY(jassertfalse);
 
-		File scriptFolder = File(NativeFileHandler::getAppDataDirectory()).getChildFile("scripts");
+		File scriptFolder = File(NativeFileHandler::getAppDataDirectory(nullptr)).getChildFile("scripts");
 		if (!scriptFolder.isDirectory())
 			scriptFolder.createDirectory();
 
@@ -1270,7 +1341,7 @@ void HiseSettings::Data::settingWasChanged(const Identifier& id, const var& newV
 		auto company = getSetting(User::Company).toString();
 		auto project = getSetting(Project::Name).toString();
 
-		auto expFolder = ProjectHandler::getAppDataRoot().getChildFile(company).getChildFile(project).getChildFile("Expansions");
+		auto expFolder = ProjectHandler::getAppDataRoot(mc).getChildFile(company).getChildFile(project).getChildFile("Expansions");
 
 		auto expRoot = mc->getExpansionHandler().getExpansionFolder();
 

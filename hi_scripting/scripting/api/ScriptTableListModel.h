@@ -118,13 +118,21 @@ struct ScriptTableListModel : public juce::TableListBoxModel,
 
 	var getCellValue(int rowIndex, int columnIndex) const
 	{
-		jassert(isPositiveAndBelow(columnIndex, columnMetadata.size()));
-		auto id = columnMetadata[columnIndex][scriptnode::PropertyIds::ID].toString();
-        
-        if(isPositiveAndBelow(rowIndex, rowData.size()))
-            return rowData[rowIndex][Identifier(id)];
-        
-        return {};
+		if(isPositiveAndBelow(columnIndex, columnMetadata.size()))
+        {
+            auto id = columnMetadata[columnIndex][scriptnode::PropertyIds::ID].toString();
+            
+            if(isPositiveAndBelow(rowIndex, rowData.size()))
+                return rowData[rowIndex][Identifier(id)];
+            
+            return {};
+        }
+        else
+        {
+            jassertfalse;
+            return {};
+        }
+		
 	}
 
 	Component* refreshComponentForCell(int rowNumber, int columnId, bool isRowSelected,
@@ -183,6 +191,8 @@ struct ScriptTableListModel : public juce::TableListBoxModel,
 
 	void setTableSortFunction(var newSortFunction);
 
+    var getRowData() const { return rowData.clone(); }
+    
 private:
 
 	static int defaultSorter(const var& v1, const var& v2)
@@ -255,6 +265,8 @@ private:
 	Point<int> hoverPos;
 	Point<int> lastClickedCell;
 
+    bool processSpaceKey = false;
+    
 	var tableMetadata;
 	var columnMetadata;
 	var rowData;

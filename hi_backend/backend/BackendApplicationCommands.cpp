@@ -143,11 +143,13 @@ void BackendCommandTarget::getAllCommands(Array<CommandID>& commands)
 		MenuToolsRecompileScriptsOnReload,
 		MenuToolsEnableCallStack,
 		MenuToolsCheckCyclicReferences,
+        MenuToolsCheckPluginParameterSanity,
 		MenuToolsConvertSVGToPathData,
 		MenuToolsCreateToolbarPropertyDefinition,
 		MenuToolsCreateExternalScriptFile,
 		MenuToolsCreateUIDataFromDesktop,
 		MenuToolsCheckDeviceSanity,
+		MenuToolsRestoreToDefault,
 		MenuToolsValidateUserPresets,
 		MenuToolsResolveMissingSamples,
 		MenuToolsDeleteMissingSamples,
@@ -275,7 +277,7 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 		result.categoryName = "File";
 		break;
 	case MenuProjectNew:
-		setCommandTarget(result, "Create new Project folder", true, false, 'X', false);
+		setCommandTarget(result, "Create new Project", true, false, 'X', false);
 		result.categoryName = "File";
 		break;
 	case MenuProjectLoad:
@@ -324,7 +326,7 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 		result.categoryName = "Export";
 		break;
 	case MenuExportFileAsPlayerLibrary:
-		setCommandTarget(result, "Export as HISE Player Library", true, false, 'X', false);
+		setCommandTarget(result, "Export as Full Instrument Expansion", true, false, 'X', false);
 		result.categoryName = "Export";
 		break;
 	case MenuExportFileAsMidiFXPlugin:
@@ -344,7 +346,7 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 		result.categoryName = "File";
 		break;
 	case MenuExportSampleDataForInstaller:
-		setCommandTarget(result, "Export Samples for Installer", true, false, 'X', false);
+		setCommandTarget(result, "Export Samples as archive", true, false, 'X', false);
 		result.categoryName = "Export";
 		break;
 	case MenuExportCompileFilesInPool:
@@ -515,6 +517,11 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 		setCommandTarget(result, "Check all sample maps", GET_PROJECT_HANDLER(bpe->getMainSynthChain()).isActive(), false, 'X', false);
 		result.categoryName = "Tools";
 		break;
+     case MenuToolsCheckPluginParameterSanity:
+         setCommandTarget(result, "Check plugin parameters", GET_PROJECT_HANDLER(bpe->getMainSynthChain()).isActive(), false, 'X', false);
+         result.categoryName = "Tools";
+         break;
+                         
 	case MenuToolsImportArchivedSamples:
 		setCommandTarget(result, "Import archived samples", true, false, 'X', false);
 		result.categoryName = "Tools";
@@ -582,6 +589,10 @@ void BackendCommandTarget::getCommandInfo(CommandID commandID, ApplicationComman
 		break;
 	case MenuToolsConvertSVGToPathData:
 		setCommandTarget(result, "Convert SVG to Path data", true, false, 'X', false);
+		result.categoryName = "Tools";
+		break;
+	case MenuToolsRestoreToDefault:
+		setCommandTarget(result, "Restore interface to default values", true, false, 'X', false);
 		result.categoryName = "Tools";
 		break;
 	case MenuToolsCreateDummyLicenseFile:
@@ -749,6 +760,7 @@ bool BackendCommandTarget::perform(const InvocationInfo &info)
 	case MenuToolsCreateExternalScriptFile:	Actions::createExternalScriptFile(bpe); updateCommands(); return true;
     case MenuToolsSanityCheck:			Actions::validatePluginParameters(bpe); return true;
 	case MenuToolsValidateUserPresets:	Actions::validateUserPresets(bpe); return true;
+	case MenuToolsRestoreToDefault:		Actions::restoreToDefault(bpe); return true;
 	case MenuToolsResolveMissingSamples:Actions::resolveMissingSamples(bpe); return true;
 	case MenuToolsGetMissingSampleList:	Actions::copyMissingSampleListToClipboard(bpe); return true;
 	case MenuToolsCreateUIDataFromDesktop: Actions::createUIDataFromDesktop(bpe); updateCommands(); return true;
@@ -767,6 +779,7 @@ bool BackendCommandTarget::perform(const InvocationInfo &info)
 	case MenuToolsCreateRSAKeys:		Actions::createRSAKeys(bpe); return true;
 	case MenuToolsCreateDummyLicenseFile: Actions::createDummyLicenseFile(bpe); return true;
 	case MenuToolsCheckAllSampleMaps:	Actions::checkAllSamplemaps(bpe); return true;
+    case MenuToolsCheckPluginParameterSanity:    Actions::checkPluginParameterSanity(bpe); return true;
     case MenuToolsCreateRnboTemplate:   Actions::createRnboTemplate(bpe); return true;
 	case MenuToolsImportArchivedSamples: Actions::importArchivedSamples(bpe); return true;
 	case MenuToolsRecordOneSecond:		bpe->owner->getDebugLogger().startRecording(); return true;
@@ -980,10 +993,14 @@ PopupMenu BackendCommandTarget::getMenuForIndex(int topLevelMenuIndex, const Str
 		ADD_DESKTOP_ONLY(MenuExportFileAsMidiFXPlugin);
 		ADD_DESKTOP_ONLY(MenuExportFileAsStandaloneApp);
 		
-		p.addSectionHeader("Export Tools");
+		p.addSeparator();
+
 		ADD_DESKTOP_ONLY(MenuExportFileAsSnippet);
 		ADD_DESKTOP_ONLY(MenuExportFileAsPlayerLibrary);
 		ADD_DESKTOP_ONLY(MenuExportSampleDataForInstaller);
+
+		p.addSectionHeader("Export Tools");
+		
 		ADD_DESKTOP_ONLY(MenuFileSettingsCleanBuildDirectory);
 		ADD_DESKTOP_ONLY(MenuExportCompileFilesInPool);
 		ADD_DESKTOP_ONLY(MenuExportCompileNetworksAsDll);
@@ -995,11 +1012,13 @@ PopupMenu BackendCommandTarget::getMenuForIndex(int topLevelMenuIndex, const Str
 		
 		ADD_ALL_PLATFORMS(MenuToolsRecompile);
 		ADD_ALL_PLATFORMS(MenuToolsSanityCheck);
+        ADD_ALL_PLATFORMS(MenuToolsCheckPluginParameterSanity);
 		ADD_ALL_PLATFORMS(MenuToolsClearConsole);
 		ADD_DESKTOP_ONLY(MenuToolsCheckCyclicReferences);
 		
 		ADD_DESKTOP_ONLY(MenuToolsCreateExternalScriptFile);
 		ADD_DESKTOP_ONLY(MenuToolsValidateUserPresets);
+		ADD_DESKTOP_ONLY(MenuToolsRestoreToDefault);
 		ADD_DESKTOP_ONLY(MenuToolsConvertSVGToPathData);
 		
 
@@ -1656,7 +1675,7 @@ void BackendCommandTarget::Actions::redirectScriptFolder(BackendRootWindow * /*b
 	{
 		File f = fc.getResult();
 
-		ProjectHandler::createLinkFileInFolder(ProjectHandler::getAppDataDirectory().getChildFile("scripts"), f);
+		ProjectHandler::createLinkFileInFolder(ProjectHandler::getAppDataDirectory(nullptr).getChildFile("scripts"), f);
 	}
 }
 
@@ -1870,6 +1889,8 @@ void BackendCommandTarget::Actions::saveFileXml(BackendRootWindow * bpe)
 {
 	if (PresetHandler::showYesNoWindow("Save XML", "This will save the current XML file"))
 	{
+		bpe->owner->getUserPresetHandler().initDefaultPresetManager({});
+
 		const String mainSynthChainId = bpe->owner->getMainSynthChain()->getId();
 		const bool hasDefaultName = mainSynthChainId == "Master Chain";
 
@@ -2084,6 +2105,9 @@ void BackendCommandTarget::Actions::openFileFromXml(BackendRootWindow * bpe, con
 
 void BackendCommandTarget::Actions::createNewProject(BackendRootWindow *bpe)
 {
+	importProject(bpe);
+
+#if 0
     const bool shouldDiscard = !bpe->getBackendProcessor()->isChanged() || PresetHandler::showYesNoWindow("Discard the current preset?", "The current preset will be discarded", PresetHandler::IconType::Question);
     
     if (!shouldDiscard) return;
@@ -2099,6 +2123,7 @@ void BackendCommandTarget::Actions::createNewProject(BackendRootWindow *bpe)
 		bpe->getBackendProcessor()->clearPreset();
 		bpe->getBackendProcessor()->getSettingsObject().refreshProjectData();
 	}
+#endif
 }
 
 void BackendCommandTarget::Actions::loadProject(BackendRootWindow *bpe)
@@ -2150,6 +2175,12 @@ void BackendCommandTarget::Actions::loadProject(BackendRootWindow *bpe)
 		
 	}
 #endif
+}
+
+void BackendCommandTarget::Actions::importProject(BackendRootWindow* bpe)
+{
+	auto importWindow = new ProjectImporter(bpe);
+	importWindow->setModalBaseWindowComponent(bpe);
 }
 
 void BackendCommandTarget::Actions::convertSVGToPathData(BackendRootWindow* bpe)
@@ -2266,7 +2297,162 @@ void BackendCommandTarget::Actions::createRSAKeys(BackendRootWindow * bpe)
 	GET_PROJECT_HANDLER(bpe->getMainSynthChain()).createRSAKey();
 }
 
+Result checkPluginParameterComponent(ScriptingApi::Content* c, ScriptComponent* sc)
+{
+	auto name = sc->getScriptObjectProperty(ScriptComponent::pluginParameterName).toString();
 
+	if (!sc->getScriptObjectProperty(ScriptComponent::isPluginParameter))
+	{
+		if (name.isEmpty())
+			return Result::ok();
+		else
+			return Result::fail(sc->getName() + " has an non-empty plugin parameter ID but is not set as plugin parameter");
+	}
+		
+    if(name.isEmpty())
+        return Result::fail(sc->getName() + " has an empty plugin parameter ID");
+    
+    for(int i = 0; i < c->getNumComponents(); i++)
+    {
+        auto other = c->getComponent(i);
+        
+        if(sc == other)
+            continue;
+        
+        if(other->getScriptObjectProperty(ScriptComponent::isPluginParameter))
+        {
+            auto otherName = other->getScriptObjectProperty(ScriptComponent::pluginParameterName).toString();
+            auto thisName = sc->getScriptObjectProperty(ScriptComponent::pluginParameterName).toString();
+            
+            if(otherName == thisName)
+            {
+                String e;
+                e << sc->getName() << " has the same plugin parameter name as " << other->getName();
+                return Result::fail(e);
+            }
+        }
+    }
+            
+    if(!sc->getScriptObjectProperty(ScriptComponent::isMetaParameter))
+    {
+        auto state = c->exportAsValueTree();
+        
+        std::map<ScriptComponent*, double> values;
+        
+        for(int i = 0; i < c->getNumComponents(); i++)
+        {
+            auto other = c->getComponent(i);
+            
+            if(other == sc)
+                continue;
+            
+            if(other->getScriptObjectProperty(ScriptComponent::isPluginParameter))
+                values.emplace(other, (double)other->getValue());
+        }
+        
+        auto v = sc->getPropertyValueTree();
+        
+        NormalisableRange<double> nr;
+        
+        nr.start = (double)v["min"];
+        nr.end = (double)v["max"];
+        
+        if(v.hasProperty("stepSize"))
+        {
+            nr.interval = (double)v["stepSize"];
+        }
+        
+        if(v.hasProperty("middlePosition"))
+        {
+            auto midPoint = (double)v["middlePosition"];
+            
+            if(nr.getRange().contains(midPoint))
+                nr.setSkewForCentre(midPoint);
+        }
+        
+        auto newValue = (double)Random::getSystemRandom().nextFloat();
+        
+        MainController::ScopedBadBabysitter bb(c->getScriptProcessor()->getMainController_());
+        
+        sc->setValue(newValue);
+        
+        c->getScriptProcessor()->controlCallback(sc, newValue);
+        
+        for(const auto& pp: values)
+        {
+            auto prevValue = pp.second;
+            auto currentValue = (double)pp.first->getValue();
+            
+            if(prevValue != currentValue)
+            {
+                String e;
+                e << "`" << sc->getName() << "` changed another plugin parameter `" << pp.first->getName() << "` without having the `isMetaParameter` flag set";
+                
+                c->restoreFromValueTree(state);
+                return Result::fail(e);
+            }
+        }
+        
+        c->restoreFromValueTree(state);
+    }
+            
+    return Result::ok();
+}
+                         
+void BackendCommandTarget::Actions::checkPluginParameterSanity(BackendRootWindow* bpe)
+{
+	auto chain = bpe->getMainController()->getMainSynthChain();
+
+    auto list = ProcessorHelpers::getListOfAllProcessors<JavascriptMidiProcessor>(chain);
+    
+    String report;
+    String nl = "\n";
+
+	int numPluginParameters = 0;
+            
+    for(auto jp: list)
+    {
+        if(!jp->isFront())
+            continue;
+        
+        auto content = jp->getContent();
+        
+        report << "Plugin parameters from " << jp->getId() << nl;
+        
+        for(int i = 0; i < content->getNumComponents(); i++)
+        {
+            auto sc = content->getComponent(i);
+            
+            auto r = checkPluginParameterComponent(content, sc);
+            
+            if(!r.wasOk())
+            {
+                PresetHandler::showMessageWindow("Plugin Parameter validation failed", r.getErrorMessage(), PresetHandler::IconType::Error);
+                return;
+            }
+            
+			if (!sc->getScriptObjectProperty(ScriptComponent::isPluginParameter))
+				continue;
+
+			report << "ID: " << sc->getName();
+			report << " (" << sc->getObjectName() << ") ";
+			report << "Parameter ID: " << sc->getScriptObjectProperty(ScriptComponent::pluginParameterName).toString();
+
+			if (sc->getScriptObjectProperty(ScriptComponent::isMetaParameter))
+				report << " (meta parameter)";
+				
+			report << nl;
+
+			numPluginParameters++;
+        }
+    }
+
+	report << String(numPluginParameters) << " plugin parameters found";
+
+	debugToConsole(chain, report);
+	PresetHandler::showMessageWindow("Plugin Parameters OK", "No issues were found. Check the console for a report", PresetHandler::IconType::Info);
+}
+                         
 void BackendCommandTarget::Actions::createDummyLicenseFile(BackendRootWindow * bpe)
 {
 	ProjectHandler *handler = &GET_PROJECT_HANDLER(bpe->getMainSynthChain());
@@ -2437,48 +2623,52 @@ void BackendCommandTarget::Actions::exportSampleDataForInstaller(BackendRootWind
                          
 void BackendCommandTarget::Actions::exportMainSynthChainAsPlayerLibrary(BackendRootWindow * bpe)
 {
-	auto& h = GET_PROJECT_HANDLER(bpe->getMainSynthChain());
+	auto e = new ExpansionEncodingWindow(bpe->owner, nullptr, true);
 
-	if (bpe->getMainController()->getExpansionHandler().getEncryptionKey().isEmpty())
+	if (e->encodeResult.failed())
 	{
-		auto k = dynamic_cast<GlobalSettingManager*>(bpe->owner)->getSettingsObject().getSetting(HiseSettings::Project::EncryptionKey).toString();
+		PresetHandler::showMessageWindow("Encoding Error", e->encodeResult.getErrorMessage(), PresetHandler::IconType::Error);
+		return;
+	}
 
-		if (k.isNotEmpty())
-			bpe->getMainController()->getExpansionHandler().setEncryptionKey(k);
-		else
+
+	e->setModalBaseWindowComponent(bpe);
+}
+
+juce::Result BackendCommandTarget::Actions::exportInstrumentExpansion(BackendProcessor* bp)
+{
+	ScopedPointer<ExpansionEncodingWindow> ne = new ExpansionEncodingWindow(bp, nullptr, true);
+
+	ne->runSynchronous(false);
+
+	return ne->encodeResult;
+}
+
+juce::Result BackendCommandTarget::Actions::createSampleArchive(BackendProcessor* bp)
+{
+	auto infoFile = GET_PROJECT_HANDLER(bp->getMainSynthChain()).getWorkDirectory().getChildFile("info.hxi");
+
+	auto exporter = new SampleDataExporter(bp);
+
+	if (auto fc = dynamic_cast<FilenameComponent*>(exporter->getCustomComponent(1)))
+	{
+		
+		fc->setCurrentFile(infoFile.getParentDirectory(), dontSendNotification);
+	}
+
+	if (infoFile.existsAsFile())
+	{
+		exporter->showStatusMessage("Adding info.hxi file to metadata");
+
+		if (auto fc = dynamic_cast<FilenameComponent*>(exporter->getCustomComponent(0)))
 		{
-			PresetHandler::showMessageWindow("No encryption key", "You have to specify an encryption key in order to encode the project as full expansion", PresetHandler::IconType::Error);
-			return;
+			fc->setCurrentFile(infoFile, dontSendNotification);
 		}
 	}
 
-	auto existingIntermediate = Expansion::Helpers::getExpansionInfoFile(h.getWorkDirectory(), Expansion::Intermediate);
+	exporter->runSynchronous();
 
-	if (existingIntermediate.existsAsFile())
-		existingIntermediate.deleteFile();
-
-	auto e = new ExpansionEncodingWindow(bpe->owner, nullptr, true);
-    e->setAdditionalFinishCallback([bpe]()
-    {
-        if(PresetHandler::showYesNoWindow("Create a .hr1 archive", "Do you want to compress the samples and embed the exported expansion into a archive for distribution?"))
-        {
-            Timer::callAfterDelay(500, [bpe]()
-            {
-                auto infoFile = GET_PROJECT_HANDLER(bpe->getMainController()->getMainSynthChain()).getWorkDirectory().getChildFile("info.hxi");
-                
-                jassert(infoFile.existsAsFile());
-                auto exporter = new SampleDataExporter(bpe->getMainController());
-
-                exporter->setModalBaseWindowComponent(bpe->mainEditor);
-                if(auto fc = dynamic_cast<FilenameComponent*>(exporter->getCustomComponent(0)))
-                {
-                    fc->setCurrentFile(infoFile, dontSendNotification);
-                }
-            });
-        }
-    });
-    
-	e->setModalBaseWindowComponent(bpe);
+	return Result::ok();
 }
 
 void BackendCommandTarget::Actions::compileNetworksToDll(BackendRootWindow* bpe)
@@ -2882,6 +3072,9 @@ void BackendCommandTarget::Actions::createThirdPartyNode(BackendRootWindow* bpe)
 			b.addComment("set to true if your node produces a tail", Base::CommentType::Raw);
 			b << "static constexpr bool hasTail() { return false; };";
 
+			b.addComment("set to true if your doesn't generate sound from silence and can be suspended when the input signal is silent", Base::CommentType::Raw);
+			b << "static constexpr bool isSuspendedOnSilence() { return false; };";
+
 			b.addComment("Undefine this method if you want a dynamic channel count", Base::CommentType::Raw);
 			b << "static constexpr int getFixChannelAmount() { return 2; };";
 
@@ -2995,6 +3188,36 @@ void BackendCommandTarget::Actions::createThirdPartyNode(BackendRootWindow* bpe)
 
         BackendDllManager::addNodePropertyToJSONFile(bpe->getMainController(), n, PropertyIds::IsPolyphonic);
 	}
+}
+
+void BackendCommandTarget::Actions::restoreToDefault(BackendRootWindow * bpe)
+{
+	auto mp = JavascriptMidiProcessor::getFirstInterfaceScriptProcessor(bpe->getBackendProcessor());
+
+	if (mp == nullptr)
+		return;
+
+	auto content = mp->getContent();
+
+	String message;
+
+	for (int i = 0; i < content->getNumComponents(); i++)
+	{
+		auto sc = content->getComponent(i);
+
+		if (sc->getScriptObjectProperty(ScriptComponent::saveInPreset))
+		{
+			auto v = sc->getScriptObjectProperty(ScriptComponent::defaultValue);
+			auto cv = sc->getValue().toString();
+			
+			message << sc->getName() << ": ";
+			message << cv << " -> " << v.toString() << "\n";
+
+			sc->resetValueToDefault();
+		}
+	}
+
+	debugToConsole(mp, message);
 }
 
 #undef REPLACE_WILDCARD

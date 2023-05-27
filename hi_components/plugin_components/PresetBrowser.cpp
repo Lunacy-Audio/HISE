@@ -646,8 +646,6 @@ Point<int> PresetBrowser::getMouseHoverInformation() const
 
 	auto mp = getMouseXYRelative();
 
-
-
 	auto setIfHover = [&](PresetBrowserColumn* c)
 	{
 		if (c == nullptr)
@@ -659,6 +657,10 @@ Point<int> PresetBrowser::getMouseHoverInformation() const
 		if(c->getBoundsInParent().contains(mp))
 		{
 			auto lp = c->getLocalPoint(this, mp);
+			auto offset = c->getListAreaOffset();
+
+			lp.setY(lp.getY() -(int)offset[1]);
+
 			p = { c->getColumnIndex(), c->getIndexForPosition(lp) };
 			return true;
 		};
@@ -945,10 +947,12 @@ void PresetBrowser::attachAdditionalMouseProperties(const MouseEvent& e, var& ob
         int rowNumber = lb->getRowNumberOfComponent(e.eventComponent);
         auto column = e.eventComponent->findParentComponentOfClass<PresetBrowserColumn>();
         int columnIndex = column->getColumnIndex();
-        
+				String file = column->getFileForIndex(rowNumber).getFullPathName();
+				
         dyn->setProperty("target", "listItem");
         dyn->setProperty("rowIndex", rowNumber);
         dyn->setProperty("columnIndex", columnIndex);
+				dyn->setProperty("file", file);			
         
         return;
     }
@@ -959,6 +963,12 @@ void PresetBrowser::attachAdditionalMouseProperties(const MouseEvent& e, var& ob
         dyn->setProperty("buttonState", favoriteButton->getToggleState());
         return;
     }
+		
+		if(e.eventComponent == saveButton)
+		{
+				dyn->setProperty("target", "saveButton");
+				return;
+		}
 }
 
 void PresetBrowser::labelTextChanged(Label* l)
@@ -1130,6 +1140,11 @@ void PresetBrowser::setListAreaOffset(Array<var> offset)
 	presetColumn->setListAreaOffset(offset);
 }
 
+Array<var> PresetBrowser::getListAreaOffset()
+{	
+	return presetColumn->getListAreaOffset();
+}
+
 void PresetBrowser::setColumnRowPadding(Array<var> padding)
 {	
 	if (expansionColumn != nullptr)
@@ -1283,7 +1298,11 @@ void PresetBrowser::selectionChanged(int columnIndex, int /*rowIndex*/, const Fi
 		
 		if (file == File())
 		{
-			rootFile = defaultRoot;
+			if (FullInstrumentExpansion::isEnabled(getMainController()))
+				rootFile = File();
+			else
+				rootFile = defaultRoot;
+				
 			currentlySelectedExpansion = nullptr;
 		}
 		else
@@ -1308,7 +1327,9 @@ void PresetBrowser::selectionChanged(int columnIndex, int /*rowIndex*/, const Fi
 		auto pc = new PresetBrowserColumn::ColumnListModel(this, 2, this);
 		pc->setDisplayDirectories(false);
 		presetColumn->setModel(pc, rootFile);
-
+		
+		loadPresetDatabase(file.getChildFile("UserPresets"));
+		presetColumn->setDatabase(getDataBase());
 		rebuildAllPresets();
 	}
 
@@ -1553,7 +1574,7 @@ void PresetBrowser::buttonClicked(Button* b)
 			p.addItem(ExportPresetsToFile, "Export " + destination + " as Collection");
 		}
 
-		auto result = (ID)p.show();
+        auto result = (ID)PopupLookAndFeel::showAtComponent(p, b, true);
 
 		switch (result)
 		{

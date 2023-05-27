@@ -117,7 +117,7 @@ struct ScriptCreatedComponentWrapper::AdditionalMouseCallback: public MouseListe
 
 				auto m = MouseCallbackComponent::parseFromStringArray(thisArray, indexes, &safeThis->component->getLookAndFeel());
 
-				if (auto r = m.show())
+				if (auto r = PopupLookAndFeel::showAtComponent(m, safeThis->component, true))
 				{
 					safeThis->sendMessage(event, MouseCallbackComponent::Action::Clicked, MouseCallbackComponent::EnterState::Nothing, r - 1);
 				}
@@ -589,10 +589,12 @@ void ScriptCreatedComponentWrappers::SliderWrapper::updateSliderStyle(ScriptingA
 		s->setTextBoxStyle(Slider::NoTextBox, false, 0, 0);
 	}
 
+    auto showTextBox = (bool)sc->getScriptObjectProperty(ScriptingApi::Content::ScriptSlider::showTextBox);
+    
+    s->enableShiftTextInput = showTextBox;
+    
 	if (sc->styleId == Slider::LinearBar || sc->styleId == Slider::LinearBarVertical)
 	{
-		auto showTextBox = (bool)sc->getScriptObjectProperty(ScriptingApi::Content::ScriptSlider::showTextBox);
-
 		if (!showTextBox)
 			s->setColour(Slider::textBoxOutlineColourId, Colours::transparentBlack);
 
@@ -615,7 +617,7 @@ void ScriptCreatedComponentWrappers::SliderWrapper::updateComponent()
 	s->setName(GET_SCRIPT_PROPERTY(text));
 	s->enableMacroControlledComponent(GET_SCRIPT_PROPERTY(enabled));
 
-	ScriptingApi::Content::ScriptSlider* sc = dynamic_cast<ScriptingApi::Content::ScriptSlider*>(getScriptComponent());
+    ScriptingApi::Content::ScriptSlider* sc = dynamic_cast<ScriptingApi::Content::ScriptSlider*>(getScriptComponent());
 
 	updateSensitivity(sc, s);
 
@@ -1055,6 +1057,7 @@ void ScriptCreatedComponentWrappers::ComboBoxWrapper::updateComponent(int proper
 		PROPERTY_CASE::ScriptComboBox::FontName:
 		PROPERTY_CASE::ScriptComboBox::FontSize :
 		PROPERTY_CASE::ScriptComboBox::FontStyle : updateFont(getScriptComponent()); break;
+        PROPERTY_CASE::ScriptComboBox::popupAlignment: cb->getProperties().set("popupAlignment", newValue); break;
 		PROPERTY_CASE::ScriptSlider::numProperties :
 	default:
 		break;
@@ -2746,6 +2749,31 @@ void ScriptCreatedComponentWrappers::AudioWaveformWrapper::updateColours(AudioDi
 	tn->repaint();
 }
 
+ScriptCreatedComponentWrappers::WebViewWrapper::WebViewWrapper(ScriptContentComponent *content, ScriptingApi::Content::ScriptWebView *webview, int index) :
+	ScriptCreatedComponentWrapper(content, webview)
+{
+	auto wc = new hise::WebViewWrapper(webview->getData());
+	dynamic_cast<GlobalSettingManager*>(getProcessor()->getMainController())->addScaleFactorListener(this);
+	component = wc;
+
+	if (vp = content->findParentComponentOfClass<ZoomableViewport>())
+		vp->addZoomListener(this);
+}
+
+ScriptCreatedComponentWrappers::WebViewWrapper::~WebViewWrapper()
+{
+	if(vp.getComponent() != nullptr)
+		vp->removeZoomListener(this);
+	
+
+	dynamic_cast<GlobalSettingManager*>(getProcessor()->getMainController())->removeScaleFactorListener(this);
+	component = nullptr;
+}
+
+void ScriptCreatedComponentWrappers::WebViewWrapper::scaleFactorChanged(float newScaleFactor)
+{
+	dynamic_cast<hise::WebViewWrapper*>(component.get())->refreshBounds(newScaleFactor);
+}
 
 ScriptCreatedComponentWrappers::FloatingTileWrapper::FloatingTileWrapper(ScriptContentComponent *content, ScriptingApi::Content::ScriptFloatingTile *floatingTile, int index):
 	ScriptCreatedComponentWrapper(content, index)
@@ -2939,7 +2967,7 @@ float ScriptedControlAudioParameter::getValue() const
 	}
 	else
 	{
-		jassertfalse;
+		//jassertfalse;
 		return 0.0f;
 	}
 }
@@ -2967,12 +2995,20 @@ void ScriptedControlAudioParameter::setValue(float newValue)
 	}
 	else
 	{
-		jassertfalse;
+		//jassertfalse;
 	}
 }
 
 float ScriptedControlAudioParameter::getDefaultValue() const
 {
+	float value = 0.0f;
+
+	if (dynamic_cast<MainController*>(parentProcessor)->getUserPresetHandler().getDefaultValueFromPreset(this->componentIndex, value))
+	{
+		const float v = range.convertTo0to1(value);
+		return  jlimit<float>(0.0f, 1.0f, v);;
+	}
+
 	if (scriptProcessor.get() != nullptr && type == Type::Slider)
 	{
 		const float v = range.convertTo0to1(scriptProcessor->getDefaultValue(componentIndex));

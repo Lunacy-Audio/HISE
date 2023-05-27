@@ -639,7 +639,7 @@ public:
 			bool isConnectedToComponent() const;
 
 			const int index;
-			Identifier id;
+			String id;
 			float lastValue = 0.0f;
 			bool allowMidi = true;
 			bool allowHost = true;
@@ -843,6 +843,30 @@ public:
 		void loadUserPreset(const ValueTree& v, bool useUndoManagerIfEnabled=true);
 		void loadUserPreset(const File& f);
 
+		
+
+		struct DefaultPresetManager: public ControlledObject
+		{
+			DefaultPresetManager(UserPresetHandler& parent);
+
+			void init(const ValueTree& v);
+
+			void resetToDefault();
+
+			var getDefaultValue(const String& componentId) const;
+			var getDefaultValue(int componentIndex) const;
+
+			ValueTree getDefaultPreset() { return defaultPreset; }
+
+		private:
+
+			File defaultFile;
+			WeakReference<Processor> interfaceProcessor;
+			ValueTree defaultPreset;
+		};
+
+
+
 		/** Returns the currently loaded file. Can be used to display the user preset name. */
 		File getCurrentlyLoadedFile() const;;
 
@@ -947,6 +971,21 @@ public:
 		FactoryPaths& getFactoryPaths() { return *factoryPaths; }
 #endif
 
+		void initDefaultPresetManager(const ValueTree& defaultState);
+
+		bool getDefaultValueFromPreset(int componentIndex, float& value)
+		{
+			if (defaultPresetManager->getDefaultPreset().isValid())
+			{
+				value = defaultPresetManager->getDefaultValue(componentIndex);
+				return true;
+			}
+
+			return false;
+		}
+
+		ScopedPointer<DefaultPresetManager> defaultPresetManager;
+
 		private:
 
 		SharedResourcePointer<TagDataBase> tagDataBase;
@@ -955,8 +994,6 @@ public:
 		void saveUserPresetInternal(const String& name=String());
 
 		Array<WeakReference<Listener>, CriticalSection> listeners;
-
-
 
 		File currentlyLoadedFile;
 		ValueTree pendingPreset;
@@ -1550,6 +1587,8 @@ public:
 
 	ApplicationCommandManager *getCommandManager() { return mainCommandManager; };
 
+	LambdaBroadcaster<double, int>& getSpecBroadcaster() { return specBroadcaster; }
+
     const CriticalSection& getLock() const;
     
 	const CriticalSection& getLockNew() const { return processLock; };
@@ -1853,12 +1892,16 @@ public:
 	RLottieManager::Ptr getRLottieManager();
 #endif
 
+#if USE_BACKEND || HISE_ENABLE_LORIS_ON_FRONTEND
+    LorisManager* getLorisManager() { return lorisManager.get(); }
+#endif
+    
 private: // Never call this directly, but wrap it through DelayedRenderer...
 
 	/** This is the main processing loop that is shared among all subclasses. */
 	void processBlockCommon(AudioSampleBuffer &b, MidiBuffer &mb);
 
-	
+    
 
 protected:
 
@@ -1891,6 +1934,10 @@ protected:
 		}
 	};
 
+#if USE_BACKEND || HISE_ENABLE_LORIS_ON_FRONTEND
+    LorisManager::Ptr lorisManager;
+#endif
+    
 	double uptime;
 
 	void setScrollY(int newY) {	scrollY = newY;	};
@@ -1944,6 +1991,8 @@ private:
 #if HISE_INCLUDE_RLOTTIE
 	ScopedPointer<RLottieManager> rLottieManager;
 #endif
+
+	LambdaBroadcaster<double, int> specBroadcaster;
 
 	Array<WeakReference<ControlledObject>> registeredObjects;
 
@@ -2102,7 +2151,7 @@ private:
 
     std::atomic<float> usagePercent;
 
-	bool enablePluginParameterUpdate;
+	bool enablePluginParameterUpdate = true;
 
     double globalPitchFactor;
     
