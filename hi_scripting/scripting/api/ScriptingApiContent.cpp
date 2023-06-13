@@ -233,6 +233,7 @@ ScriptingApi::Content::ScriptComponent::ScriptComponent(ProcessorWithScriptingCo
 	keyboardCallback(base, nullptr, {}, 1),
 	parent(base->getScriptingContent()),
 	controlSender(this, base),
+	asyncValueUpdater(*this),
 	propertyTree(name_.isValid() ? parent->getValueTreeForComponent(name) : ValueTree("Component")),
 	value(0.0),
     subComponentNotifier(*this),
@@ -810,6 +811,14 @@ void ScriptingApi::Content::ScriptComponent::sendValueListenerMessage()
 {
 	if (valueListener != nullptr)
 	{
+		auto currentThread = getScriptProcessor()->getMainController_()->getKillStateHandler().getCurrentThread();
+
+		if (currentThread == MainController::KillStateHandler::AudioThread)
+		{
+			asyncValueUpdater.triggerAsyncUpdate();
+			return;
+		}
+
 		var a[2];
 		a[0] = var(this);
 		a[1] = getValue();
@@ -836,6 +845,12 @@ void ScriptingApi::Content::ScriptComponent::changed()
 			reportScriptError("Aborting script execution after error occured during changed() callback");
 	}
 }
+
+void ScriptingApi::Content::ScriptComponent::AsyncValueUpdater::handleAsyncUpdate()
+{
+	parent.sendValueListenerMessage();
+}
+
 
 
 ScriptingApi::Content::ScriptComponent::AsyncControlCallbackSender::AsyncControlCallbackSender(ScriptComponent* parent_, ProcessorWithScriptingContent* p_) :
@@ -4690,6 +4705,7 @@ struct ScriptingApi::Content::ScriptWebView::Wrapper
 	API_VOID_METHOD_WRAPPER_2(ScriptWebView, callFunction);
 	API_VOID_METHOD_WRAPPER_2(ScriptWebView, evaluate);
 	API_VOID_METHOD_WRAPPER_0(ScriptWebView, reset);
+    API_VOID_METHOD_WRAPPER_1(ScriptWebView, setIndexFile);
 };
 
 ScriptingApi::Content::ScriptWebView::ScriptWebView(ProcessorWithScriptingContent* base, Content* parentContent, Identifier webViewName, int x, int y, int width, int height):
@@ -4704,24 +4720,21 @@ ScriptingApi::Content::ScriptWebView::ScriptWebView(ProcessorWithScriptingConten
 		mc->getConsoleHandler().writeToConsole(error, 1, mc->getMainSynthChain(), juce::Colours::orange);
 	});
 
-	ADD_SCRIPT_PROPERTY(i05, "rootDirectory");		ADD_TO_TYPE_SELECTOR(SelectorTypes::FileSelector);
-	ADD_SCRIPT_PROPERTY(i06, "indexFile");		    ADD_TO_TYPE_SELECTOR(SelectorTypes::TextSelector);
 	ADD_SCRIPT_PROPERTY(i01, "enableCache");		ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	ADD_SCRIPT_PROPERTY(i02, "enablePersistence");	ADD_TO_TYPE_SELECTOR(SelectorTypes::ToggleSelector);
 	
-	setDefaultValue(Properties::rootDirectory, "");
 	setDefaultValue(ScriptComponent::Properties::x, x);
 	setDefaultValue(ScriptComponent::Properties::y, y);
 	setDefaultValue(ScriptComponent::Properties::width, 200);
 	setDefaultValue(ScriptComponent::Properties::height, 100);
 	setDefaultValue(ScriptComponent::Properties::saveInPreset, false);
 	
-	setDefaultValue(Properties::indexFile, "./index.html");
 	setDefaultValue(Properties::enableCache, false);
 	setDefaultValue(Properties::enablePersistence, true);
 	
 	handleDefaultDeactivatedProperties();
 
+    ADD_API_METHOD_1(setIndexFile);
 	ADD_API_METHOD_2(bindCallback);
 	ADD_API_METHOD_2(callFunction);
 	ADD_API_METHOD_2(evaluate);
@@ -4737,10 +4750,6 @@ void ScriptingApi::Content::ScriptWebView::setScriptObjectPropertyWithChangeMess
 {
 	if (id == getIdFor(Properties::enableCache))
 		data->setEnableCache((bool)newValue);
-	else if (id == getIdFor(Properties::rootDirectory))
-		data->setRootDirectory(File(newValue.toString()));
-	else if (id == getIdFor(Properties::indexFile))
-		data->setIndexFile(newValue.toString());
 	else if (id == getIdFor(Properties::enablePersistence))
 		data->setUsePersistentCalls((bool)newValue);
 
@@ -4811,6 +4820,22 @@ void ScriptingApi::Content::ScriptWebView::evaluate(const String& uid, const Str
 	{
 		copy->evaluate(uid, jsCode);
 	});
+}
+
+void ScriptingApi::Content::ScriptWebView::setIndexFile(var file)
+{
+    if(auto sf = dynamic_cast<ScriptingObjects::ScriptFile*>(file.getObject()))
+    {
+        String s = "/" + sf->f.getFileName();
+        
+        
+        data->setRootDirectory(sf->f.getParentDirectory());
+        data->setIndexFile(s);
+    }
+    else
+    {
+        reportScriptError("setIndexFile must be called with a file object");
+    }
 }
 
 void ScriptingApi::Content::ScriptWebView::reset()

@@ -2663,7 +2663,10 @@ struct MasterClock
 
 	GridInfo processAndCheckGrid(int numSamples, const AudioPlayHead::CurrentPositionInfo& externalInfo)
 	{
-		if (bpm != externalInfo.bpm)
+		// check whether we want to process the external bpm
+		auto shouldUseExternalBpm = !linkBpmToSync || !shouldPreferInternal();
+
+		if (bpm != externalInfo.bpm && shouldUseExternalBpm)
 			setBpm(externalInfo.bpm);
 
 		GridInfo gi;
@@ -2853,6 +2856,8 @@ struct MasterClock
 		externalClockWasPlayingLastTime = externalInfo.isPlaying;
 	}
 
+	double getBpmToUse(double hostBpm, double internalBpm) const;
+
 	void prepareToPlay(double newSampleRate, int blockSize)
 	{
 		sampleRate = newSampleRate;
@@ -2864,6 +2869,11 @@ struct MasterClock
 	{
 		bpm = newBPM;
 		updateGridDelta();
+	}
+
+	void setLinkBpmToSyncMode(bool should)
+	{
+		linkBpmToSync = should;
 	}
 
 	TempoSyncer::Tempo getCurrentClockGrid() const { return clockGrid; }
@@ -2977,6 +2987,8 @@ private:
     bool stopInternalOnExternalStop = false;
 	bool externalClockWasPlayingLastTime = false;
     
+	bool linkBpmToSync = false;
+
 	double sampleRate = 44100.0;
 	double bpm = 120.0;
 

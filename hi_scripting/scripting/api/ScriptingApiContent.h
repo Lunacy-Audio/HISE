@@ -880,11 +880,22 @@ public:
             ProcessorWithScriptingContent* p;
         };
         
+		struct AsyncValueUpdater : public AsyncUpdater
+		{
+			AsyncValueUpdater(ScriptComponent& p) :
+				parent(p)
+			{};
+
+			void handleAsyncUpdate() override;
+
+			ScriptComponent& parent;
+		};
         
         
 		struct GlobalCableConnection;
 
 		AsyncControlCallbackSender controlSender;
+		AsyncValueUpdater asyncValueUpdater;
 
 		bool isPositionProperty(Identifier id) const;
 
@@ -2205,9 +2216,7 @@ public:
 	{
 		enum Properties
 		{
-			rootDirectory = ScriptComponent::numProperties,
-			indexFile,
-			enableCache,
+			enableCache = ScriptComponent::numProperties,
 			enablePersistence
 		};
 
@@ -2237,6 +2246,9 @@ public:
 		/** Evaluates the code in the web view. You need to pass in an unique identifier so that it will initialise new web views correctly. */
 		void evaluate(const String& identifier, const String& jsCode);
 
+        /** Sets the file to be displayed by the WebView. */
+        void setIndexFile(var indexFile);
+        
 		/** Resets the entire webview. */
 		void reset();
 

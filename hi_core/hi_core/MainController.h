@@ -1563,8 +1563,6 @@ public:
 		return bpm.load() > 0.0 ? bpm.load() : 120.0;
     };
 
-	void setHostBpm(double newTempo);
-
 	bool isSyncedToHost() const;
 
 	void handleTransportCallbacks(const AudioPlayHead::CurrentPositionInfo& newInfo, const MasterClock::GridInfo& gi);
@@ -2109,7 +2107,7 @@ private:
 	double globalPlaybackSpeed = 1.0;
 
 	double fallbackBpm = -1.0;
-	double* hostBpmPointer = &fallbackBpm;
+	double* internalBpmPointer = &fallbackBpm;
 
 	ScopedPointer<ApplicationCommandManager> mainCommandManager;
 
@@ -2156,7 +2154,6 @@ private:
     double globalPitchFactor;
     
     std::atomic<double> bpm;
-	std::atomic<double> bpmFromHost;
 
 	std::atomic<bool> hostIsPlaying;
 
