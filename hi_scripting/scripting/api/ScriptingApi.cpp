@@ -884,7 +884,7 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_1(Engine, getAuthorFromPreset);
 	API_VOID_METHOD_WRAPPER_2(Engine, setAuthorForPreset);
 	API_METHOD_WRAPPER_1(Engine, getVersionFromPreset);
-	API_VOID_METHOD_WRAPPER_1(Engine, isUserPresetReadOnly);
+	API_METHOD_WRAPPER_1(Engine, isUserPresetReadOnly);
 	API_METHOD_WRAPPER_0(Engine, getUserPresetList);
 	API_METHOD_WRAPPER_0(Engine, getCurrentUserPresetName);
 	API_METHOD_WRAPPER_0(Engine, getCurrentUserPresetFile);
@@ -939,6 +939,8 @@ struct ScriptingApi::Engine::Wrapper
 	API_METHOD_WRAPPER_1(Engine, createBackgroundTask);
     API_METHOD_WRAPPER_1(Engine, createFixObjectFactory);
 	API_METHOD_WRAPPER_0(Engine, createErrorHandler);
+	API_METHOD_WRAPPER_1(Engine, createModulationMatrix);
+	API_METHOD_WRAPPER_0(Engine, getWavetableList);
 	API_VOID_METHOD_WRAPPER_3(Engine, showYesNoWindow);
 	API_VOID_METHOD_WRAPPER_1(Engine, addModuleStateToUserPreset);
 	API_VOID_METHOD_WRAPPER_0(Engine, rebuildCachedPools);
@@ -1017,6 +1019,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_1(getMidiNoteName);
 	ADD_API_METHOD_1(getMidiNoteFromName);
 	ADD_API_METHOD_1(getMacroName);
+	ADD_API_METHOD_0(getWavetableList);
 	ADD_API_METHOD_1(setFrontendMacros);
 	ADD_API_METHOD_2(setKeyColour);
 	ADD_API_METHOD_2(showErrorMessage);
@@ -1111,6 +1114,7 @@ parentMidiProcessor(dynamic_cast<ScriptBaseMidiProcessor*>(p))
 	ADD_API_METHOD_0(getLatencySamples);
 	ADD_API_METHOD_2(getDspNetworkReference);
 	ADD_API_METHOD_0(createExpansionHandler);
+	ADD_API_METHOD_1(createModulationMatrix);
 	ADD_API_METHOD_3(showYesNoWindow);
 	ADD_API_METHOD_3(showMessageBox);
 	ADD_API_METHOD_1(getSystemTime);
@@ -1175,68 +1179,65 @@ void ScriptingApi::Engine::allNotesOff()
 
 void ScriptingApi::Engine::addModuleStateToUserPreset(var moduleId)
 {
-	if (auto jmp = dynamic_cast<JavascriptMidiProcessor*>(getProcessor()))
+	String newId;
+
+	auto& ids = getScriptProcessor()->getMainController_()->getModuleStateManager().modules;
+
+	if (moduleId.isString())
 	{
-		String newId;
-
-		auto& ids = jmp->getListOfModuleIds();
-
-		if (moduleId.isString())
-		{
-			newId = moduleId.toString();
-
-			if (newId.isEmpty())
-			{
-				ids.clear();
-				debugToConsole(getProcessor(), "Removed all stored modules");
-				return;
-			}
-
-		}
-		else
-			newId = moduleId["ID"].toString();
+		newId = moduleId.toString();
 
 		if (newId.isEmpty())
-			reportScriptError("Invalid ID");
-
-		auto p = ProcessorHelpers::getFirstProcessorWithName(getProcessor()->getMainController()->getMainSynthChain(), newId);
-
-		if (p == nullptr)
-			reportScriptError("Can't find processor " + newId);
-
-		auto childList = ProcessorHelpers::getListOfAllProcessors<Processor>(p);
-
-		for (auto c : childList)
 		{
-			if (c == p)
-				continue;
-
-			if (dynamic_cast<Chain*>(c.get()) != nullptr)
-			{
-				reportScriptError("Can't store modules with child modules");
-				return;
-			}
+			ids.clear();
+			debugToConsole(getProcessor(), "Removed all stored modules");
+			return;
 		}
 
-		bool wasRemoved = false;
+	}
+	else
+		newId = moduleId["ID"].toString();
 
-		for (auto ms : ids)
+	if (newId.isEmpty())
+		reportScriptError("Invalid ID");
+
+	auto p = ProcessorHelpers::getFirstProcessorWithName(getProcessor()->getMainController()->getMainSynthChain(), newId);
+
+	if (p == nullptr)
+		reportScriptError("Can't find processor " + newId);
+
+	auto childList = ProcessorHelpers::getListOfAllProcessors<Processor>(p);
+
+	for (auto c : childList)
+	{
+		if (c == p)
+			continue;
+
+		if (dynamic_cast<Chain*>(c.get()) != nullptr)
 		{
-			if (ms->id == newId)
-			{
-				ids.removeObject(ms);
-				wasRemoved = true;
-				
-				break;
-			}
+			reportScriptError("Can't store modules with child modules");
+			return;
 		}
+	}
 
-		ids.add(new MainController::UserPresetHandler::StoredModuleData(moduleId, p));
+	bool wasRemoved = false;
 
-		if (!wasRemoved)
+	for (auto ms : ids)
+	{
+		if (ms->id == newId)
 		{
-			debugToConsole(getProcessor(), "Added " + newId + " to user preset system");
+			ids.removeObject(ms);
+			wasRemoved = true;
+
+			break;
 		}
+	}
+
+	ids.add(new ModuleStateManager::StoredModuleData(moduleId, p));
+
+	if (!wasRemoved)
+	{
+		debugToConsole(getProcessor(), "Added " + newId + " to user preset system");
 	}
 }
 
@@ -2100,34 +2101,8 @@ struct ScriptingApi::Engine::PreviewHandler: public ControlledObject,
 		{
 			AudioSampleBuffer b(channels, numChannels, numSamples);
 
-            auto originalSampleRate = fileSampleRate;
-            auto currentSampleRate = getMainController()->getMainSynthChain()->getSampleRate();
+			getMainController()->setBufferToPlay(b, fileSampleRate);
 
-            if (originalSampleRate != currentSampleRate)
-            {
-                auto ratio = originalSampleRate / currentSampleRate;
-
-                int numResampled = (int)((double)numSamples / ratio) + 1;
-
-                AudioSampleBuffer r(b.getNumChannels(), numResampled);
-
-                LagrangeInterpolator p;
-
-                for (int i = 0; i < b.getNumChannels(); i++)
-                {
-                    p.reset();
-                    p.process(ratio, b.getReadPointer(i), r.getWritePointer(i), numResampled);
-                }
-
-                getMainController()->setBufferToPlay(r);
-            }
-            else
-            {
-                AudioSampleBuffer copy;
-                copy.makeCopyOf(b);
-                getMainController()->setBufferToPlay(copy);
-            }
-            
             start();
 		}
 
@@ -2164,53 +2139,37 @@ struct ScriptingApi::Engine::PreviewHandler: public ControlledObject,
 	{
         jassert(fileSampleRate >= 0.0);
         
-		
+		getMainController()->stopBufferToPlay();
 
-        ScopedPointer<Job> nj = new Job(pwsc, buffer, callback, fileSampleRate);
+		ScopedPointer<Job> nj = new Job(pwsc, buffer, callback, fileSampleRate);
         
         if(nj->isValid())
         {
-            ScopedLock sl(jobLock);
-            
-            getMainController()->stopBufferToPlay();
-            
-            currentJobs.add(nj.release());
+			nj->play();
 
-            if (currentJobs.size() == 1)
-                startNextJob();
+            ScopedLock sl(jobLock);
+			currentJob.swapWith(nj);
         }
-        
-		
 	}
 
 	void handleAsyncUpdate()
 	{
 		ScopedLock sl(jobLock);
 
-		if (auto j = currentJobs.removeAndReturn(0))
+		if (currentJob != nullptr)
 		{
-			j->sendCallback(false, 1.0);
+			currentJob->sendCallback(false, 1.0);
 		}
-
-		startNextJob();
 	}
 
 	void previewStateChanged(bool isPlaying, const AudioSampleBuffer& currentBuffer) override
 	{
-		if (!isPlaying && !currentJobs.isEmpty())
+		if (!isPlaying)
 			triggerAsyncUpdate();
 	}
 
-	void startNextJob()
-	{
-		ScopedLock sl(jobLock);
-
-		if (!currentJobs.isEmpty())
-			currentJobs[0]->play();
-	}
-
 	CriticalSection jobLock;
-	OwnedArray<Job> currentJobs;
+	ScopedPointer<Job> currentJob;
 	ProcessorWithScriptingContent* pwsc;
 };
 
@@ -2518,6 +2477,7 @@ struct ScriptingApi::Settings::Wrapper
 	API_VOID_METHOD_WRAPPER_2(Settings, toggleMidiInput);
 	API_METHOD_WRAPPER_1(Settings, isMidiInputEnabled);
 	API_VOID_METHOD_WRAPPER_2(Settings, toggleMidiChannel);
+	
 	API_METHOD_WRAPPER_1(Settings, isMidiChannelEnabled);
 	API_METHOD_WRAPPER_0(Settings, getUserDesktopSize);
 	API_METHOD_WRAPPER_0(Settings, isOpenGLEnabled);
@@ -2783,7 +2743,7 @@ void ScriptingApi::Settings::setVoiceMultiplier(int newVoiceAmount)
 
 void ScriptingApi::Settings::clearMidiLearn()
 {
-	mc->getMacroManager().getMidiControlAutomationHandler()->clear();
+	mc->getMacroManager().getMidiControlAutomationHandler()->clear(sendNotification);
 }
 
 var ScriptingApi::Settings::getMidiInputDevices()
@@ -3240,6 +3200,22 @@ var ScriptingApi::Engine::loadAudioFileIntoBufferArray(String audioFileReference
 	}
 }
 
+juce::var ScriptingApi::Engine::getWavetableList()
+{
+	if (auto first = ProcessorHelpers::getFirstProcessorWithType<WavetableSynth>(getScriptProcessor()->getMainController_()->getMainSynthChain()))
+	{
+		Array<var> list;
+
+		for (const auto& w : first->getWavetableList())
+			list.add(w);
+
+		return list;
+	}
+
+	reportScriptError("You need at least one Wavetable synthesiser in your signal chain for this method");
+	RETURN_IF_NO_THROW(var());
+}
+
 void ScriptingApi::Engine::loadImageIntoPool(const String& id)
 {
 #if USE_BACKEND
@@ -3373,6 +3349,11 @@ ScriptingObjects::ScriptingMessageHolder* ScriptingApi::Engine::createMessageHol
 var ScriptingApi::Engine::createTransportHandler()
 {
 	return new TransportHandler(getScriptProcessor());
+}
+
+juce::var ScriptingApi::Engine::createModulationMatrix(String containerId)
+{
+	return new ScriptingObjects::ScriptModulationMatrix(getScriptProcessor(), containerId);
 }
 
 void ScriptingApi::Engine::dumpAsJSON(var object, String fileName)
@@ -3653,6 +3634,9 @@ struct ScriptingApi::Sampler::Wrapper
 	API_VOID_METHOD_WRAPPER_1(Sampler, loadSampleMapFromBase64);
 	API_METHOD_WRAPPER_1(Sampler, getAudioWaveformContentAsBase64);
 	API_METHOD_WRAPPER_0(Sampler, getSampleMapAsBase64);
+	API_VOID_METHOD_WRAPPER_1(Sampler, setTimestretchRatio);
+	API_VOID_METHOD_WRAPPER_1(Sampler, setTimestretchOptions);
+	API_METHOD_WRAPPER_0(Sampler, getTimestretchOptions);
 	API_METHOD_WRAPPER_1(Sampler, createSelection);
 	API_METHOD_WRAPPER_1(Sampler, createSelectionFromIndexes);
 	API_METHOD_WRAPPER_1(Sampler, createSelectionWithFilter);
@@ -3717,6 +3701,9 @@ sampler(sampler_)
 	ADD_API_METHOD_1(loadSampleMapFromBase64);
 	ADD_API_METHOD_0(getSampleMapAsBase64);
 	ADD_API_METHOD_1(getAudioWaveformContentAsBase64);
+	ADD_API_METHOD_1(setTimestretchRatio);
+	ADD_API_METHOD_1(setTimestretchOptions);
+	ADD_API_METHOD_0(getTimestretchOptions);
 
 	sampleIds.add(SampleIds::ID);
 	sampleIds.add(SampleIds::FileName);
@@ -3741,6 +3728,7 @@ sampler(sampler_)
 	sampleIds.add(SampleIds::UpperVelocityXFade);
 	sampleIds.add(SampleIds::SampleState);
 	sampleIds.add(SampleIds::Reversed);
+    sampleIds.add(SampleIds::NumQuarters);
 
 	for (int i = 1; i < sampleIds.size(); i++)
 	{
@@ -4563,6 +4551,40 @@ var ScriptingApi::Sampler::parseSampleFile(var sampleFile)
 	return var();
 }
 
+void ScriptingApi::Sampler::setTimestretchRatio(double newRatio)
+{
+	ModulatorSampler* s = dynamic_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+		reportScriptError("Invalid sampler call");
+
+	s->setTimestretchRatio(newRatio);
+}
+
+var ScriptingApi::Sampler::getTimestretchOptions()
+{
+	ModulatorSampler* s = dynamic_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+		reportScriptError("Invalid sampler call");
+
+	auto o = s->getTimestretchOptions();
+
+	return o.toJSON();
+}
+
+void ScriptingApi::Sampler::setTimestretchOptions(var newOptions)
+{
+	ModulatorSampler* s = dynamic_cast<ModulatorSampler*>(sampler.get());
+
+	if (s == nullptr)
+		reportScriptError("Invalid sampler call");
+
+	ModulatorSampler::TimestretchOptions no;
+	no.fromJSON(newOptions);
+	s->setTimestretchOptions(no);
+}
+
 String ScriptingApi::Sampler::getAudioWaveformContentAsBase64(var presetObj)
 {
 	auto fileName = presetObj.getProperty("data", "").toString();
@@ -5064,6 +5086,7 @@ struct ScriptingApi::Synth::Wrapper
 	API_METHOD_WRAPPER_1(Synth, isArtificialEventActive);
 	API_VOID_METHOD_WRAPPER_1(Synth, setClockSpeed);
 	API_VOID_METHOD_WRAPPER_1(Synth, setShouldKillRetriggeredNote);
+	API_VOID_METHOD_WRAPPER_2(Synth, setUseUniformVoiceHandler);
 	API_METHOD_WRAPPER_0(Synth, createBuilder);
 	
 };
@@ -5113,6 +5136,7 @@ ScriptingApi::Synth::Synth(ProcessorWithScriptingContent *p, Message* messageObj
 	ADD_API_METHOD_2(sendController);
 	ADD_API_METHOD_2(sendControllerToChildSynths);
 	ADD_API_METHOD_4(setModulatorAttribute);
+	ADD_API_METHOD_2(setUseUniformVoiceHandler);
 	ADD_API_METHOD_3(addModulator);
 	ADD_API_METHOD_3(addEffect);
 	ADD_API_METHOD_1(getMidiPlayer);
@@ -6315,6 +6339,22 @@ int ScriptingApi::Synth::getModulatorIndex(int chain, const String &id) const
 
 
 
+void ScriptingApi::Synth::setUseUniformVoiceHandler(String containerId, bool shouldUseUniformVoiceHandling)
+{
+	Processor::Iterator<ModulatorSynthChain> iter(getScriptProcessor()->getMainController_()->getMainSynthChain());
+
+	while (auto s = iter.getNextProcessor())
+	{
+		if (s->getId() == containerId)
+		{
+			s->setUseUniformVoiceHandler(shouldUseUniformVoiceHandling, nullptr);
+			return;
+		}
+	}
+
+	reportScriptError("Can't find Container with ID " + containerId);
+}
+
 // ====================================================================================================== Console functions
 
 struct ScriptingApi::Console::Wrapper
@@ -7135,7 +7175,18 @@ juce::File ScriptingApi::FileSystem::getFile(SpecialLocations l)
 
 	switch (l)
 	{
-	case Samples:	f = getMainController()->getCurrentFileHandler().getSubDirectory(FileHandlerBase::Samples);
+	case Samples:
+	
+		if(FullInstrumentExpansion::isEnabled(getMainController()))
+		{
+		  if (auto e = getMainController()->getExpansionHandler().getCurrentExpansion())
+		    f = e->getSubDirectory(FileHandlerBase::Samples);
+		}
+		else 
+		{
+			f = getMainController()->getCurrentFileHandler().getSubDirectory(FileHandlerBase::Samples);	
+		}
+		
 		break;
 	case Expansions: return getMainController()->getExpansionHandler().getExpansionFolder();
 #if USE_BACKEND
