@@ -293,15 +293,7 @@ class GlContextHolder
 {
 public:
 
-	GlContextHolder(juce::Component& topLevelComponent)
-		: parent(topLevelComponent)
-	{
-		context.setRenderer(this);
-		context.setContinuousRepainting(true);
-		context.setComponentPaintingEnabled(true);
-		context.attachTo(parent);
-		topLevelRenderer = dynamic_cast<juce::OpenGLRenderer*>(&parent);
-	}
+	GlContextHolder(juce::Component& topLevelComponent);
 
 	//==============================================================================
 	// The context holder MUST explicitely call detach in their destructor
@@ -329,32 +321,14 @@ private:
 	void componentBeingDeleted(juce::Component& component) override;
 
 	//==============================================================================
+	void newOpenGLContextCreated() override;
 
-	void newOpenGLContextCreated() override
-	{
-		if (topLevelRenderer != nullptr)
-			topLevelRenderer->newOpenGLContextCreated();
-		checkComponents(false, false);
-	}
+	void renderOpenGL() override;
 
-	void renderOpenGL() override
-	{
-		juce::OpenGLHelpers::clear(backgroundColour);
-		if (topLevelRenderer != nullptr)
-			topLevelRenderer->renderOpenGL();
-		checkComponents(false, true);
-	}
-
-	void openGLContextClosing() override
-	{
-		if (topLevelRenderer != nullptr)
-			topLevelRenderer->openGLContextClosing();
-		checkComponents(true, false);
-	}
+	void openGLContextClosing() override;
 
 	//==============================================================================
 	juce::Component& parent;
-	juce::OpenGLRenderer* topLevelRenderer;
 
 	struct Client
 	{
@@ -690,8 +664,7 @@ private:
 	mutable EventType lastChange = EventType::Idle;
 	mutable var lastValue;
 
-	static constexpr int NumListenerSlots = 128;
-	hise::UnorderedStack<WeakReference<EventListener>, NumListenerSlots> listeners;
+	Array<WeakReference<EventListener>> listeners;
 };
 
 
@@ -994,53 +967,6 @@ private:
 
 struct SimpleReadWriteLock
 {
-	struct ScopedMultiWriteLock
-	{
-		ScopedMultiWriteLock(SimpleReadWriteLock& l, bool tryToAcquireLock=true):
-			lock(l)
-		{
-			auto thisId = std::this_thread::get_id();
-            auto i = std::thread::id();
-
-			if (!tryToAcquireLock)
-				lock.fakeWriteLock = true;
-
-			auto wantsLock = tryToAcquireLock && lock.enabled;
-
-			if(wantsLock)
-			{
-				// If this hits, then you're using a reentrant lock. Consider the ScopedWriteLock instead...
-				jassert(thisId != lock.writer.load());
-
-				lock.mutex.lock();
-				lock.writer.store(thisId);
-				holdsLock = true;
-			}
-		}
-
-		~ScopedMultiWriteLock()
-		{
-			lock.fakeWriteLock = false;
-
-			unlock();
-		}
-
-		void unlock()
-		{
-			if (holdsLock)
-			{
-				lock.writer.store(std::thread::id());
-				lock.mutex.unlock();
-				holdsLock = false;
-			}
-		}
-
-	private:
-
-		bool holdsLock = false;
-		SimpleReadWriteLock& lock;
-	};
-
 	struct ScopedWriteLock
 	{
 		ScopedWriteLock(SimpleReadWriteLock& l, bool tryToAcquireLock=true):
@@ -1051,9 +977,6 @@ struct SimpleReadWriteLock
 
 			if (!tryToAcquireLock)
 				lock.fakeWriteLock = true;
-
-			// if this hits, you're using multiple writer threads. consider the ScopedMultiWriteLock instead
-			jassert(lock.writer == thisId || lock.writer == i);
 
 			holdsLock = tryToAcquireLock && lock.enabled && lock.writer.compare_exchange_weak(i, thisId);
 
@@ -1206,7 +1129,7 @@ struct SimpleReadWriteLock
 
 	LockType mutex;
 
-    std::atomic<std::thread::id> writer = {};
+	std::atomic<std::thread::id> writer;
 	bool enabled = true;
 	bool fakeWriteLock = false;
 };
@@ -1452,28 +1375,8 @@ template <typename...Ps> struct LambdaBroadcaster final
 			valueQueue = nullptr;
 	}
 
-    /** During the execution of the send message the listener list will be locked by default so that
-        adding / removing listeners while the message executes will cause a lock. This can be disabled
-        with this function so that it will take a copy of the listener list before sending the message so
-        that the listener list is not locked during the execution of the listener callbacks.
-    */
-    void setLockListenersDuringMessage(bool lockFreeListener)
-    {
-        lockFreeSendMessage = lockFreeListener;
-    }
-
-	bool hasListeners() const noexcept
-	{
-		return !listeners.isEmpty();
-	}
-
-	template <int P=0> auto getLastValue() const noexcept
-	{
-		return std::get<P>(lastValue);
-	}
-
 private:
-    
+
 	void sendMessageInternal(NotificationType n, const std::tuple<Ps...>& value)
 	{
         if(n == dontSendNotification)
@@ -1505,73 +1408,38 @@ private:
 		}
 	}
 
-    using ListenerType = SafeLambdaBase<void, Ps...>;
-    
 	std::tuple<Ps...> lastValue;
 
-    void sendInternalForArray(ListenerType** l, int numListeners)
-    {
-        if (valueQueue != nullptr)
-        {
-            valueQueue.get()->callForEveryElementInQueue([&](std::tuple<Ps...>& v)
-            {
-                for(int i = 0; i < numListeners; i++)
-                {
-                    if (l[i]->isValid())
-                        std::apply(*l[i], v);
-                }
-                
-                return true;
-            });
-        }
-        else
-        {
-            for(int i = 0; i < numListeners; i++)
-            {
-                if (l[i]->isValid())
-                    std::apply(*l[i], lastValue);
-            }
-        }
-    }
-    
 	void sendInternal()
 	{
 		removeDanglingObjects();
 
-        if(lockFreeSendMessage)
-        {
-            int numListeners = listeners.size();
-            
-            auto tempData = (ListenerType**)alloca(sizeof(ListenerType*) * numListeners);
-            
-            if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(lock))
-            {
-                numListeners = jmin(numListeners, listeners.size());
-                memcpy(tempData, listeners.begin(), numListeners * sizeof(ListenerType*));
-            }
-            else
-            {
-                updater.triggerAsyncUpdate();
-                return;
-            }
-            
-            sendInternalForArray(tempData, numListeners);
-        }
-        else
-        {
-            if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(lock))
-            {
-                sendInternalForArray(listeners.begin(), listeners.size());
-            }
-            else
-                updater.triggerAsyncUpdate();
-        }
-        
-        
-        
-        
-        
-		
+		if (auto sl = SimpleReadWriteLock::ScopedTryReadLock(lock))
+		{
+			if (valueQueue != nullptr)
+			{
+				valueQueue.get()->callForEveryElementInQueue([&](std::tuple<Ps...>& v)
+				{
+					for (auto i : listeners)
+					{
+						if (i->isValid())
+							std::apply(*i, v);
+					}
+
+					return true;
+				});
+			}
+			else
+			{
+				for (auto i : listeners)
+				{
+					if (i->isValid())
+						std::apply(*i, lastValue);
+				}
+			}
+		}
+		else
+			updater.triggerAsyncUpdate();
 	}
 
 	struct Updater : public AsyncUpdater
@@ -1622,12 +1490,8 @@ private:
 
 	ScopedPointer<hise::LockfreeQueue<std::tuple<Ps...>>> valueQueue;
 
-    bool lockFreeSendMessage = false;
 	hise::SimpleReadWriteLock lock;
-                      
-                      
-                      
-	OwnedArray<ListenerType> listeners;
+	OwnedArray<SafeLambdaBase<void, Ps...>> listeners;
 };
 
 
@@ -1745,8 +1609,6 @@ public:
 
 	static Array<StringArray> findSubstringsThatMatchWildcard(const String &regexWildCard, const String &stringToTest);
 
-    static Array<Range<int>> findRangesThatMatchWildcard(const String& regexWildcard, const String& stringToTest);
-    
 	/** Searches a string and returns a StringArray with all matches.
 	*	You can specify and index of a capture group (if not, the entire match will be used). */
 	static StringArray search(const String& wildcard, const String &stringToTest, int indexInMatch = 0);
@@ -1761,10 +1623,37 @@ public:
 
 
 
+/** A collection of little helper functions to clean float arrays.
+*	@ingroup utility
+*
+*	Source: http://musicdsp.org/showArchiveComment.php?ArchiveID=191
+*/
+struct FloatSanitizers
+{
+	template <typename ContainerType> static void sanitizeArray(ContainerType& d)
+	{
+		for (auto& s : d)
+			sanitizeFloatNumber(s);
+	}
+
+	static void sanitizeArray(float* data, int size);;
+
+	static float sanitizeFloatNumber(float& input);;
+
+	struct Test : public UnitTest
+	{
+		Test() :
+			UnitTest("Testing float sanitizer")
+		{
+
+		};
+
+		void runTest() override;
+	};
+};
 
 
-
-
+static FloatSanitizers::Test floatSanitizerTest;
 
 
 /** This class is used to simulate different devices.
@@ -1971,9 +1860,9 @@ public:
 	};
 
 	/** Returns the sample amount for the specified tempo. */
-	static double getTempoInSamples(double hostTempoBpm, double sampleRate, Tempo t);;
+	static int getTempoInSamples(double hostTempoBpm, double sampleRate, Tempo t);;
 
-	static double getTempoInSamples(double hostTempoBpm, double sampleRate, float tempoFactor);
+	static int getTempoInSamples(double hostTempoBpm, double sampleRate, float tempoFactor);
 
 	static StringArray getTempoNames();;
 
@@ -2035,7 +1924,7 @@ struct MasterClock
 
 	void setSyncMode(SyncModes newSyncMode);
 
-	bool changeState(int timestamp, bool internalClock, bool startPlayback);
+	void changeState(int timestamp, bool internalClock, bool startPlayback);
 
 	struct GridInfo
 	{
@@ -2204,16 +2093,6 @@ struct FFTHelpers
     
     static Array<WindowType> getAvailableWindowTypes();
 
-    static Array<var> getAvailableWindowTypeNames()
-    {
-		Array<var> sa;
-
-		for(auto w: getAvailableWindowTypes())
-			sa.add(getWindowType(w));
-
-		return sa;
-    }
-
     static String getWindowType(WindowType w);
 
     static void applyWindow(WindowType t, AudioSampleBuffer& b, bool normalise=true);
@@ -2235,17 +2114,14 @@ struct FFTHelpers
 
 struct Spectrum2D
 {
-	struct LookupTable: public ReferenceCountedObject
+	struct LookupTable
 	{
-		using Ptr = ReferenceCountedObjectPtr<LookupTable>;
-
 		enum class ColourScheme
 		{
 			blackWhite,
 			rainbow,
 			violetToOrange,
 			hiseColours,
-			preColours,
 			numColourSchemes
 		};
 
@@ -2255,7 +2131,7 @@ struct Spectrum2D
 
 		static constexpr int LookupTableSize = 512;
 
-		PixelRGB getColouredPixel(float normalisedInput);
+		PixelARGB getColouredPixel(float normalisedInput);
 
 		LookupTable();
 
@@ -2293,15 +2169,9 @@ struct Spectrum2D
 			Parameters::Ptr param;
 		};
 
-		Parameters():
-		  lut(new LookupTable())
-		{
-			
-		}
+		void set(const Identifier& id, int value, NotificationType n);
 
-		void set(const Identifier& id, var value, NotificationType n);
-
-		var get(const Identifier& id) const;
+		int get(const Identifier& id) const;
 
 		void saveToJSON(var v) const;
 		void loadFromJSON(const var& v);
@@ -2314,28 +2184,9 @@ struct Spectrum2D
 		int order;
 		int oversamplingFactor = 4;
 		int Spectrum2DSize;
-
-		int gainFactorDb = 1000;
-		int gammaPercent = 60;
-
-		float getGamma() const
-		{
-			return (float)gammaPercent / 100.0f;
-		}
-
-		float getGainFactor() const
-		{
-			if(gainFactorDb == 1000)
-				return 0.0f;
-
-			return Decibels::decibelsToGain(gainFactorDb);
-		}
-
-		Graphics::ResamplingQuality quality = Graphics::ResamplingQuality::lowResamplingQuality;
-
 		FFTHelpers::WindowType currentWindowType = FFTHelpers::WindowType::BlackmanHarris;
 
-		LookupTable::Ptr lut;
+		SharedResourcePointer<LookupTable> lut;
 
 		JUCE_DECLARE_WEAK_REFERENCEABLE(Parameters);
 	};
@@ -2356,17 +2207,13 @@ struct Spectrum2D
     };
     
     Spectrum2D(Holder* h, const AudioSampleBuffer& s);;
-
-	static void draw(Graphics& g, const Image& img, Rectangle<int> area, Graphics::ResamplingQuality quality);
-
+    
 	Parameters::Ptr parameters;
     WeakReference<Holder> holder;
     const AudioSampleBuffer& originalSource;
     
     Image createSpectrumImage(AudioSampleBuffer& lastBuffer);
-
-	bool useAlphaChannel = false;
-
+    
     AudioSampleBuffer createSpectrumBuffer();
 };
 
@@ -2398,6 +2245,82 @@ struct ComponentWithAdditionalMouseProperties
     }
 };
 
+/** A minimal POD that can be used to check the thread state across DLL boundaries. */
+class ThreadController: public ReferenceCountedObject
+{
+	struct Scaler
+	{
+		Scaler(bool isStep_=false);
+
+		double getScaledProgress(double input) const;
+
+		bool isStep = false;
+		double v1 = 0.0;
+		double v2 = 0.0;
+	};
+
+	template <bool IsStep> struct ScopedScaler
+	{
+		template <typename T> ScopedScaler(ThreadController* parent_, T v1, T v2) : parent(parent_) 
+		{
+			Scaler s(IsStep);
+			s.v1 = (double)v1;
+			s.v2 = (double)v2;
+
+			if(parent != nullptr)
+				parent->pushProgressScaler(s);
+		};
+
+		~ScopedScaler()
+		{
+			if (parent != nullptr)
+				parent->popProgressScaler();
+		}
+
+		operator bool() const
+		{
+			return parent;
+		}
+		
+		ThreadController* parent;
+	};
+
+public:
+
+	using Ptr = ReferenceCountedObjectPtr<ThreadController>;
+	using ScopedRangeScaler = ScopedScaler<false>;
+	using ScopedStepScaler = ScopedScaler<true>;
+
+	ThreadController(Thread* t, double* p, int timeoutMs, uint32& lastTime_);;
+
+	ThreadController();;
+
+	operator bool() const;
+
+	/** Allow a bigger time between calls. */
+	void extendTimeout(uint32 milliSeconds);
+
+
+	/** Set a progress. If you want to add a scaler to the progress (for indicating a subprocess, use either ScopedStepScaler or ScopedRangeScalers). */
+	bool setProgress(double p);
+
+private:
+
+	static constexpr int NumProgressScalers = 32;
+
+	void pushProgressScaler(const Scaler& f);
+
+	void popProgressScaler();
+
+	void* juceThreadPointer = nullptr;
+	double* progress = nullptr;
+	mutable uint32* lastTime = nullptr;
+	uint32 timeout = 0;
+	int progressScalerIndex = 0;
+	Scaler progressScalers[NumProgressScalers];
+
+	JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(ThreadController);
+};
 
 class SemanticVersionChecker
 {
@@ -2429,62 +2352,6 @@ private:
     VersionInfo newVersion;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(SemanticVersionChecker);
-};
-
-struct AdditionalEventStorage
-{
-	using BroadcasterType = LambdaBroadcaster<uint16, uint8, double>;
-
-	static constexpr uint16 NumEventSlots = 1024;
-	static constexpr uint8 NumDataSlots = 16;
-	
-	void setValue(uint16 eventId, uint8 slotIndex, double newValue, NotificationType n)
-	{
-		auto i1 = eventId & (NumEventSlots -1);
-		auto i2 = slotIndex & (NumDataSlots - 1);
-
-		auto& element = data[i1][i2];
-
-		element.first = eventId;
-		element.second = newValue;
-
-		getBroadcaster().sendMessage(n, eventId, slotIndex, newValue);
-	}
-
-	std::pair<bool, double> getValue(uint16 eventId, uint8 slotIndex) const
-	{
-		auto i1 = eventId & (NumEventSlots -1);
-		auto i2 = slotIndex & (NumDataSlots - 1);
-
-		auto& element = data[i1][i2];
-
-		if(element.first == eventId)
-		{
-			return { true, element.second };
-		}
-
-		return { false, 0.0 };
-	}
-
-	bool changed(uint16 eventId, uint8 slotIndex, double& value) const
-	{
-		auto nv = getValue(eventId, slotIndex);
-
-		if(nv.first && nv.second != value)
-		{
-			value = nv.second;
-			return true;
-		}
-
-		return false;
-	}
-	
-	BroadcasterType& getBroadcaster() { return broadcaster; }
-
-private:
-
-	BroadcasterType broadcaster;
-	std::array<std::array<std::pair<uint16, double>, NumDataSlots>, NumEventSlots> data;
 };
 
 }

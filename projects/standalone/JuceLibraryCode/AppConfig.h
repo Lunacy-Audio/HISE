@@ -25,12 +25,12 @@
 /*
   ==============================================================================
 
-   In accordance with the terms of the JUCE 6 End-Use License Agreement, the
+   In accordance with the terms of the JUCE 7 End-Use License Agreement, the
    JUCE Code in SECTION A cannot be removed, changed or otherwise rendered
    ineffective unless you have a JUCE Indie or Pro license, or are using JUCE
    under the GPL v3 license.
 
-   End User License Agreement: www.juce.com/juce-6-licence
+   End User License Agreement: www.juce.com/juce-7-licence
 
   ==============================================================================
 */
@@ -45,22 +45,18 @@
 
 #define JUCE_USE_DARK_SPLASH_SCREEN 1
 
-#define JUCE_PROJUCER_VERSION 0x60104
+#define JUCE_PROJUCER_VERSION 0x70005
 
 //==============================================================================
 #define JUCE_MODULE_AVAILABLE_hi_backend                  1
-#define JUCE_MODULE_AVAILABLE_hi_components               1
 #define JUCE_MODULE_AVAILABLE_hi_core                     1
-#define JUCE_MODULE_AVAILABLE_hi_dsp                      1
 #define JUCE_MODULE_AVAILABLE_hi_dsp_library              1
 #define JUCE_MODULE_AVAILABLE_hi_faust                    1
 #define JUCE_MODULE_AVAILABLE_hi_faust_jit                1
 #define JUCE_MODULE_AVAILABLE_hi_faust_lib                1
 #define JUCE_MODULE_AVAILABLE_hi_faust_types              1
 #define JUCE_MODULE_AVAILABLE_hi_lac                      1
-#define JUCE_MODULE_AVAILABLE_hi_modules                  1
 #define JUCE_MODULE_AVAILABLE_hi_rlottie                  1
-#define JUCE_MODULE_AVAILABLE_hi_sampler                  1
 #define JUCE_MODULE_AVAILABLE_hi_scripting                1
 #define JUCE_MODULE_AVAILABLE_hi_snex                     1
 #define JUCE_MODULE_AVAILABLE_hi_streaming                1
@@ -93,13 +89,6 @@
 #endif
 
 //==============================================================================
-// hi_components flags:
-
-#ifndef    HISE_INCLUDE_SNEX_FLOATING_TILES
- //#define HISE_INCLUDE_SNEX_FLOATING_TILES 0
-#endif
-
-//==============================================================================
 // hi_core flags:
 
 #ifndef    USE_BACKEND
@@ -124,6 +113,14 @@
 
 #ifndef    DONT_CREATE_EXPANSIONS_FOLDER
  //#define DONT_CREATE_EXPANSIONS_FOLDER 0
+#endif
+
+#ifndef    HISE_OVERWRITE_OLD_USER_PRESETS
+ //#define HISE_OVERWRITE_OLD_USER_PRESETS 0
+#endif
+
+#ifndef    HISE_BACKEND_AS_FX
+ //#define HISE_BACKEND_AS_FX 0
 #endif
 
 #ifndef    USE_COPY_PROTECTION
@@ -151,7 +148,11 @@
 #endif
 
 #ifndef    FORCE_INPUT_CHANNELS
- //#define FORCE_INPUT_CHANNELS 0
+ //#define FORCE_INPUT_CHANNELS 1
+#endif
+
+#ifndef    HI_DONT_SEND_ATTRIBUTE_UPDATES
+ //#define HI_DONT_SEND_ATTRIBUTE_UPDATES 0
 #endif
 
 #ifndef    HISE_DEACTIVATE_OVERLAY
@@ -242,6 +243,10 @@
  //#define HISE_DEFAULT_OPENGL_VALUE 1
 #endif
 
+#ifndef    HISE_USE_SYSTEM_APP_DATA_FOLDER
+ //#define HISE_USE_SYSTEM_APP_DATA_FOLDER 0
+#endif
+
 #ifndef    ENABLE_STARTUP_LOGGER
  //#define ENABLE_STARTUP_LOGGER 0
 #endif
@@ -289,6 +294,10 @@
  //#define IS_STATIC_DSP_LIBRARY 1
 #endif
 
+#ifndef    HISE_LOG_FILTER_FREQMOD
+ //#define HISE_LOG_FILTER_FREQMOD 0
+#endif
+
 //==============================================================================
 // hi_faust flags:
 
@@ -302,6 +311,13 @@
 
 #ifndef    HISE_INCLUDE_FAUST_JIT
  //#define HISE_INCLUDE_FAUST_JIT 0
+#endif
+
+//==============================================================================
+// hi_faust_types flags:
+
+#ifndef    FAUST_NO_WARNING_MESSAGES
+ //#define FAUST_NO_WARNING_MESSAGES 0
 #endif
 
 //==============================================================================
@@ -349,7 +365,11 @@
 #endif
 
 #ifndef    HISE_INCLUDE_SNEX
- //#define HISE_INCLUDE_SNEX 0
+ #define   HISE_INCLUDE_SNEX 1
+#endif
+
+#ifndef    SNEX_STANDALONE_PLAYGROUND
+ //#define SNEX_STANDALONE_PLAYGROUND 0
 #endif
 
 #ifndef    SNEX_INCLUDE_MEMORY_ADDRESS_IN_DUMP
@@ -361,6 +381,10 @@
 
 #ifndef    STANDALONE_STREAMING
  //#define STANDALONE_STREAMING 1
+#endif
+
+#ifndef    HISE_SAMPLER_CUBIC_INTERPOLATION
+ //#define HISE_SAMPLER_CUBIC_INTERPOLATION 0
 #endif
 
 //==============================================================================
@@ -380,6 +404,10 @@
 
 #ifndef    HISE_INCLUDE_PITCH_DETECTION
  //#define HISE_INCLUDE_PITCH_DETECTION 1
+#endif
+
+#ifndef    HISE_ENABLE_LORIS_ON_FRONTEND
+ //#define HISE_ENABLE_LORIS_ON_FRONTEND 0
 #endif
 
 #ifndef    HISE_USE_EXTENDED_TEMPO_VALUES
