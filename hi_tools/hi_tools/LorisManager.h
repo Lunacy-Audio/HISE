@@ -51,7 +51,7 @@ struct LorisManager: public ReferenceCountedObject
     using LorisGetListFunction = void(*)(char*, int, bool);
     using LorisCustomFunction = void(*)(void*, const char*, void*, void*);
     using LorisGetSnapshot = bool(*)(void*, const char*, double,const char*,double*,int&,int&);
-	using LorisSetThreadController = void(*)(void*, void*);
+    using LorisSetThreadController = void(*)(void*, void*);
 
     struct AnalyseData
     {
@@ -106,7 +106,7 @@ struct LorisManager: public ReferenceCountedObject
     char messageBuffer[2048];
     String lorisVersion;
     
-	mutable ThreadController::Ptr threadController;
+    mutable ThreadController::Ptr threadController;
 
     std::function<void(String)> lf;
     std::function<void(String)> errorFunction;

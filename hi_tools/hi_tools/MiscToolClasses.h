@@ -293,15 +293,7 @@ class GlContextHolder
 {
 public:
 
-	GlContextHolder(juce::Component& topLevelComponent)
-		: parent(topLevelComponent)
-	{
-		context.setRenderer(this);
-		context.setContinuousRepainting(true);
-		context.setComponentPaintingEnabled(true);
-		context.attachTo(parent);
-		topLevelRenderer = dynamic_cast<juce::OpenGLRenderer*>(&parent);
-	}
+	GlContextHolder(juce::Component& topLevelComponent);
 
 	//==============================================================================
 	// The context holder MUST explicitely call detach in their destructor
@@ -329,31 +321,14 @@ private:
 	void componentBeingDeleted(juce::Component& component) override;
 
 	//==============================================================================
-	void newOpenGLContextCreated() override
-	{
-		if (topLevelRenderer != nullptr)
-			topLevelRenderer->newOpenGLContextCreated();
-		checkComponents(false, false);
-	}
+	void newOpenGLContextCreated() override;
 
-	void renderOpenGL() override
-	{
-		juce::OpenGLHelpers::clear(backgroundColour);
-		if (topLevelRenderer != nullptr)
-			topLevelRenderer->renderOpenGL();
-		checkComponents(false, true);
-	}
+	void renderOpenGL() override;
 
-	void openGLContextClosing() override
-	{
-		if (topLevelRenderer != nullptr)
-			topLevelRenderer->openGLContextClosing();
-		checkComponents(true, false);
-	}
+	void openGLContextClosing() override;
 
 	//==============================================================================
 	juce::Component& parent;
-	juce::OpenGLRenderer* topLevelRenderer;
 
 	struct Client
 	{
