@@ -970,6 +970,20 @@ void MainController::processBlockCommon(AudioSampleBuffer &buffer, MidiBuffer &m
 		else
 			hostBpm = newTime.bpm;
 
+        // if this is non-zero it means that the buffer coming
+        // from the DAW was split into chunks for processing
+        // so we need to update the playhead to reflect the
+        // "real" position for the given buffer
+        if(offsetWithinProcessBuffer != 0)
+        {
+            newTime.timeInSamples += offsetWithinProcessBuffer;
+            newTime.timeInSeconds += (double)offsetWithinProcessBuffer / processingSampleRate;
+            
+            const auto numSamplesPerQuarter = (double)TempoSyncer::getTempoInSamples(newTime.bpm, processingSampleRate, 1.0f);
+            
+            newTime.ppqPosition += (double)offsetWithinProcessBuffer / numSamplesPerQuarter;
+        }
+        
 	}
 
 	if (getMasterClock().shouldCreateInternalInfo(newTime) || insideInternalExport)
@@ -1846,9 +1860,7 @@ ReferenceCountedObject* MainController::getGlobalPreprocessor()
             auto key = p.name.toString();
             auto v = p.value.toString();
             
-            snex::jit::ExternalPreprocessorDefinition def;
-            
-            def.t = snex::jit::ExternalPreprocessorDefinition::Type::Definition;
+            snex::jit::ExternalPreprocessorDefinition def(snex::jit::ExternalPreprocessorDefinition::Type::Definition);
             def.name = key;
             def.value = v;
             def.fileName = "EXTERNAL_DEFINITION";
