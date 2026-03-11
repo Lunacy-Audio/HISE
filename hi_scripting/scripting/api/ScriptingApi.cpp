@@ -7140,7 +7140,7 @@ void ScriptingApi::FileSystem::browseForDirectory(var startFolder, var callback)
 
 String ScriptingApi::FileSystem::getSystemId()
 {
-	return OnlineUnlockStatus::MachineIDUtilities::getLocalMachineIDs()[0];
+	return OnlineUnlockStatus::MachineIDUtilities::getUniqueMachineID();
 }
 
 var ScriptingApi::FileSystem::findFileSystemRoots()
