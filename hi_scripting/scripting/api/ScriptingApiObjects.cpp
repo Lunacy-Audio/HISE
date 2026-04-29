@@ -1293,33 +1293,24 @@ double ScriptingObjects::ScriptDownloadObject::getNumBytesDownloaded()
 
 void ScriptingObjects::ScriptDownloadObject::call(bool highPriority)
 {
-	
-	callback.call(nullptr, 0);
+	// WeakCallbackHolder::operator() dereferences a non-retaining pointer to `this`
+	// (stored via setThisObject in the ctor). progress() and finished() queue this
+	// callback to the JavascriptThreadPool, but the download object's lifetime is
+	// driven by the network operation, not the JS engine — it can be released
+	// between the queue and the JS thread picking up the job, leading to a use-
+	// after-free in operator(). Hold our own strong ref for the duration of the
+	// dispatch via lambda capture so `this` survives the cross-thread hop.
+	auto* mc = getScriptProcessor()->getMainController_();
+	auto type = highPriority ? JavascriptThreadPool::Task::HiPriorityCallbackExecution
+	                         : JavascriptThreadPool::Task::Type::LowPriorityCallbackExecution;
 
-#if 0
-	if (HiseJavascriptEngine::isJavascriptFunction(callback))
+	Ptr strongPtr(this);
+	mc->getJavascriptThreadPool().addJob(type, jp, [strongPtr](JavascriptProcessor*) -> Result
 	{
-		auto type = highPriority ? JavascriptThreadPool::Task::HiPriorityCallbackExecution :
-			JavascriptThreadPool::Task::Type::LowPriorityCallbackExecution;
-
-		auto& pool = getScriptProcessor()->getMainController_()->getJavascriptThreadPool();
-		Ptr strongPtr = Ptr(this);
-
-		pool.addJob(type, jp, [strongPtr](JavascriptProcessor* p)
-		{
-			if (auto e = p->getScriptEngine())
-			{
-				auto r = Result::ok();
-				var::NativeFunctionArgs args(var(strongPtr), nullptr, 0);
-				e->callExternalFunction(strongPtr->callback, args, &r);
-				strongPtr->callbackPending.store(false);
-				return r;
-			}
-
-			return Result::fail("engine doesn't exist");
-		});
-	}
-#endif
+		var thisVar(strongPtr.get());
+		var::NativeFunctionArgs args(thisVar, nullptr, 0);
+		return strongPtr->callback.callSync(args, nullptr);
+	});
 }
 
 
