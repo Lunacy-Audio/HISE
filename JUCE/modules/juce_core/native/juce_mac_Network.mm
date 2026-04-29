@@ -163,6 +163,7 @@ public:
     URLConnectionStatePreYosemite (NSURLRequest* req, const int maxRedirects)
         : URLConnectionStateBase (req, maxRedirects)
     {
+        chunkQueue = [[NSMutableArray alloc] init];
         static DelegateClass cls;
         delegate = [cls.createInstance() init];
         DelegateClass::setState (delegate, this);
@@ -177,6 +178,7 @@ public:
         [headers release];
         [delegate release];
         [data release];
+        [chunkQueue release];
     }
 
     bool start (WebInputStream& inputStream, WebInputStream::Listener* listener) override
@@ -223,16 +225,27 @@ public:
         while (numBytes > 0)
         {
             const ScopedLock sl (dataLock);
-            auto available = jmin (numBytes, (int) [data length]);
 
-            if (available > 0)
+            NSData* head = [chunkQueue firstObject];
+
+            if (head != nil)
             {
-                [data getBytes: dest length: (NSUInteger) available];
-                [data replaceBytesInRange: NSMakeRange (0, (NSUInteger) available) withBytes: nil length: 0];
+                const NSUInteger headLen = [head length];
+                const NSUInteger headRemaining = headLen - consumedFromHead;
+                const NSUInteger toCopy = jmin ((NSUInteger) numBytes, headRemaining);
 
-                numDone += available;
-                numBytes -= available;
-                dest += available;
+                [head getBytes: dest range: NSMakeRange (consumedFromHead, toCopy)];
+                consumedFromHead += toCopy;
+
+                numDone   += (int) toCopy;
+                numBytes  -= (int) toCopy;
+                dest      += toCopy;
+
+                if (consumedFromHead >= headLen)
+                {
+                    [chunkQueue removeObjectAtIndex: 0];
+                    consumedFromHead = 0;
+                }
             }
             else
             {
@@ -251,7 +264,8 @@ public:
     {
         {
             const ScopedLock sl (dataLock);
-            [data setLength: 0];
+            [chunkQueue removeAllObjects];
+            consumedFromHead = 0;
         }
 
         contentLength = [response expectedContentLength];
@@ -294,7 +308,7 @@ public:
     void didReceiveData (NSData* newData)
     {
         const ScopedLock sl (dataLock);
-        [data appendData: newData];
+        [chunkQueue addObject: newData];
         initialised = true;
     }
 
@@ -386,6 +400,8 @@ private:
     };
 
     NSURLConnection* connection = nil;
+    NSMutableArray* chunkQueue = nil;
+    NSUInteger consumedFromHead = 0;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (URLConnectionStatePreYosemite)
 };
